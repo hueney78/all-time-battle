@@ -1,0 +1,45 @@
+# zones.yaml — arena zone graph.
+# Adding a new zone (e.g. High Ground) requires ONLY this file — zero Python changes.
+# The resolver reads `modifiers` generically; the AI prompts receive this zone list automatically.
+#
+# Known modifier keys: attack_bonus, ac_bonus, ranged_ac_bonus, damage_bonus,
+#                      speed_penalty, fumble_extra
+# Zone-level keys:     capacity (optional int), entry_cost (default 1)
+#
+# Uncomment the high_ground block below to enable it:
+#
+# - id: high_ground
+#   name: "The High Ground"
+#   adjacent: [frontline]
+#   capacity: 2
+#   entry_cost: 2
+#   tags: [elevated]
+#   modifiers:
+#     attack_bonus: 1
+#     ranged_ac_bonus: 1
+#     fumble_extra: "prone"
+
+zones:
+  - id: glitter_back
+    name: "Team A Backline"
+    adjacent: [frontline]
+    tags: [backline, team_a]
+    modifiers: {}
+
+  - id: frontline
+    name: "The Pit"
+    adjacent: [glitter_back, thunder_back]
+    tags: [contested]
+    modifiers: {}
+
+  - id: thunder_back
+    name: "Team B Backline"
+    adjacent: [frontline]
+    tags: [backline, team_b]
+    modifiers: {}
+
+rules:
+  melee_requires_same_zone: true
+  ranged_any_zone: true
+  move_cost_per_step: 1
+  free_steps_from_speed: {threshold: 3, steps: 1}   # Speed 3+ = 1 free step/round

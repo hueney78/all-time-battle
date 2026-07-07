@@ -1,0 +1,66 @@
+# balance.yaml — every tunable number in one place.
+# Change a value → start a new room → new rules apply immediately.
+# See GAME_DESIGN.md §3–8 and §14 for the tuning guide.
+
+# --- Character stats ---
+# HP = hp_base + hp_per_power * Power
+hp_base: 18          # want faster games? lower this
+hp_per_power: 2
+# AC = ac_base + Speed
+ac_base: 11
+# AI distributes stats summing to stat_budget; each stat clamped to [stat_min, stat_max]
+stat_budget: 8
+stat_min: 1
+stat_max: 4
+
+# --- Action cost economy ---
+# cost 1: small jab;  cost 2: solid attack;  cost 3: haymaker
+# bank = banked actions this player earns for being conservative
+cost_scaling:
+  1: {damage_mult: 0.5, bank: 2, hit_bonus: 0}
+  2: {damage_mult: 1.0, bank: 1, hit_bonus: 0}
+  3: {damage_mult: 1.5, bank: 0, hit_bonus: 1}
+
+# --- Banked action payoffs ---
+# Each banked action: +1 AC vs one incoming attack (auto-spent best-first)
+banked_ac_per_action: 1
+# Threshold to earn a free zone step when targeted (must have >= this many banked)
+banked_free_step_threshold: 2   # haymaker spam? increase this value
+
+# --- Degrees of success thresholds ---
+crit_margin: 10      # beat AC by >= this → crit (too swingy? raise to 12)
+fumble_margin: 10    # miss AC by >= this → fumble
+crit_damage_mult: 2.0
+
+# --- Creativity bonuses (added to attack roll) ---
+# Judge idea creativity, not drawing skill.
+creativity_tier_0: 0
+creativity_tier_1: 1
+creativity_tier_2: 2
+creativity_tier_3: 4   # "table losing it" — lower to 3 to reduce variance
+
+# --- Stale move penalty ---
+# Applied when AI flags similar_to_previous: true
+stale_penalty: -2
+
+# --- Combo rules ---
+# Both partners' rounds are consumed; one roll; combined damage; crit doubles the total.
+combo_bonus: 3             # flat attack bonus on the combo roll
+combo_creativity_escalate: 1  # escalate the highest partner's creativity tier by this (capped at 3)
+
+# --- Rubber-banding (kids mode, on by default) ---
+# Losing team gets underdog_attack_bonus when down >= underdog_hp_share_threshold
+# characters' worth of HP share.
+underdog_enabled: true
+underdog_hp_share_threshold: 2   # kids losing? lower to 1
+underdog_attack_bonus: 1
+
+# --- Fumble self-damage ---
+# Flat HP self-damage on a fumble roll (nat-1 or miss by >= fumble_margin).
+# Embarrassed condition is also auto-applied (trigger: "fumble").
+fumble_self_damage: 2
+
+# --- Sudden death ---
+# After max_rounds rounds: all attacks gain sudden_death_attack_bonus, healing disabled.
+max_rounds: 12
+sudden_death_attack_bonus: 2

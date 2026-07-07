@@ -1,0 +1,26 @@
+server:
+  host: "0.0.0.0"
+  port: 8000
+
+game:
+  max_players: 6
+  min_players: 2
+  room_code_length: 4
+
+timers:
+  draw_characters_seconds: 90
+  draw_action_seconds: 75
+  warning_seconds: 10     # pulse warning before auto-submit
+  beat_seconds: 6         # host reveal pacing (host "next" button overrides)
+
+ai:
+  classify_model: "claude-haiku-4-5"
+  narrate_model: "claude-sonnet-4-6"
+  timeout_seconds: 20
+  max_retries: 1
+  max_image_size_bytes: 200000   # 200 KB per PNG
+  image_px: 512                  # canvas export size
+
+snapshots:
+  enabled: true
+  dir: "snapshots"

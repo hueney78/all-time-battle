@@ -1,0 +1,22 @@
+{# action_classify.md.j2 — Phase 5: Action classification prompt template #}
+{# Receives: round, players (list of {player_id, original_png, action_png}), #}
+{#           compact game state, move catalog, conditions, zones #}
+
+{# TODO Phase 5: Full prompt goes here. #}
+{# Key requirements from GAME_DESIGN.md §11.1: #}
+{# - Classify each drawing to a catalog_id from moves.yaml #}
+{# - Interpret DIFFERENCES between original and action image as the action #}
+{# - Erasures are meaningful; fully erased = hide or stumble #}
+{# - Never reject a drawing — always adapt stale intents #}
+{# - Detect combos (partner drawings that clearly coordinate) #}
+{# - Judge creativity of the IDEA, not drawing skill #}
+{# - Set similar_to_previous when player repeats last concept #}
+{# - Family-friendly; set flagged: true for inappropriate content #}
+{# #}
+{# Move catalog (injected for classifier): #}
+{% for id, move in moves.items() %}
+{# {{ id }}: {{ move.desc }} #}
+{% endfor %}
+{# #}
+{# Available conditions: {{ conditions | join(', ') }} #}
+{# Zones: {% for z in zones %}{{ z.id }}{% if not loop.last %}, {% endif %}{% endfor %} #}

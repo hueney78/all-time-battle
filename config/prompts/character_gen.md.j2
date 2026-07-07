@@ -1,0 +1,10 @@
+{# character_gen.md.j2 — Phase 5: AI character generation prompt template #}
+{# Receives: characters (list of {player_id, hint}), rules summary, balance #}
+
+{# TODO Phase 5: Full prompt goes here. #}
+{# Key requirements from GAME_DESIGN.md §3: #}
+{# - Generate funny name (grand for elaborate drawings, deadpan for bland ones) #}
+{# - Assign stats summing to stat_budget={{ balance.stat_budget }}, each in [{{ balance.stat_min }}, {{ balance.stat_max }}] #}
+{# - Return personality (one line) and announcer_intro #}
+{# - Set flagged: true for inappropriate content; provide tame AI-chosen name #}
+{# - Players never type their character name — AI names all characters #}

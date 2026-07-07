@@ -1,0 +1,296 @@
+"""Typed config loaders — all values loaded from config/*.yaml.
+
+Bad YAML raises a clear error naming the file. Bad field names/types raise
+a ValidationError that pydantic formats with the offending key path.
+Hot-reload per room: call load_game_rules() at room creation time.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import yaml
+from pydantic import BaseModel, ValidationError
+
+CONFIG_DIR = Path(__file__).parent.parent / "config"
+
+
+def _load_yaml(filename: str, config_dir: Path | None = None) -> dict:
+    path = (config_dir or CONFIG_DIR) / filename
+    try:
+        with open(path, encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Config file missing: {path}")
+    except yaml.YAMLError as e:
+        raise ValueError(f"Invalid YAML in {path}: {e}") from e
+
+
+def _parse(model_cls, data: dict, source_file: str):
+    try:
+        return model_cls(**data)
+    except ValidationError as e:
+        raise ValueError(f"Config error in {source_file}:\n{e}") from e
+
+
+# ---------------------------------------------------------------------------
+# settings.yaml
+# ---------------------------------------------------------------------------
+
+
+class ServerConfig(BaseModel):
+    host: str = "0.0.0.0"
+    port: int = 8000
+
+
+class GameConfig(BaseModel):
+    max_players: int = 6
+    min_players: int = 2
+    room_code_length: int = 4
+
+
+class TimerConfig(BaseModel):
+    draw_characters_seconds: int = 90
+    draw_action_seconds: int = 75
+    warning_seconds: int = 10
+    beat_seconds: int = 6
+
+
+class AIConfig(BaseModel):
+    classify_model: str = "claude-haiku-4-5"
+    narrate_model: str = "claude-sonnet-4-6"
+    timeout_seconds: int = 20
+    max_retries: int = 1
+    max_image_size_bytes: int = 200_000
+    image_px: int = 512
+
+
+class SnapshotConfig(BaseModel):
+    enabled: bool = True
+    dir: str = "snapshots"
+
+
+class Settings(BaseModel):
+    server: ServerConfig
+    game: GameConfig
+    timers: TimerConfig
+    ai: AIConfig
+    snapshots: SnapshotConfig
+
+
+def load_settings(config_dir: Path | None = None) -> Settings:
+    data = _load_yaml("settings.yaml", config_dir)
+    return _parse(Settings, data, "settings.yaml")
+
+
+# ---------------------------------------------------------------------------
+# balance.yaml
+# ---------------------------------------------------------------------------
+
+
+class CostScalingEntry(BaseModel):
+    damage_mult: float
+    bank: int
+    hit_bonus: int
+
+
+class Balance(BaseModel):
+    # HP formula: HP = hp_base + hp_per_power * Power
+    hp_base: int = 18
+    hp_per_power: int = 2
+    # AC formula: AC = ac_base + Speed
+    ac_base: int = 11
+    # Stat budget — AI distributes stats summing to this
+    stat_budget: int = 8
+    stat_min: int = 1
+    stat_max: int = 4
+    # Action cost scaling (keys 1/2/3)
+    cost_scaling: dict[int, CostScalingEntry]
+    # Banked action economy
+    banked_ac_per_action: int = 1
+    banked_free_step_threshold: int = 2
+    # Degrees of success
+    crit_margin: int = 10
+    fumble_margin: int = 10
+    crit_damage_mult: float = 2.0
+    # Creativity bonuses (added to attack roll)
+    creativity_tier_0: int = 0
+    creativity_tier_1: int = 1
+    creativity_tier_2: int = 2
+    creativity_tier_3: int = 4
+    # Stale move penalty
+    stale_penalty: int = -2
+    # Combo rules
+    combo_bonus: int = 3
+    combo_creativity_escalate: int = 1
+    # Rubber-banding
+    underdog_enabled: bool = True
+    underdog_hp_share_threshold: int = 2
+    underdog_attack_bonus: int = 1
+    # Fumble self-damage (flat HP; embarrassed condition is separately auto-applied)
+    fumble_self_damage: int = 2
+    # Sudden death
+    max_rounds: int = 12
+    sudden_death_attack_bonus: int = 2
+
+
+def load_balance(config_dir: Path | None = None) -> Balance:
+    data = _load_yaml("balance.yaml", config_dir)
+    return _parse(Balance, data, "balance.yaml")
+
+
+# ---------------------------------------------------------------------------
+# zones.yaml
+# ---------------------------------------------------------------------------
+
+
+class ZoneModifiers(BaseModel):
+    model_config = {"extra": "allow"}
+    attack_bonus: int = 0
+    ac_bonus: int = 0
+    ranged_ac_bonus: int = 0
+    damage_bonus: int = 0
+    speed_penalty: int = 0
+    fumble_extra: str | None = None
+
+
+class ZoneDef(BaseModel):
+    model_config = {"extra": "allow"}
+    id: str
+    name: str
+    adjacent: list[str]
+    tags: list[str] = []
+    capacity: int | None = None
+    entry_cost: int = 1
+    modifiers: ZoneModifiers = ZoneModifiers()
+
+
+class FreeStepsRule(BaseModel):
+    threshold: int = 3
+    steps: int = 1
+
+
+class ZoneRules(BaseModel):
+    melee_requires_same_zone: bool = True
+    ranged_any_zone: bool = True
+    move_cost_per_step: int = 1
+    free_steps_from_speed: FreeStepsRule = FreeStepsRule()
+
+
+class ZonesConfig(BaseModel):
+    zones: list[ZoneDef]
+    rules: ZoneRules
+
+
+def load_zones(config_dir: Path | None = None) -> ZonesConfig:
+    data = _load_yaml("zones.yaml", config_dir)
+    return _parse(ZonesConfig, data, "zones.yaml")
+
+
+# ---------------------------------------------------------------------------
+# conditions.yaml
+# ---------------------------------------------------------------------------
+
+
+class ConditionModifiers(BaseModel):
+    model_config = {"extra": "allow"}
+    power: int = 0
+    speed: int = 0
+    attack: int = 0
+    ac: int = 0
+
+
+class ConditionDef(BaseModel):
+    model_config = {"extra": "allow"}
+    duration: int
+    tick_damage: int = 0
+    cure_tags: list[str] = []
+    immunities: list[str] = []
+    modifiers: ConditionModifiers = ConditionModifiers()
+    blocks_free_step: bool = False
+    stand_cost: int = 0
+    trigger: str | None = None
+    emoji: str = ""
+    untargetable_melee: bool = False
+    ac_bonus_vs_ranged: int = 0
+    ac_penalty_vs_feinter_team: int = 0
+    incoming_attack_bonus: int = 0
+    randomize_targets: bool = False
+
+
+class ConditionsConfig(BaseModel):
+    conditions: dict[str, ConditionDef]
+
+
+def load_conditions(config_dir: Path | None = None) -> ConditionsConfig:
+    data = _load_yaml("conditions.yaml", config_dir)
+    return _parse(ConditionsConfig, data, "conditions.yaml")
+
+
+# ---------------------------------------------------------------------------
+# moves.yaml
+# ---------------------------------------------------------------------------
+
+
+class MoveDef(BaseModel):
+    model_config = {"extra": "allow"}
+    pf2e: str = ""
+    roll: str = "none"      # "power" | "weird" | "none"
+    range: str = "same_zone"
+    target: str = "single_enemy"
+    damage: str | None = None
+    desc: str = ""
+    min_cost: int = 1
+    includes_move: bool = False
+    friendly_fire: bool = False
+    on_hit_condition: str | None = None
+    on_hit_push_zones: int = 0
+    on_hit_steal_banked: bool = False
+    heal: str | None = None
+    heal_self_ratio: float = 0.0
+    creates_hazard: bool = False
+    hidden_hazard: bool = False
+    counters_next_attack: bool = False
+    redirect_attacks_to_self: bool = False
+    zone_modifier: dict[str, Any] = {}
+    removes_conditions: int = 0
+    grants_roll_bonus: int = 0
+    applies_condition: str | None = None
+    stat_swap: int = 0
+    duration: int | None = None
+    move_zones_per_cost: int = 0
+    fixed_cost: int | None = None
+    ac_bonus: int = 0
+
+
+class MovesConfig(BaseModel):
+    moves: dict[str, MoveDef]
+
+
+def load_moves(config_dir: Path | None = None) -> MovesConfig:
+    data = _load_yaml("moves.yaml", config_dir)
+    return _parse(MovesConfig, data, "moves.yaml")
+
+
+# ---------------------------------------------------------------------------
+# Bundle — passed to resolver and AI layer
+# ---------------------------------------------------------------------------
+
+
+class GameRules(BaseModel):
+    settings: Settings
+    balance: Balance
+    zones: ZonesConfig
+    conditions: ConditionsConfig
+    moves: MovesConfig
+
+
+def load_game_rules(config_dir: Path | None = None) -> GameRules:
+    return GameRules(
+        settings=load_settings(config_dir),
+        balance=load_balance(config_dir),
+        zones=load_zones(config_dir),
+        conditions=load_conditions(config_dir),
+        moves=load_moves(config_dir),
+    )

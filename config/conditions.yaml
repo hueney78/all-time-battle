@@ -1,0 +1,83 @@
+# conditions.yaml — curated condition registry.
+# The AI may ONLY apply conditions from this list (enforced by schema + validator).
+# Adding a condition = add a YAML block; zero Python changes required.
+# The condition list is injected into AI prompts automatically.
+
+conditions:
+  burning:
+    duration: 2
+    tick_damage: 2
+    cure_tags: [water, soggy]
+    emoji: "🔥"
+
+  soggy:
+    duration: 2
+    modifiers: {power: -2}
+    immunities: [burning]
+    emoji: "💧"
+
+  sticky:
+    duration: 2
+    modifiers: {speed: -1}
+    blocks_free_step: true
+    emoji: "🟢"
+
+  prone:
+    duration: 1
+    stand_cost: 1
+    modifiers: {ac: -1}
+    emoji: "🙃"
+
+  frightened:
+    duration: 2
+    modifiers: {attack: -1}
+    emoji: "😱"
+
+  embarrassed:
+    duration: 2
+    modifiers: {attack: -1}
+    trigger: "fumble"
+    emoji: "😳"
+
+  enraged:
+    duration: 2
+    modifiers: {attack: 1, ac: -1}
+    emoji: "😡"
+
+  sparkly:
+    duration: 2
+    incoming_attack_bonus: 1
+    emoji: "✨"
+
+  hidden:
+    duration: 1
+    untargetable_melee: true
+    ac_bonus_vs_ranged: 2
+    emoji: "👻"
+
+  off_balance:
+    duration: 1
+    ac_penalty_vs_feinter_team: 2
+    emoji: "😵"
+
+  pumped:
+    duration: 2
+    modifiers: {attack: 1}
+    emoji: "💪"
+
+  confused:
+    duration: 1
+    randomize_targets: true
+    emoji: "🌀"
+
+  shielded:
+    duration: 1
+    modifiers: {ac: 2}
+    emoji: "🛡"
+
+  # Marker for an active Wild Shape. The stat change is applied directly on the
+  # character (with clamping) and reverted when this condition expires, so the
+  # duration here owns how long a transform lasts.
+  transformed:
+    duration: 2
+    emoji: "🦋"
