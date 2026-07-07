@@ -217,6 +217,9 @@ class ConditionDef(BaseModel):
     ac_penalty_vs_feinter_team: int = 0
     incoming_attack_bonus: int = 0
     randomize_targets: bool = False
+    # Negative status? Only debuffs can be stripped by `cleanse`; buffs and
+    # markers (pumped, shielded, transformed, …) are left alone.
+    debuff: bool = False
 
 
 class ConditionsConfig(BaseModel):

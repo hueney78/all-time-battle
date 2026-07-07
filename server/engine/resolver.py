@@ -680,6 +680,10 @@ def _resolve_no_roll(
             for cond_name in list(target.conditions.keys()):
                 if removed >= move.removes_conditions:
                     break
+                # Only strip debuffs — never the target's own buffs/markers
+                # (pumped, shielded, transformed, …).
+                if cond_name not in cond_reg or not cond_reg.get(cond_name).debuff:
+                    continue
                 del target.conditions[cond_name]
                 removed += 1
                 events.append(

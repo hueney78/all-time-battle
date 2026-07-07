@@ -915,3 +915,58 @@ def test_transform_does_not_stack_and_reverts_to_true_original():
     h3 = r3.new_state.characters["h"]
     assert (h3.stats.power, h3.stats.speed, h3.stats.weird) == (2, 3, 3)
     assert "transformed" not in h3.conditions
+
+
+# ---------------------------------------------------------------------------
+# Regression: cleanse strips only debuffs, never the target's own buffs/markers
+# ---------------------------------------------------------------------------
+
+_CLEANSE_TEAMS = [
+    Team(id="team_a", name="A", color="pink", player_ids=["c"]),
+    Team(id="team_b", name="B", color="blue", player_ids=["z"]),
+]
+
+
+def test_cleanse_removes_debuffs_but_keeps_buffs_and_markers():
+    """`cleanse` must wash off debuffs (burning, sticky) while leaving the
+    target's beneficial conditions (pumped) untouched."""
+    healer = _char("c", "Medic", power=2, speed=3, weird=3, hp=24, zone="frontline",
+                   conditions={"burning": 2, "sticky": 2, "pumped": 2})
+    foe = _char("z", "Foe", power=2, speed=1, weird=2, hp=24, zone="thunder_back")
+    state = _state([healer, foe], _CLEANSE_TEAMS, round_num=1)
+    actions = [
+        # cleanse self (ally_or_self, removes up to 2 conditions)
+        ClassifiedAction(player_id="c", catalog_id="cleanse", action_cost=2, targets=["c"]),
+        ClassifiedAction(player_id="z", catalog_id="stumble", action_cost=1),
+    ]
+    result = resolve_round(state, actions, Dice(seed=7), CFG)
+    conds = result.new_state.characters["c"].conditions
+
+    assert "burning" not in conds and "sticky" not in conds, "debuffs should be cleansed"
+    assert "pumped" in conds, "cleanse must not strip a beneficial condition"
+
+
+def test_cleanse_does_not_strip_transformed_marker():
+    """Regression: cleanse used to delete the `transformed` marker, stranding the
+    swapped stats permanently. It must now leave the marker (and stats) intact."""
+    hero = _char("c", "Shifter", power=2, speed=3, weird=3, hp=24, zone="frontline")
+    foe = _char("z", "Foe", power=2, speed=1, weird=2, hp=24, zone="thunder_back")
+
+    # Round 1: transform.
+    r1 = resolve_round(_state([hero, foe], _CLEANSE_TEAMS, round_num=1), [
+        ClassifiedAction(player_id="c", catalog_id="transform", action_cost=1),
+        ClassifiedAction(player_id="z", catalog_id="stumble", action_cost=1),
+    ], Dice(seed=1), CFG)
+    swapped = r1.new_state.characters["c"].stats.power
+    assert "transformed" in r1.new_state.characters["c"].conditions
+
+    # Round 2: cleanse self — must NOT remove `transformed`.
+    s2 = r1.new_state.model_copy(update={"round": 2})
+    r2 = resolve_round(s2, [
+        ClassifiedAction(player_id="c", catalog_id="cleanse", action_cost=2, targets=["c"]),
+        ClassifiedAction(player_id="z", catalog_id="stumble", action_cost=1),
+    ], Dice(seed=2), CFG)
+    hero2 = r2.new_state.characters["c"]
+    assert "transformed" in hero2.conditions, "cleanse must not strip the transform marker"
+    assert hero2.stats.power == swapped, "stats must stay transformed, not silently revert"
+    assert hero2.pre_transform_stats is not None
