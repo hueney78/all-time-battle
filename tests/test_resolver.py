@@ -162,6 +162,26 @@ def test_initiative_order_speed():
     # fast acts before slow — fast's stumble event should appear first
     actor_order = [ev.player_id for ev in result.events if ev.type.value == "stumble"]
     assert actor_order == ["fast", "slow"]
+    # Same order is surfaced on RoundResult for the host's Initiative rail.
+    assert result.initiative_order == ["fast", "slow"]
+
+
+def test_round_result_initiative_order_matches_golden_and_drops_ko():
+    """initiative_order carries the round's acting order (speed desc, ties
+    alphabetical) and excludes KO'd/gremlin fighters — the rail's data source."""
+    # Golden fixture order: Lawnmower(spd3), Stabby(spd2), Blob(eff1), Gerald(spd1);
+    # Blob and Gerald tie at effective speed 1 → alphabetical p2 before p4.
+    state = _state(_golden_chars(), _TEAMS, round_num=2)
+    result = resolve_round(state, _golden_actions(), Dice(seed=42), CFG)
+    assert result.initiative_order == ["p3", "p1", "p2", "p4"]
+
+    # A pre-KO'd (gremlin) fighter never appears in the acting order.
+    chars = _golden_chars()
+    chars[1].is_ko = True
+    chars[1].is_gremlin = True
+    state = _state(chars, _TEAMS, round_num=2)
+    result = resolve_round(state, _golden_actions(), Dice(seed=42), CFG)
+    assert "p2" not in result.initiative_order
 
 
 def test_initiative_tiebreak_is_alphabetical():

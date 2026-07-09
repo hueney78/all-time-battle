@@ -229,7 +229,9 @@ def resolve_round(
             )
         )
 
-    return RoundResult(round=round_num, events=events, new_state=new_state)
+    return RoundResult(
+        round=round_num, events=events, new_state=new_state, initiative_order=order
+    )
 
 
 # ---------------------------------------------------------------------------

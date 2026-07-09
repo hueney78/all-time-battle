@@ -100,6 +100,9 @@ class RoundResult(BaseModel):
     round: int
     events: list[Event]
     new_state: GameState
+    # Player ids in this round's acting order (speed desc, KO'd/gremlins dropped).
+    # Surfaced so the host's Initiative Order rail can render + reorder portraits.
+    initiative_order: list[str] = []
 
 
 class GameState(BaseModel):
