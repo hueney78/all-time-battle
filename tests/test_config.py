@@ -54,6 +54,35 @@ def test_settings_game():
     assert s.game.min_players == 2
 
 
+def test_settings_ui_tokens():
+    """Presentation knobs shipped to the browser (canvas/floor color, prefill
+    scale, reveal zoom, float timing, audience window)."""
+    s = load_settings()
+    assert s.ui.canvas_background_color == "#E8D5A8"
+    assert s.ui.action_canvas_character_scale == 0.5
+    assert s.ui.reveal_action_zoom_scale == 1.8
+    assert s.ui.reveal_action_zoom_seconds == 2.5
+    assert s.ui.float_number_seconds == 1.5
+    assert s.ui.audience_recent_rounds == 3
+    assert s.ui.arena_background == ""
+
+
+def test_settings_ui_defaults_when_block_missing(tmp_path: Path, monkeypatch):
+    """A settings.yaml without a ui: block still loads (UIConfig defaults)."""
+    minimal = {
+        "server": {"host": "0.0.0.0", "port": 8000},
+        "game": {"max_players": 6, "min_players": 2, "room_code_length": 4},
+        "timers": {"draw_characters_seconds": 90, "draw_action_seconds": 75,
+                   "warning_seconds": 10, "beat_seconds": 6},
+        "ai": {"classify_model": "m", "narrate_model": "n"},
+        "snapshots": {"enabled": False, "dir": "snapshots"},
+    }
+    (tmp_path / "settings.yaml").write_text(yaml.dump(minimal), encoding="utf-8")
+    monkeypatch.setattr(cfg_mod, "CONFIG_DIR", tmp_path)
+    s = cfg_mod.load_settings()
+    assert s.ui.canvas_background_color == "#E8D5A8"  # default
+
+
 # ---------------------------------------------------------------------------
 # balance.yaml
 # ---------------------------------------------------------------------------

@@ -71,12 +71,28 @@ class SnapshotConfig(BaseModel):
     dir: str = "snapshots"
 
 
+class UIConfig(BaseModel):
+    """Presentation knobs handed to the browser as window.DOODLE_CONFIG.
+
+    Defaults let older settings.yaml files (without a `ui:` block) still load.
+    """
+
+    canvas_background_color: str = "#E8D5A8"
+    arena_background: str = ""
+    action_canvas_character_scale: float = 0.5
+    reveal_action_zoom_scale: float = 1.8
+    reveal_action_zoom_seconds: float = 2.5
+    float_number_seconds: float = 1.5
+    audience_recent_rounds: int = 3
+
+
 class Settings(BaseModel):
     server: ServerConfig
     game: GameConfig
     timers: TimerConfig
     ai: AIConfig
     snapshots: SnapshotConfig
+    ui: UIConfig = UIConfig()
 
 
 def load_settings(config_dir: Path | None = None) -> Settings:

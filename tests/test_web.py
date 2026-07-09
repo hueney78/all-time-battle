@@ -30,6 +30,17 @@ def test_player_page_served_with_canvas_assets():
     assert 'id="restore"' in body       # restore-character button
 
 
+def test_pages_inject_client_config():
+    """Both pages ship window.DOODLE_CONFIG so the client renders server-owned
+    UI tokens (sand color, prefill scale, reveal zoom …)."""
+    with TestClient(app) as client:
+        for path in ["/host", "/play"]:
+            body = client.get(path).text
+            assert "window.DOODLE_CONFIG" in body, path
+            assert "#E8D5A8" in body, f"{path} missing canvas_background_color"
+            assert "__DOODLE_CONFIG__" not in body, f"{path} left a raw placeholder"
+
+
 def test_static_assets_available():
     with TestClient(app) as client:
         for path in [

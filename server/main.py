@@ -6,6 +6,7 @@ Serves the host (TV) and player (phone) pages from web/ and the /ws endpoint.
 
 from __future__ import annotations
 
+import json
 import socket
 from pathlib import Path
 
@@ -113,12 +114,25 @@ async def health():
     }
 
 
+def _inject_config(html: str) -> str:
+    """Ship the UI tuning knobs to the browser as window.DOODLE_CONFIG so the
+    client is a dumb renderer of server-owned config (canvas/floor color, prefill
+    scale, reveal zoom, float timing, …). Injected before </head> so it runs
+    ahead of the body scripts that read it."""
+    ui = load_game_rules().settings.ui
+    tag = f"<script>window.DOODLE_CONFIG = {json.dumps(ui.model_dump())};</script>"
+    if "</head>" in html:
+        return html.replace("</head>", tag + "\n</head>", 1)
+    return tag + html
+
+
 @app.get("/host", response_class=HTMLResponse)
 async def host_page():
     html = (_WEB_DIR / "host" / "index.html").read_text(encoding="utf-8")
-    return html.replace("__SERVER_LAN_IP__", _lan_ip())
+    return _inject_config(html.replace("__SERVER_LAN_IP__", _lan_ip()))
 
 
 @app.get("/play", response_class=HTMLResponse)
 async def player_page():
-    return (_WEB_DIR / "player" / "index.html").read_text(encoding="utf-8")
+    html = (_WEB_DIR / "player" / "index.html").read_text(encoding="utf-8")
+    return _inject_config(html)
