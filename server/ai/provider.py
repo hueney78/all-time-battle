@@ -116,9 +116,13 @@ class MockAI:
                                                 action_cost=1))
                 continue
             # `ray` is any-range so it works regardless of zones — keeps the mock
-            # game progressing to a decisive result.
+            # game progressing to a decisive result. A small deterministic
+            # creativity tier (stable per player) gives the audience meter
+            # something to move on in offline/mock play.
+            creativity = random.Random(f"crea:{pid}").randint(0, 2)
             actions.append(ClassifiedAction(
                 player_id=pid, catalog_id="ray", action_cost=2, targets=[enemy],
+                creativity_tier=creativity,
                 adaptation_note="a no-frills energy bolt",
             ))
         return actions

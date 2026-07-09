@@ -11,7 +11,7 @@ import asyncio
 
 from server.ai.provider import MockAI
 from server.config import load_game_rules
-from server.engine.models import Character, GameState, Stats
+from server.engine.models import Character, ClassifiedAction, GameState, Stats
 from server.protocol import C2S, Envelope, SubmitDrawingMsg, decode, encode, parse_payload
 from server.room import Room, RoomManager, SocketDisconnect
 from server.state_machine import GameStateMachine, Timers
@@ -188,6 +188,87 @@ async def test_reveal_beats_carry_acting_player_for_sprite_swap():
     assert beat["event_id"] == "e1"
     assert beat["player_id"] == p.id and beat["target_id"] == p.id
     assert beat["hurt"] == p.id   # a hit flags the target as negatively impacted
+    assert beat["helped"] is None
+    assert beat["floats"] == []   # this fixture event carries no damage amount
+    # New reveal fields the host consumes for the rail + meters.
+    assert "initiative_order" in reveal.payload
+    assert set(reveal.payload["meters"]) == {"hp_share", "audience"}
+
+
+async def test_reveal_step_carries_initiative_meters_and_floats():
+    """reveal_step ships the acting order, both meter positions, and per-beat
+    impact/float data derived from engine events."""
+    from server.ai.provider import Beat, Narration
+    from server.engine.models import Event, EventType
+
+    rules = _rules()
+    room = Room("TEST", rules)
+    a = room.add_player("A", "player", FakeSocket(), None)   # team_a
+    b = room.add_player("B", "player", FakeSocket(), None)   # team_b
+    machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
+
+    ca = Character(player_id=a.id, name="A", stats=Stats(power=2, speed=3, weird=2),
+                   hp=24, max_hp=24, ac=14, zone_id="glitter_back")
+    cb = Character(player_id=b.id, name="B", stats=Stats(power=2, speed=1, weird=2),
+                   hp=4, max_hp=24, ac=12, zone_id="thunder_back")   # nearly dead
+    machine.state = GameState(room_id="TEST", characters={a.id: ca, b.id: cb},
+                              teams=room.teams)
+    # team_a drew the creative move this round; team_b was bland.
+    machine._accumulate_audience([
+        ClassifiedAction(player_id=a.id, catalog_id="ray", action_cost=2, creativity_tier=3),
+        ClassifiedAction(player_id=b.id, catalog_id="ray", action_cost=2, creativity_tier=0),
+    ])
+
+    crit = Event(id="e1", type=EventType.ATTACK_RESOLVED, round=1, player_id=a.id,
+                 target_id=b.id, data={"result": "crit", "damage": 12})
+    heal = Event(id="e2", type=EventType.HEALED, round=1, player_id=a.id,
+                 target_id=a.id, data={"amount": 6})
+    narration = Narration(beats=[Beat(event_id="e1", text="zap"), Beat(event_id="e2", text="heal")])
+
+    await machine._reveal(1, narration, [crit, heal], [a.id, b.id])
+
+    reveal = None
+    for _ in range(6):
+        env = await asyncio.wait_for(machine.room.participants[a.id].socket.client_recv(), 1.0)
+        if env.type == "reveal_step":
+            reveal = env
+            break
+    assert reveal is not None
+    pay = reveal.payload
+    assert pay["initiative_order"] == [a.id, b.id]
+    # team_b nearly dead → knot pulled toward team_a → team_b HP fraction < 0.5
+    assert pay["meters"]["hp_share"] < 0.5
+    # team_a more creative → audience (team_b fraction) < 0.5
+    assert pay["meters"]["audience"] < 0.5
+    beats = {bt["event_id"]: bt for bt in pay["beats"]}
+    assert beats["e1"]["hurt"] == b.id
+    assert beats["e1"]["floats"] == [
+        {"player_id": b.id, "amount": 12, "kind": "damage", "crit": True}
+    ]
+    assert beats["e2"]["helped"] == a.id
+    assert beats["e2"]["floats"][0]["kind"] == "heal"
+
+
+def test_arena_deltas_expose_stats_and_persistent_sprite():
+    """Character deltas carry stats (rail/phone) and a sprite_png that persists
+    the latest revealed action drawing (original portrait until first action)."""
+    rules = _rules()
+    room = Room("TEST", rules)
+    p = room.add_player("A", "player", FakeSocket(), None)
+    machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
+    ch = Character(player_id=p.id, name="A", stats=Stats(power=3, speed=2, weird=4),
+                   hp=20, max_hp=20, ac=13, zone_id="glitter_back",
+                   character_png_b64="ORIG")
+    machine.state = GameState(room_id="TEST", characters={p.id: ch}, teams=room.teams)
+
+    d = {x["player_id"]: x for x in machine._character_deltas(include_png=True)}[p.id]
+    assert d["stats"] == {"power": 3, "speed": 2, "weird": 4}
+    assert d["sprite_png"] == "ORIG"      # no action yet → original portrait
+
+    machine._latest_action_png[p.id] = "ACTION"
+    d2 = {x["player_id"]: x for x in machine._character_deltas(include_png=True)}[p.id]
+    assert d2["sprite_png"] == "ACTION"   # battlefield sprite = revealed action
+    assert d2["png"] == "ORIG"            # rail portrait stays the original
 
 
 # ---------------------------------------------------------------------------

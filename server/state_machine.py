@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -84,6 +85,17 @@ class GameStateMachine:
         self._collect_done = asyncio.Event()
         self._action_pngs: dict[str, str] = {}
         self._beat_done = asyncio.Event()
+
+        # Persistent battlefield sprites: a character's most-recently-revealed
+        # action drawing becomes their sprite until their next action replaces it
+        # (original character image until they first act). Server-owned so it
+        # survives host refresh.
+        self._latest_action_png: dict[str, str] = {}
+        # Rolling per-team creativity totals feeding the "Crowd Favorite" meter,
+        # recency-weighted by keeping only the last N rounds.
+        self._audience: deque[dict[str, int]] = deque(
+            maxlen=max(1, rules.settings.ui.audience_recent_rounds)
+        )
 
     # -- lifecycle --------------------------------------------------------
     def start(self) -> None:
@@ -181,6 +193,7 @@ class GameStateMachine:
             state_for_round = self.state.model_copy(update={"round": round_num})
             subs = {pid: ActionSubmission(pid, self._action_pngs.get(pid, "")) for pid in living}
             actions = self.ai.classify_actions(state_for_round, subs, round_num)
+            self._accumulate_audience(actions)
             rng = Dice(seed=self.seed + round_num)
             result = resolve_round(state_for_round, actions, rng, self.balance)
             self.state = result.new_state
@@ -189,7 +202,10 @@ class GameStateMachine:
             self.snapshots.append_wildcards(round_num, actions)
 
             # ---- reveal ----
-            await self._reveal(round_num, narration, result.events)
+            await self._reveal(round_num, narration, result.events, result.initiative_order)
+            # The revealed action drawings are now the persistent battlefield
+            # sprites (they stay until the character's next action replaces them).
+            self._latest_action_png.update(self._action_pngs)
             await self._send_all_player_states()
             await self._broadcast_arena()
 
@@ -197,12 +213,14 @@ class GameStateMachine:
                 return
             round_num += 1
 
-    async def _reveal(self, round_num: int, narration, events) -> None:
+    async def _reveal(self, round_num: int, narration, events, initiative_order=None) -> None:
         self._phase = "reveal"
         self._round = round_num
         self._beat_done = asyncio.Event()
         # Attach each beat's acting/target player so the host can sprite-swap the
-        # right character while the beat plays (ARCHITECTURE.md §4.5).
+        # right character while the beat plays (ARCHITECTURE.md §4.5), plus the
+        # impact + floating-number data the host renders (all from engine events,
+        # never narration text).
         ev_by_id = {e.id: e for e in events}
         beats = []
         for b in narration.beats:
@@ -213,15 +231,21 @@ class GameStateMachine:
                 "player_id": ev.player_id if ev else None,
                 "target_id": ev.target_id if ev else None,
                 "type": ev.type.value if ev else None,
-                # Who (if anyone) this beat negatively impacts — the host flashes
-                # that fighter red.
+                # Who this beat negatively impacts (red border + shake) vs
+                # positively impacts (light-blue border + pop).
                 "hurt": self._hurt_target(ev) if ev else None,
+                "helped": self._helped_target(ev) if ev else None,
+                # Floating combat numbers: [{player_id, amount, kind, crit}].
+                "floats": self._floats(ev) if ev else [],
             })
         await self.room.broadcast(S2C.REVEAL_STEP, {
             "round": round_num,
             "beats": beats,
             "characters": self._character_deltas(),
             "action_pngs": dict(self._action_pngs),
+            # The rail's acting order + the two tug-of-war meter positions.
+            "initiative_order": list(initiative_order or []),
+            "meters": self._meters(),
         })
         # Host paces beats client-side and signals completion; fall back to a
         # timeout so a missing/!clicking host never stalls the game.
@@ -246,6 +270,81 @@ class GameStateMachine:
         elif t in ("condition_ticked", "ko"):
             return ev.player_id
         return None
+
+    def _helped_target(self, ev) -> str | None:
+        """The player positively impacted by an event (healed, buffed, cleansed),
+        or None for neutral/negative events. Drives the blue border + pop."""
+        t = ev.type.value
+        d = ev.data
+        if t == "healed":
+            return ev.target_id or ev.player_id
+        if t == "condition_applied" and d.get("condition") not in self._debuffs:
+            return ev.player_id       # a buff (pumped, shielded, …) lands on player_id
+        if t == "condition_expired" and d.get("source") == "cleanse":
+            return ev.player_id       # a debuff was washed off — that's a good thing
+        return None
+
+    def _floats(self, ev) -> list[dict]:
+        """Floating combat numbers for this event: damage (red) / heal (green),
+        crits flagged oversized. Amounts come from engine events so they always
+        match the HP bars."""
+        t = ev.type.value
+        d = ev.data
+        if t == "attack_resolved":
+            res = d.get("result")
+            if res in ("hit", "crit") and d.get("damage"):
+                return [{"player_id": ev.target_id, "amount": d["damage"],
+                         "kind": "damage", "crit": res == "crit"}]
+            if res == "fumble" and d.get("self_damage"):
+                return [{"player_id": ev.player_id, "amount": d["self_damage"],
+                         "kind": "damage", "crit": False}]
+        elif t == "condition_ticked" and d.get("damage"):
+            return [{"player_id": ev.player_id, "amount": d["damage"],
+                     "kind": "damage", "crit": False}]
+        elif t == "healed" and d.get("amount"):
+            return [{"player_id": ev.target_id or ev.player_id, "amount": d["amount"],
+                     "kind": "heal", "crit": False}]
+        return []
+
+    # -- tug-of-war meters ------------------------------------------------
+    def _accumulate_audience(self, actions) -> None:
+        """Bank this round's per-team creativity so the Crowd Favorite meter can
+        weight recent rounds (the deque's maxlen owns the recency window)."""
+        entry: dict[str, int] = {t.id: 0 for t in self.state.teams} if self.state else {}
+        for a in actions:
+            tid = self.room.team_of(a.player_id)
+            if tid in entry:
+                entry[tid] += max(0, a.creativity_tier)
+        self._audience.append(entry)
+
+    def _meters(self) -> dict:
+        """Both knot positions as team_b's fraction in [0,1] — the knot is pulled
+        toward whichever team leads (0.5 = tie). Computed server-side."""
+        return {"hp_share": self._hp_share(), "audience": self._audience_share()}
+
+    @staticmethod
+    def _fraction_b(values: dict[str, float]) -> float:
+        total = sum(values.values())
+        if total <= 0:
+            return 0.5
+        return values.get("team_b", 0.0) / total
+
+    def _hp_share(self) -> float:
+        if self.state is None or not self.state.teams:
+            return 0.5
+        hp: dict[str, float] = {t.id: 0.0 for t in self.state.teams}
+        for pid, ch in self.state.characters.items():
+            tid = self.room.team_of(pid)
+            if tid in hp:
+                hp[tid] += max(0, ch.hp)
+        return self._fraction_b(hp)
+
+    def _audience_share(self) -> float:
+        totals: dict[str, float] = {}
+        for entry in self._audience:
+            for tid, v in entry.items():
+                totals[tid] = totals.get(tid, 0.0) + v
+        return self._fraction_b(totals) if totals else 0.5
 
     async def _game_over(self) -> None:
         self._phase = "game_over"
@@ -313,7 +412,12 @@ class GameStateMachine:
         for pid, ch in self.state.characters.items():
             payload = _char_payload(ch, self.room.team_of(pid))
             if include_png:
+                # png = original portrait (rail); sprite_png = persistent action
+                # drawing shown on the battlefield (falls back to the original).
                 payload["png"] = ch.character_png_b64
+                payload["sprite_png"] = (
+                    self._latest_action_png.get(pid) or ch.character_png_b64
+                )
             out.append(payload)
         return out
 
@@ -325,6 +429,8 @@ def _char_payload(ch: Character, team_id: str | None) -> dict:
         "hp": ch.hp,
         "max_hp": ch.max_hp,
         "ac": ch.ac,
+        # Stats are the rail's / phone status card's home (💪 Power / ⚡ Speed / 🌀 Weird).
+        "stats": {"power": ch.stats.power, "speed": ch.stats.speed, "weird": ch.stats.weird},
         "conditions": ch.conditions,
         "banked_actions": ch.banked_actions,
         "zone_id": ch.zone_id,
