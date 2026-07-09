@@ -25,6 +25,10 @@ Companion docs (put all three in the repo root; Claude Code should read them fir
 - Frontend: vanilla HTML/JS, no build step, no frameworks.
 - Run `pytest` after every change; keep it green. Prefer small commits with
   descriptive messages, one feature per commit.
+- Two people direct sessions on this repo. Branch from latest main; never
+  commit directly to main. Flag any change to protocol.py, ai/schemas.py, or
+  websocket payload shapes in the PR description — those are cross-track
+  contracts (see plan section 7).
 - Python 3.11+, type hints everywhere, ruff for lint/format.
 ```
 
@@ -104,39 +108,49 @@ Tasks:
 Acceptance: mock tests green; live smoke test returns valid classification for fixture PNGs.
 **Checkpoint:** human sets `AI_MODE=live`, runs smoke script, then plays one full live game. Verify per-game cost printed (~$0.10–0.50).
 
-## 7. Phase 6 — Full Pipeline & Game Feel
+## 7. Post-Phase-5: Two Parallel Tracks
 
-Tasks:
-- Wire the real pipeline: draw r+1 ‖ process r ‖ reveal r−1, including the T2/T3 special cases (characters process during Round 1 drawing; intros reveal during Round 2 drawing).
-- Arena Gremlin flow; combo fusion display ("COMBO!" splash + combo_name); underdog rubber-banding; sudden death.
-- **Announcer duo:** rewrite the narrate template as two bantering personas (play-by-play + deadpan color commentator); beats gain an optional `speaker` field; host styles the two voices differently.
-- **Instant replay:** crit/KO beats replay once in slow-mo with a REPLAY banner and stinger (`instant_replay` config: enabled, triggers, zoom/slowmo factors).
-- **Power-up montage** (GAME_DESIGN §10.1): MONTAGE sub-phase every `montage_every_rounds` rounds — full-size character canvas for additions, `classify_montage` call processed in the next pipeline window, +1 stat with formula deltas, updated image becomes the new original everywhere (canvas_init, rail, sprites).
-- **Awards ceremony** (GAME_DESIGN §10.2): `generate_awards` call at victory; host plays awards one at a time with enlarged drawings; every player gets at least one.
-- Latency masking polish: "fighters scheming…" fillers, reveal never shows a spinner.
-- Tests: pipeline ordering under slow-AI simulation (inject 15s delay — game must not stall or reveal out of order); montage phase insertion doesn't stall the pipeline.
+From here, remaining work (the old Phases 6–8) is organized as **two parallel tracks along the architecture's seam** — engine/server/AI vs presentation — so two people can each direct Claude Code sessions without colliding. Rules of engagement:
 
-Acceptance: slow-AI test green; full live 6-player game runs without a visible wait.
-**Checkpoint:** family playtest #2, live AI. Tune balance.yaml afterward.
+- **Contract-first:** every cross-seam feature has a sync point (table below). Track A lands the schema/payload change **plus updated mock fixtures** on `main` first; Track B then builds against `AI_MODE=mock`. Track B is never blocked by AI work.
+- **Guarded files:** changes to `protocol.py`, `ai/schemas.py`, or any `reveal_step`/`player_state` payload shape must be flagged to the other track before merge (these are the only files where the tracks can break each other).
+- **Everything else:** short-lived branches, PRs reviewed by the *other* person's Claude Code session against the spec docs, CI (`pytest` + ruff) as the merge gate, one GitHub Issue per task.
 
-## 8. Phase 7 — Polish & Stretch (pick from playtest notes)
+**Sync points** (Track A delivers first → Track B consumes):
 
-Committed task — **the audio layer**: source clips from curated free sound packs (CC0 sources like Kenney.nl, Mixkit, Freesound); map one clip per move via `sfx` keys in moves.yaml and event stingers via an `events_sfx` block in settings.yaml (crit → crowd roar, fumble → sad trombone, KO → bell + crowd gasp, combo → air horn, sudden death → drumroll); host-page Web Audio manager with volume/mute controls and ±10% pitch variation on repeated clips.
+| # | Contract | Track A lands | Track B builds |
+|---|---|---|---|
+| S1 | `speaker` field on beats | narrate schema + mock fixtures with pbp/color beats | speaker-styled beat chips |
+| S2 | Montage payloads | MONTAGE sub-phase, `classify_montage` schema, updated `canvas_init`/rail data, mock fixtures | montage canvas mode + stat pulses |
+| S3 | Victory payloads | `generate_awards` schema, poster.png path in game-over message, mock fixtures | awards ceremony screen + poster display |
+| S4 | Gallery data | `gallery/` persistence + roster in host bootstrap payload | stands spectators rendering |
 
-Committed task — **the match poster** (GAME_DESIGN §10.2): Pillow-composed shareable image at victory (arena background, final sprites, teams/score, round titles, best narrated line), saved to `snapshots/<room>/poster.png` and offered on the victory screen via download link/QR.
+**Joint milestones** (both tracks merged, human checkpoint):
+- **M1 — "It's a real game":** full live 6-player game with no visible waits (slow-AI test green). Family playtest; tune balance.yaml.
+- **M2 — "It's a show":** announcer duo, replay, montage, awards, poster, audio all live. Family playtest #2.
+- **M3 — "It has history":** gallery across two consecutive games (old Phase 8 acceptance). Watch whether kids notice their old characters. (They will.)
 
-Further candidates, in rough value order: TTS narration read-aloud (pluggable `tts: off|browser|cloud` setting; browser `speechSynthesis` first, with beat advancement tied to speech completion); spectate page for extra devices; AI-controlled filler fighter for odd counts; replay viewer reading snapshots; **persistent summoned companions** (upgrade `summon` from one-shot strike to a pet with HP and turns, if the kids demand it); new `moves.yaml` archetypes mined from the wildcard log; a family-recorded `sfx_pack` (kids' mouth sound effects, switched via `sfx_pack` setting); tournament mode (best of 3); High Ground zone enabled by default once tested.
+## 8. Track A — Server & AI
 
-## 9. Phase 8 — Legacy: The Doodle Crowd
+1. **Pipeline wiring:** draw r+1 ‖ process r ‖ reveal r−1, including the T2/T3 special cases (characters process during Round 1 drawing; intros reveal during Round 2 drawing). Tests: pipeline ordering under slow-AI simulation (inject 15s delay — must not stall or reveal out of order).
+2. **Round-loop server logic:** Arena Gremlin flow; combo fusion resolution; underdog rubber-banding; sudden death.
+3. **Announcer duo (→S1):** rewrite the narrate template as two bantering personas (play-by-play + deadpan color commentator); beats gain optional `speaker` field; update mock fixtures.
+4. **Power-up montage server side (→S2)** (GAME_DESIGN §10.1): MONTAGE sub-phase every `montage_every_rounds` rounds; `classify_montage` call processed in the next pipeline window; +1 stat with formula deltas; updated image becomes the new original everywhere server-side (canvas_init, rail data, sprite baseline). Test: montage insertion doesn't stall the pipeline.
+5. **Victory server side (→S3)** (GAME_DESIGN §10.2): `generate_awards` call (every player gets at least one award); Pillow-composed match poster saved to `snapshots/<room>/poster.png`; both in the game-over payload.
+6. **Gallery backend (→S4)** (GAME_DESIGN §15): persist characters to `gallery/` (PNG + JSON, config cap, `gallery_enabled`); inject 2–3 gallery names into narrate prompt for cameos; gallery roster in host bootstrap.
+7. **Ongoing:** port `balance_sim` to run against the real engine/configs; mine `wildcards.jsonl` after playtests for new `moves.yaml` archetypes.
 
-Tasks (GAME_DESIGN §15):
-- Persist every character at match end to `gallery/` (PNG + JSON: AI name, hint, stats, matches played/won). Plain files; config cap and `gallery_enabled` toggle.
-- Host renders a rotating handful of gallery characters as tiny spectators in the colosseum stands (subtle idle bob; never obscuring the battlefield).
-- Inject 2–3 random gallery names into the narrate prompt each round for announcer cameos ("Princess Stabby watches from the stands. She is judging.").
-- Victory screen adds the winners to the gallery with a "joins the Hall of Doodles" flourish.
+## 9. Track B — Presentation
 
-Acceptance: after two full games, the second game's stands show characters from the first, and at least one cameo line references a gallery name.
-**Checkpoint:** family game night #2 — watch whether kids notice their old characters. (They will.)
+1. **Mockup reconciliation:** anything in `design/mockup_host_screen.html` / `design/mockup_player_screen.html` not yet matching the built pages (persistent action sprites, zoom, impact borders, floating numbers, initiative rail + stat strips, tug-of-war meters, canvas background color).
+2. **Round-loop presentation:** "COMBO!" splash with combo_name; latency-masking fillers ("fighters scheming…" — reveal never shows a spinner); **instant replay** (crit/KO beats replay in slow-mo with REPLAY banner; `instant_replay` config).
+3. **Speaker-styled beats (S1):** pbp/color chips and styling per the mockup.
+4. **Montage UI (S2):** full-size character canvas mode with montage timer; stat change-pulse on phone card and rail.
+5. **Victory screen (S3):** awards played one at a time with enlarged drawings; poster download link/QR; "joins the Hall of Doodles" flourish.
+6. **The audio layer:** curated free sound packs (CC0 — Kenney.nl, Mixkit, Freesound); `sfx` keys per move in moves.yaml; `events_sfx` stingers in settings.yaml (crit → crowd roar, fumble → sad trombone, KO → bell + gasp, combo → air horn, sudden death → drumroll); Web Audio manager with volume/mute and ±10% pitch variation.
+7. **Doodle crowd stands (S4):** rotating gallery spectators in the colosseum stands (subtle idle bob; never obscuring the battlefield).
+
+**Shared backlog** (either track, post-M2, in rough value order): TTS narration read-aloud (pluggable `tts: off|browser|cloud`; browser `speechSynthesis` first, beat advancement tied to speech completion); spectate page; AI-controlled filler fighter for odd counts; replay viewer reading snapshots; persistent summoned companions; new moves.yaml archetypes from the wildcard log; family-recorded `sfx_pack`; tournament mode; High Ground zone enabled by default once tested.
 
 ## 10. Testing Strategy Summary
 
@@ -160,4 +174,8 @@ criteria and tell me how to run the demo checkpoint.
 
 Then proceed one phase at a time: "Execute Phase 2 per IMPLEMENTATION_PLAN.md."
 Resist doing multiple phases in one shot — the checkpoints exist to catch
-design drift while it's cheap.
+design drift while it's cheap. After Phase 5, work splits into the two
+parallel tracks in sections 7-9: kick off sessions with "Execute Track A
+item 4 (montage server side) per IMPLEMENTATION_PLAN.md" and respect the
+sync-point ordering (Track A lands contracts + mock fixtures before Track B
+consumes them).
