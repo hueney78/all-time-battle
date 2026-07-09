@@ -5,26 +5,78 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <title>Doodle Brawl</title>
   <link rel="stylesheet" href="/static/shared/common.css">
+  <link href="https://fonts.googleapis.com/css2?family=Titan+One&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
   <style>
-    body { padding: .8rem; max-width: 540px; margin: 0 auto; }
-    .card { background: var(--panel); border-radius: 16px; padding: .8rem; margin-bottom: .7rem; }
-    #canvasWrap { position: relative; }
-    canvas {
-      width: 100%; aspect-ratio: 1 / 1; background: #fff;
-      border-radius: 14px; touch-action: none; border: 3px solid var(--team);
+    /* Player (phone) page — faithful port of design/mockup_player_screen.html.
+       [spec] markers there map to documented features. */
+    :root{
+      --ink:#2B2338; --card:#FFF9EC; --sand:#E8D5A8;
+      --posit:#6FD4F2; --heal:#3FB65C; --gold:#F2B233; --dmg:#E23D3D;
+      --team:#E24FA0;                 /* overridden per player from lobby_state */
     }
-    .tools { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-top: .5rem; }
-    .swatch { width: 30px; height: 30px; border-radius: 50%; border: 2px solid #0006; padding: 0; }
-    .swatch.sel { outline: 3px solid var(--team); }
-    .tbtn { padding: .5rem .7rem; background: #2b2c4d; }
-    .tbtn.sel { background: var(--team); }
-    .row { display: flex; gap: .5rem; align-items: center; }
-    .grow { flex: 1; }
-    .big { font-size: 1.15rem; padding: .9rem; width: 100%; }
-    #teamdot { display: inline-block; width: .8rem; height: .8rem; border-radius: 50%;
-               background: var(--team); vertical-align: middle; }
-    #timer { font-weight: 800; }
-    .status { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
+    body{
+      font-family:'Nunito',system-ui,-apple-system,sans-serif; color:var(--ink);
+      background:#F3E7F0; max-width:440px; margin:0 auto; padding:10px;
+      display:flex; flex-direction:column; gap:10px; min-height:100vh;
+    }
+    .display{font-family:'Titan One',cursive}
+    h1,h2{font-family:'Titan One',cursive; letter-spacing:.3px}
+
+    .card{background:var(--card); border:4px solid var(--ink); border-radius:18px; padding:12px 14px}
+
+    /* join */
+    #join input{border:3px solid var(--ink); background:#fff; color:var(--ink); margin:.4rem 0}
+    #join .big{width:100%; background:var(--team); color:#fff; border:4px solid var(--ink);
+      border-radius:16px; font-family:'Titan One'; font-size:18px; -webkit-text-stroke:.4px var(--ink)}
+
+    /* header: team color + round + timer */
+    header{background:var(--team); border:4px solid var(--ink); border-radius:18px;
+      color:#fff; padding:8px 14px; display:flex; align-items:center; gap:10px}
+    header .display{font-size:17px; -webkit-text-stroke:.5px var(--ink)}
+    header .rnd{font-weight:800; font-size:13px}
+    .timer{margin-left:auto; background:#fff; color:var(--ink); border:3px solid var(--ink);
+      border-radius:12px; padding:2px 10px; font-weight:900; font-size:15px}
+    .timer.warn{background:var(--gold); animation:blink .6s infinite}
+    @keyframes blink{50%{opacity:.55}}
+
+    /* status card [spec: sprite + stats + HP + conds + banked] */
+    .status{display:flex; gap:10px; align-items:center}
+    .status .avatar{width:52px; height:52px; flex:none; border:3px solid var(--ink);
+      border-radius:12px; background:#fff center/contain no-repeat}
+    .sinfo{display:flex; flex-direction:column; gap:4px; min-width:0}
+    .srow{display:flex; gap:6px; flex-wrap:wrap; align-items:center; font-weight:900; font-size:13px}
+    .srow .stat{background:#F1EADB; border-radius:8px; padding:1px 7px; transition:background .2s}
+    .srow .stat.pulse{animation:statp 1.6s ease-in-out 2}
+    @keyframes statp{50%{background:var(--gold)}}
+    .banked{background:var(--posit); border:2px solid var(--ink); border-radius:8px;
+      padding:1px 7px; font-size:12px; font-weight:900}
+    .hearts{font-size:13px} .conds{font-size:14px; display:inline}
+
+    /* canvas [spec: sand bg + ~50% prefill on team side + orientation ribbon] */
+    #canvasWrap{position:relative; border:4px solid var(--ink); border-radius:20px;
+      overflow:hidden; background:var(--sand); aspect-ratio:1/1}
+    canvas{display:block; width:100%; height:100%; touch-action:none; background:transparent}
+    .ribbon{position:absolute; top:0; left:0; right:0; display:flex; justify-content:space-between;
+      padding:5px 12px; font-weight:900; font-size:12px; pointer-events:none; z-index:2;
+      background:linear-gradient(90deg,#E24FA022,#2F6FE022); border-bottom:2px dashed #2B233833}
+
+    /* toolbar [spec: pens 3 widths / 8 colors, erasers multi-size, undo, clear, RESTORE] */
+    .tools{display:flex; flex-wrap:wrap; gap:6px; justify-content:center; margin-top:8px}
+    .tools button{border:3px solid var(--ink); background:#fff; color:var(--ink); border-radius:12px;
+      min-width:44px; height:44px; font-size:15px; font-weight:900; padding:0 8px}
+    .tools button.sel{background:var(--gold)}
+    #colors{display:flex; gap:5px; align-items:center; border:3px solid var(--ink);
+      border-radius:12px; padding:0 8px; background:#fff; height:44px}
+    .swatch{width:22px; height:22px; border-radius:50%; border:2px solid var(--ink); padding:0}
+    .swatch.sel{outline:3px solid var(--team); outline-offset:1px}
+    #restore{background:var(--posit); font-size:12px; line-height:1}
+
+    .submit{width:100%; background:var(--team); color:#fff; border:4px solid var(--ink);
+      border-radius:18px; font-family:'Titan One'; font-size:20px; padding:12px;
+      -webkit-text-stroke:.5px var(--ink); margin-top:8px}
+
+    #waitUI, #overUI{text-align:center}
+    @media (prefers-reduced-motion:reduce){*{animation:none!important}}
   </style>
 </head>
 <body>
@@ -34,83 +86,100 @@
   <section id="join" class="card">
     <h1>Doodle Brawl</h1>
     <p class="muted">Enter the 4-letter code on the TV.</p>
-    <p><input id="room" type="text" maxlength="4" placeholder="CODE" style="text-transform:uppercase"></p>
-    <p><input id="name" type="text" placeholder="your name"></p>
+    <input id="room" type="text" maxlength="4" placeholder="CODE" style="text-transform:uppercase">
+    <input id="name" type="text" placeholder="your name">
     <button id="joinBtn" class="big">Join</button>
     <p id="joinMsg" class="muted"></p>
   </section>
 
   <!-- PLAY -->
-  <section id="play" class="hidden">
-    <div class="card status">
-      <div>
-        <div><span id="teamdot"></span> <b id="pname">…</b> <span class="muted" id="roundLbl"></span></div>
-        <div class="hpbar" style="width:160px;margin-top:.3rem"><i id="hpfill" style="width:100%"></i></div>
-        <div class="muted" id="hptext">HP —</div>
-      </div>
-      <div style="text-align:right">
-        <div class="chips" id="conds"></div>
-        <div class="muted" id="banked"></div>
-      </div>
-    </div>
+  <section id="play" class="hidden" style="display:flex;flex-direction:column;gap:10px">
+    <header>
+      <span class="display" id="teamName">TEAM</span>
+      <span class="rnd" id="roundLbl"></span>
+      <span class="timer" id="timerBox"><span id="timer">–</span>s</span>
+    </header>
 
-    <div id="drawUI" class="card">
-      <div class="status">
+    <!-- status card -->
+    <section class="status card">
+      <div class="avatar" id="avatar"></div>
+      <div class="sinfo">
+        <strong class="display" id="pname" style="font-size:14px">…</strong>
+        <div class="srow">
+          <span class="stat" id="statPow">💪 –</span>
+          <span class="stat" id="statSpd">⚡ –</span>
+          <span class="stat" id="statWrd">🌀 –</span>
+          <span class="banked hidden" id="banked"></span>
+        </div>
+        <div class="srow"><span class="hearts" id="hearts">—</span><span class="conds" id="conds"></span></div>
+      </div>
+    </section>
+
+    <!-- draw -->
+    <section id="drawUI" class="card">
+      <div class="srow" style="justify-content:space-between">
         <b id="prompt">Draw!</b>
-        <span class="muted">auto-submit in <span id="timer">–</span>s</span>
       </div>
       <div id="hintWrap" class="hidden" style="margin:.5rem 0">
-        <input id="hint" type="text" placeholder="optional hint (e.g. 'a very angry teapot')">
+        <input id="hint" type="text" placeholder="optional hint (e.g. 'a very angry teapot')" style="width:100%">
       </div>
-      <div id="canvasWrap"><canvas id="pad"></canvas></div>
-      <div class="tools" id="colors"></div>
+      <div id="canvasWrap">
+        <div class="ribbon" id="ribbon"><span>🏠 your side</span><span>⟵ &nbsp; ⟶</span><span>enemies 💥</span></div>
+        <canvas id="pad"></canvas>
+      </div>
+      <div class="tools" id="colorsRow">
+        <span class="tbtn on">✏️</span>
+        <div id="colors"></div>
+      </div>
       <div class="tools">
-        <button class="tbtn" data-pen="4">•</button>
-        <button class="tbtn sel" data-pen="8">●</button>
-        <button class="tbtn" data-pen="18">⬤</button>
-        <button class="tbtn" data-erase="16">erase</button>
-        <button class="tbtn" data-erase="40">ERASE</button>
-        <button class="tbtn" id="undo">undo</button>
-        <button class="tbtn" id="clear">clear</button>
-        <button class="tbtn hidden" id="restore">restore character</button>
+        <button data-pen="4">•</button>
+        <button data-pen="8" class="sel">●</button>
+        <button data-pen="18">⬤</button>
+        <button data-erase="16">🧽<small>S</small></button>
+        <button data-erase="40">🧽<small>L</small></button>
+        <button id="undo">↩︎</button>
+        <button id="clear">🗑️</button>
+        <button id="restore" class="hidden">🔄 restore<br>character</button>
       </div>
-      <div class="row" style="margin-top:.6rem">
-        <button id="submit" class="big grow">Submit</button>
-      </div>
-    </div>
+      <button id="submit" class="submit">SEND IT! 🚀</button>
+    </section>
 
-    <div id="waitUI" class="card hidden" style="text-align:center">
+    <section id="waitUI" class="card hidden">
       <h2 id="waitTitle">Submitted! ✓</h2>
       <p class="muted" id="waitMsg">Look at the TV…</p>
-    </div>
+    </section>
 
-    <div id="overUI" class="card hidden" style="text-align:center">
+    <section id="overUI" class="card hidden">
       <h1 id="overTitle">Game Over</h1>
       <p id="overMsg" class="muted"></p>
-    </div>
+    </section>
   </section>
 
   <script src="/static/shared/ws.js"></script>
   <script src="/static/player/canvas.js"></script>
   <script>
   (function () {
-    const COLORS = ['#111111','#e11d48','#f59e0b','#fde047','#22c55e','#3b82f6','#8b5cf6','#ec4899'];
+    const CFG = window.DOODLE_CONFIG || {};
+    const SAND = CFG.canvas_background_color || '#E8D5A8';
+    const ACTION_SCALE = CFG.action_canvas_character_scale || 0.5;
+    const COLORS = ['#2B2338','#E24FA0','#2F6FE0','#3FB65C','#F2B233','#8F5FD6','#FF8B4D','#ffffff'];
     const COND_EMOJI = {burning:'🔥',soggy:'💧',sticky:'🟢',prone:'🙃',frightened:'😱',
       embarrassed:'😳',enraged:'😡',sparkly:'✨',hidden:'👻',off_balance:'😵',
       pumped:'💪',confused:'🌀',shielded:'🛡',transformed:'🦋'};
     const $ = (id) => document.getElementById(id);
-    const ACTION_SCALE = 0.8;   // shrink the character ~20% on the action canvas
 
     const qs = new URLSearchParams(location.search);
     $('room').value = (qs.get('room') || '').toUpperCase();
 
-    let sock, pad, teamId = null, teamColor = '#7c5cff';
+    let sock, pad, teamId = null, teamSide = 'left';
     let phase = '', round = 0, characterPng = '';
     let submitted = false, deadline = 0, timerHandle = null;
+    let prevStats = null;
 
     // ---- drawing tools ----
     function buildTools() {
       pad = new DrawCanvas($('pad'));
+      pad.setBackgroundColor(SAND);
       const cbox = $('colors');
       COLORS.forEach((c, i) => {
         const b = document.createElement('button');
@@ -125,11 +194,22 @@
         b.onclick = () => { pad.setEraser(+b.dataset.erase); selTool(b); });
       $('undo').onclick = () => pad.undo();
       $('clear').onclick = () => pad.clear();
-      $('restore').onclick = () => pad.loadImage(characterPng, { markClean: false, scale: ACTION_SCALE });
+      $('restore').onclick = () => loadCharacter(false);
       $('submit').onclick = () => doSubmit(false);
     }
-    function selColor(b) { document.querySelectorAll('.swatch').forEach(s => s.classList.remove('sel')); if (b) b.classList.add('sel'); }
-    function selTool(b) { document.querySelectorAll('[data-pen],[data-erase]').forEach(s => s.classList.remove('sel')); if (b) b.classList.add('sel'); }
+    function selColor(b){ document.querySelectorAll('.swatch').forEach(s=>s.classList.remove('sel')); if(b) b.classList.add('sel'); }
+    function selTool(b){ document.querySelectorAll('[data-pen],[data-erase]').forEach(s=>s.classList.remove('sel')); if(b) b.classList.add('sel'); }
+
+    // Prefill the action canvas with the scaled character on the team's side.
+    function loadCharacter(markClean) {
+      pad.loadImage(characterPng, { markClean: markClean, scale: ACTION_SCALE, side: teamSide });
+    }
+    function updateRibbon() {
+      const home = '🏠 your side', foe = 'enemies 💥';
+      const r = $('ribbon');
+      r.children[0].textContent = (teamSide === 'right') ? foe : home;
+      r.children[2].textContent = (teamSide === 'right') ? home : foe;
+    }
 
     // ---- submit / timer ----
     function doSubmit(auto) {
@@ -144,9 +224,11 @@
     }
     function startTimer(ts) {
       deadline = ts; stopTimer();
+      const warnAt = CFG.warning_seconds || 10;
       timerHandle = setInterval(() => {
         const left = Math.max(0, Math.round(deadline - Date.now() / 1000));
         $('timer').textContent = left;
+        $('timerBox').classList.toggle('warn', left <= warnAt);
         if (left <= 0) doSubmit(true);
       }, 300);
     }
@@ -164,24 +246,39 @@
       show('draw');
       const isChar = kind === 'draw_characters';
       $('hintWrap').classList.toggle('hidden', !isChar);
+      $('ribbon').classList.toggle('hidden', isChar);
       $('restore').classList.toggle('hidden', isChar);
       $('prompt').textContent = isChar ? 'Draw your fighter!' : 'Draw your move! (round ' + round + ')';
-      if (isChar) { pad.clear(); }
-      // Draw the move on top of the character, shrunk a bit so there's extra
-      // room around it (esp. when the character filled the original canvas).
-      else { pad.loadImage(characterPng, { markClean: true, scale: ACTION_SCALE }); }
+      if (isChar) { pad.bgSide = 'center'; pad.clear(); }
+      else { loadCharacter(true); }   // draw the move on top of the scaled character
     }
 
     // ---- status card ----
+    function pulseStat(el, key, val) {
+      const changed = prevStats && prevStats[key] !== val;
+      el.classList.remove('pulse');
+      if (changed) { void el.offsetWidth; el.classList.add('pulse'); }
+    }
+    function hearts(hp, max) {
+      const N = 6, full = Math.max(0, Math.min(N, Math.round(N * hp / Math.max(1, max))));
+      return '❤️'.repeat(full) + '🖤'.repeat(N - full) + ' ' + hp + '/' + max;
+    }
     function renderStatus(p) {
       $('pname').textContent = p.name;
-      const pct = Math.max(0, Math.round(100 * p.hp / Math.max(1, p.max_hp)));
-      $('hpfill').style.width = pct + '%';
-      $('hpfill').style.background = pct > 40 ? 'var(--good)' : 'var(--bad)';
-      $('hptext').textContent = (p.is_ko ? 'KO — Arena Gremlin' : 'HP ' + p.hp + '/' + p.max_hp);
-      $('conds').innerHTML = Object.keys(p.conditions || {}).map(k =>
-        '<span class="chip">' + (COND_EMOJI[k] || '') + ' ' + k + '</span>').join('');
-      $('banked').textContent = p.banked_actions ? ('🛡 ' + p.banked_actions + ' banked') : '';
+      if (p.png) $('avatar').style.backgroundImage = 'url(' + p.png + ')';
+      const st = p.stats || {};
+      $('statPow').textContent = '💪 ' + (st.power ?? '–');
+      $('statSpd').textContent = '⚡ ' + (st.speed ?? '–');
+      $('statWrd').textContent = '🌀 ' + (st.weird ?? '–');
+      pulseStat($('statPow'), 'power', st.power);
+      pulseStat($('statSpd'), 'speed', st.speed);
+      pulseStat($('statWrd'), 'weird', st.weird);
+      prevStats = st;
+      $('hearts').textContent = p.is_ko ? 'KO — Arena Gremlin' : hearts(p.hp, p.max_hp);
+      $('conds').textContent = Object.keys(p.conditions || {}).map(k => COND_EMOJI[k] || '•').join(' ');
+      const bk = $('banked');
+      bk.classList.toggle('hidden', !p.banked_actions);
+      bk.textContent = p.banked_actions ? ('🎯 banked ×' + p.banked_actions) : '';
     }
 
     // ---- messages ----
@@ -191,6 +288,8 @@
       } else if (m.type === 'joined') {
         localStorage.setItem('pid', m.payload.player_id);
         teamId = m.payload.team_id;
+        teamSide = teamId === 'team_b' ? 'right' : 'left';
+        updateRibbon();
         $('join').classList.add('hidden');
         $('play').classList.remove('hidden');
         show('wait');
@@ -198,29 +297,29 @@
         $('waitMsg').textContent = 'Waiting for the host to start…';
       } else if (m.type === 'lobby_state') {
         const t = (m.payload.teams || []).find(t => t.id === teamId);
-        if (t) { teamColor = t.color; document.documentElement.style.setProperty('--team', t.color); }
+        if (t) { document.documentElement.style.setProperty('--team', t.color); $('teamName').textContent = t.name.toUpperCase(); }
       } else if (m.type === 'phase_change') {
         phase = m.payload.phase; round = m.payload.round;
-        $('roundLbl').textContent = round ? ('round ' + round) : '';
+        $('roundLbl').textContent = round ? ('Drawing for Round ' + round) : 'Draw your fighter';
         if (phase === 'draw_characters' || phase === 'draw_action') {
           enterDraw(phase);
           startTimer(m.payload.deadline_ts);
         }
       } else if (m.type === 'canvas_init') {
         characterPng = m.payload.png || '';
-        if (phase === 'draw_action' && pad && !pad.dirty) pad.loadImage(characterPng, { markClean: true, scale: ACTION_SCALE });
+        if (phase === 'draw_action' && pad && !pad.dirty) loadCharacter(true);
       } else if (m.type === 'player_state') {
         renderStatus(m.payload);
       } else if (m.type === 'reveal_step') {
-        if (!submitted) return;      // still drawing (shouldn't happen)
+        if (!submitted) return;
         show('wait');
         $('waitTitle').textContent = 'Fight!';
         $('waitMsg').textContent = 'Watch the TV for the action…';
       } else if (m.type === 'game_over') {
         stopTimer();
         show('over');
-        const mine = teamId, won = m.payload.winner_team_id;
-        $('overTitle').textContent = won === mine ? '🏆 You Win!' : 'Game Over';
+        const won = m.payload.winner_team_id;
+        $('overTitle').textContent = won === teamId ? '🏆 You Win!' : 'Game Over';
         $('overMsg').textContent = 'Winner: ' + (won || 'nobody');
       }
     }

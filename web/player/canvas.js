@@ -19,6 +19,10 @@
       this.strokes = [];           // [{tool,color,size,points:[{x,y}]}]
       this.bg = null;              // preloaded character image
       this.bgScale = 1;            // <1 shrinks the character to free up drawing room
+      this.bgSide = 'center';      // 'left' | 'right' | 'center' — team side to sit on
+      // Canvas fill = the arena floor color so exported PNGs blend into the
+      // battlefield; erasers restore THIS color (not white/transparent).
+      this.bgColor = '#E8D5A8';
       this._cur = null;
       this._dirty = false;         // has the user drawn since the last load?
       this._bind();
@@ -29,6 +33,7 @@
     setColor(c) { this.color = c; this.tool = 'pen'; }
     setPen(size) { this.penSize = size; this.tool = 'pen'; }
     setEraser(size) { this.penSize = size; this.tool = 'eraser'; }
+    setBackgroundColor(c) { if (c) { this.bgColor = c; this.redraw(); } }
 
     get dirty() { return this._dirty; }
 
@@ -38,8 +43,11 @@
 
     // Load a character image (data URL) as the base layer, wiping strokes so the
     // player draws on top of a clean character. Used for preload + "restore".
-    loadImage(dataUrl, { markClean = true, scale = 1 } = {}) {
+    // `side` seats the character on the player's team side (matching the TV
+    // arena), leaving the open half of the canvas facing the enemies.
+    loadImage(dataUrl, { markClean = true, scale = 1, side = 'center' } = {}) {
       this.bgScale = scale;
+      this.bgSide = side;
       if (!dataUrl) { this.bg = null; this.redraw(); return; }
       const img = new Image();
       img.onload = () => {
@@ -55,21 +63,29 @@
     redraw() {
       const ctx = this.ctx;
       ctx.globalCompositeOperation = 'source-over';
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = this.bgColor;         // arena-floor sand, not white
       ctx.fillRect(0, 0, SIZE, SIZE);
       if (this.bg) {
-        const w = SIZE * this.bgScale, off = (SIZE - w) / 2;   // centered, shrunk
-        ctx.drawImage(this.bg, off, off, w, w);
+        const w = SIZE * this.bgScale;
+        const margin = SIZE * 0.06;
+        let x = (SIZE - w) / 2;
+        if (this.bgSide === 'left') x = margin;
+        else if (this.bgSide === 'right') x = SIZE - w - margin;
+        let y = SIZE - w - SIZE * 0.12;     // seat near the floor
+        if (y < margin) y = margin;
+        ctx.drawImage(this.bg, x, y, w, w);
       }
       for (const s of this.strokes) this._paint(s);
-      ctx.globalCompositeOperation = 'source-over';
     }
 
     _paint(s) {
       const ctx = this.ctx;
-      ctx.globalCompositeOperation = (s.tool === 'eraser') ? 'destination-out' : 'source-over';
-      ctx.strokeStyle = s.color;
-      ctx.fillStyle = s.color;
+      // Erasers paint the sand color (source-over) so erased areas restore the
+      // arena-floor background rather than cutting to transparent/white.
+      const eraser = s.tool === 'eraser';
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.strokeStyle = eraser ? this.bgColor : s.color;
+      ctx.fillStyle = eraser ? this.bgColor : s.color;
       ctx.lineWidth = s.size;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
