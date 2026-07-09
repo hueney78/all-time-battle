@@ -155,6 +155,41 @@ async def test_resync_replays_current_state_to_reconnecting_player():
     assert {"phase_change", "player_state", "canvas_init", "arena_state"} <= types
 
 
+async def test_reveal_beats_carry_acting_player_for_sprite_swap():
+    """Each reveal beat is tagged with the acting/target player so the host can
+    swap that fighter's sprite to its action image during the beat."""
+    from server.ai.provider import Beat, Narration
+    from server.engine.models import Event, EventType
+
+    rules = _rules()
+    room = Room("TEST", rules)
+    sock = FakeSocket()
+    p = room.add_player("Alice", "player", sock, None)
+    machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
+
+    ch = Character(player_id=p.id, name="Alice", stats=Stats(power=2, speed=2, weird=4),
+                   hp=20, max_hp=20, ac=13, zone_id="glitter_back")
+    machine.state = GameState(room_id="TEST", characters={p.id: ch}, teams=room.teams)
+
+    ev = Event(id="e1", type=EventType.ATTACK_RESOLVED, round=1,
+               player_id=p.id, target_id=p.id, data={"result": "hit"})
+    narration = Narration(beats=[Beat(event_id="e1", text="Alice zaps someone")])
+
+    await machine._reveal(1, narration, [ev])
+
+    reveal = None
+    for _ in range(6):
+        env = await asyncio.wait_for(sock.client_recv(), 1.0)
+        if env.type == "reveal_step":
+            reveal = env
+            break
+    assert reveal is not None
+    beat = reveal.payload["beats"][0]
+    assert beat["event_id"] == "e1"
+    assert beat["player_id"] == p.id and beat["target_id"] == p.id
+    assert beat["hurt"] == p.id   # a hit flags the target as negatively impacted
+
+
 # ---------------------------------------------------------------------------
 # The acceptance test: a full 4-player mock game to victory over websockets
 # ---------------------------------------------------------------------------

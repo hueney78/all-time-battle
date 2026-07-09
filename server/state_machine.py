@@ -62,6 +62,8 @@ class GameStateMachine:
         self.rules = rules
         self.balance = rules.balance
         self.ai = ai
+        # Condition names tagged as negative — used to flag "hurt" reveal beats.
+        self._debuffs = {n for n, c in rules.conditions.conditions.items() if c.debuff}
         self.timers = timers or Timers.from_settings(rules.settings.timers)
         self.snapshots = snapshots or SnapshotWriter(
             rules.settings.snapshots.dir, room.code, rules.settings.snapshots.enabled
@@ -187,7 +189,7 @@ class GameStateMachine:
             self.snapshots.append_wildcards(round_num, actions)
 
             # ---- reveal ----
-            await self._reveal(round_num, narration)
+            await self._reveal(round_num, narration, result.events)
             await self._send_all_player_states()
             await self._broadcast_arena()
 
@@ -195,11 +197,26 @@ class GameStateMachine:
                 return
             round_num += 1
 
-    async def _reveal(self, round_num: int, narration) -> None:
+    async def _reveal(self, round_num: int, narration, events) -> None:
         self._phase = "reveal"
         self._round = round_num
         self._beat_done = asyncio.Event()
-        beats = [{"event_id": b.event_id, "text": b.text} for b in narration.beats]
+        # Attach each beat's acting/target player so the host can sprite-swap the
+        # right character while the beat plays (ARCHITECTURE.md §4.5).
+        ev_by_id = {e.id: e for e in events}
+        beats = []
+        for b in narration.beats:
+            ev = ev_by_id.get(b.event_id)
+            beats.append({
+                "event_id": b.event_id,
+                "text": b.text,
+                "player_id": ev.player_id if ev else None,
+                "target_id": ev.target_id if ev else None,
+                "type": ev.type.value if ev else None,
+                # Who (if anyone) this beat negatively impacts — the host flashes
+                # that fighter red.
+                "hurt": self._hurt_target(ev) if ev else None,
+            })
         await self.room.broadcast(S2C.REVEAL_STEP, {
             "round": round_num,
             "beats": beats,
@@ -213,6 +230,22 @@ class GameStateMachine:
             await asyncio.wait_for(self._beat_done.wait(), timeout)
         except TimeoutError:
             pass
+
+    def _hurt_target(self, ev) -> str | None:
+        """The player negatively impacted by an event (damaged, debuffed, KO'd),
+        or None for neutral/positive events."""
+        t = ev.type.value
+        d = ev.data
+        if t == "attack_resolved":
+            if d.get("result") in ("hit", "crit"):
+                return ev.target_id
+            if d.get("result") == "fumble":
+                return ev.player_id      # hurt themselves
+        elif t == "condition_applied" and d.get("condition") in self._debuffs:
+            return ev.player_id          # condition events use player_id as the affected char
+        elif t in ("condition_ticked", "ko"):
+            return ev.player_id
+        return None
 
     async def _game_over(self) -> None:
         self._phase = "game_over"

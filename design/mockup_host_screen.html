@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Doodle Brawl — Host Screen Mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Titan+One&family=Nunito:wght@600;800;900&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   DOODLE BRAWL — HOST SCREEN MOCKUP
+   Reference for Phase 4/6 host page. Everything marked
+   [spec] maps to a documented feature; sizes/colors are
+   suggestions, structure is the contract.
+   ============================================================ */
+:root{
+  --ink:#2B2338;            /* crayon outline / text */
+  --sand:#E8D5A8;           /* arena floor */
+  --stone:#C9B282;          /* colosseum stone */
+  --sky:#8FD0E8;
+  --glitter:#E24FA0;        /* Team A */
+  --thunder:#2F6FE0;        /* Team B */
+  --gold:#F2B233;           /* crit / crowns */
+  --dmg:#E23D3D; --heal:#3FB65C; --posit:#6FD4F2;
+  --card:#FFF9EC;
+}
+*{box-sizing:border-box;margin:0}
+body{
+  font-family:'Nunito',system-ui,sans-serif;color:var(--ink);
+  background:linear-gradient(#BFE4F2,#9ED4EA 30%,var(--sand) 30.2%);
+  min-height:100vh;padding:14px;display:grid;
+  grid-template-columns:180px 1fr;gap:14px;
+}
+h1,h2,.display{font-family:'Titan One',cursive;letter-spacing:.5px}
+
+/* ---------- INITIATIVE RAIL [spec: left-side rail + stat strips] ---------- */
+.rail{background:var(--card);border:4px solid var(--ink);border-radius:22px;
+  padding:12px 10px;display:flex;flex-direction:column;gap:10px;height:fit-content}
+.rail h2{font-size:15px;text-align:center;line-height:1.1}
+.rail .slot{display:flex;align-items:center;gap:8px;background:#fff;
+  border:3px solid var(--ink);border-radius:14px;padding:5px 7px;position:relative}
+.rail .slot .portrait{width:44px;height:44px;flex:none}
+.rail .slot .order{position:absolute;top:-9px;left:-9px;width:20px;height:20px;
+  border-radius:50%;background:var(--ink);color:#fff;font-weight:900;font-size:11px;
+  display:grid;place-items:center}
+.rail .who{font-weight:900;font-size:11px;line-height:1}
+.stats{display:flex;gap:5px;font-size:10.5px;font-weight:900;margin-top:2px}
+.stats span{background:#F1EADB;border-radius:7px;padding:1px 4px}
+.team-a{box-shadow:inset 4px 0 0 var(--glitter)}
+.team-b{box-shadow:inset 4px 0 0 var(--thunder)}
+.pulse{animation:statpulse 1.6s ease-in-out infinite}
+@keyframes statpulse{50%{background:var(--gold)}}
+
+/* ---------- STAGE ---------- */
+.stage{display:flex;flex-direction:column;gap:12px;min-width:0}
+.topbar{display:flex;align-items:center;gap:14px}
+.topbar h1{font-size:26px}
+.roundtitle{font-weight:800;font-size:15px;opacity:.85}
+.replay{margin-left:auto;background:var(--gold);border:3px solid var(--ink);
+  border-radius:12px;padding:4px 12px;font-family:'Titan One';font-size:14px;
+  transform:rotate(2deg);animation:replaypulse 1s infinite}
+@keyframes replaypulse{50%{transform:rotate(-2deg) scale(1.06)}}
+
+/* ---------- BATTLEFIELD [spec: colosseum bg + 3 left/right zones] ---------- */
+.arena{position:relative;border:4px solid var(--ink);border-radius:24px;overflow:hidden;
+  background:
+    radial-gradient(circle at 50% 118%, #D9C08B 0 46%, transparent 46.5%),
+    repeating-linear-gradient(90deg,var(--stone) 0 46px,#BBA476 46px 52px) 0 0/100% 88px no-repeat,
+    linear-gradient(#F3E3B5 88px, var(--sand) 89px);
+  height:340px;
+}
+/* stand-in colosseum arches — real arena_background image replaces all of this */
+.arena::before{content:"";position:absolute;top:14px;left:0;right:0;height:58px;
+  background:radial-gradient(circle 26px at 30px 58px, #7d6a45 0 24px, transparent 25px);
+  background-size:60px 58px;opacity:.55}
+.bgnote{position:absolute;top:6px;right:10px;font-size:10px;font-weight:800;
+  background:#fff8;border-radius:8px;padding:2px 7px}
+.zones{position:absolute;inset:96px 0 0 0;display:grid;grid-template-columns:1fr 1.15fr 1fr}
+.zone{position:relative;border-left:3px dashed #00000022;display:flex;
+  align-items:flex-end;justify-content:center;gap:18px;padding-bottom:16px}
+.zone:first-child{border-left:none}
+.zonelabel{position:absolute;top:6px;left:50%;transform:translateX(-50%);
+  font-weight:900;font-size:11px;background:#ffffffc9;border:2px solid var(--ink);
+  border-radius:10px;padding:1px 9px;white-space:nowrap}
+
+/* ---------- FIGHTER SPRITES [spec: persistent ACTION image is the sprite] ---------- */
+.fighter{position:relative;width:110px;text-align:center;transition:transform .3s}
+.fighter svg{width:100%;height:auto;filter:drop-shadow(2px 3px 0 #00000025)}
+.nametag{font-family:'Titan One';font-size:11.5px;background:#fff;border:2.5px solid var(--ink);
+  border-radius:9px;padding:1px 4px;display:inline-block;margin-top:-4px}
+.hpbar{height:9px;border:2px solid var(--ink);border-radius:6px;background:#fff;margin-top:3px;overflow:hidden}
+.hpbar i{display:block;height:100%;background:var(--heal)}
+.hp-low i{background:var(--dmg)}
+.conds{font-size:13px;height:16px;margin-top:1px}
+
+/* acting fighter zoom [spec: reveal_action_zoom_scale/_seconds] */
+.acting{transform:scale(1.8);z-index:5;transform-origin:bottom center}
+.acting .nametag{background:var(--gold)}
+
+/* impact feedback [spec: red border+shake / light-blue border+pop] */
+.hit svg{animation:shake .5s infinite}
+.hit{outline:4px solid var(--dmg);outline-offset:4px;border-radius:14px}
+.helped{outline:4px solid var(--posit);outline-offset:4px;border-radius:14px}
+.helped svg{animation:pop 1.4s ease-in-out infinite}
+@keyframes shake{25%{transform:translateX(-4px) rotate(-2deg)}75%{transform:translateX(4px) rotate(2deg)}}
+@keyframes pop{30%{transform:scale(1.14)}55%{transform:scale(1)}}
+
+/* floating combat numbers [spec: red dmg / green heal, crits oversized] */
+.floatnum{position:absolute;left:50%;top:-6px;transform:translateX(-50%);
+  font-family:'Titan One';font-size:26px;color:var(--dmg);
+  -webkit-text-stroke:1.5px #fff;animation:floatup 1.5s ease-out infinite;pointer-events:none}
+.floatnum.heal{color:var(--heal)}
+.floatnum.crit{font-size:36px;color:var(--dmg)}
+@keyframes floatup{0%{opacity:0;translate:0 14px}15%{opacity:1}100%{opacity:0;translate:0 -34px}}
+
+/* ---------- NARRATION [spec: announcer duo, speaker-tagged beats] ---------- */
+.beatcard{background:var(--card);border:4px solid var(--ink);border-radius:18px;padding:10px 16px;
+  font-size:17px;font-weight:800;display:flex;flex-direction:column;gap:6px}
+.beat{display:flex;gap:10px;align-items:baseline}
+.chip{flex:none;font-family:'Titan One';font-size:11px;border:2.5px solid var(--ink);
+  border-radius:9px;padding:1px 8px;background:var(--gold)}
+.chip.color{background:var(--posit)}
+
+/* ---------- TUG-OF-WAR METERS [spec: HP share + crowd favorite] ---------- */
+.meters{display:flex;flex-direction:column;gap:8px}
+.meter{display:grid;grid-template-columns:120px 1fr;align-items:center;gap:12px}
+.meter .label{font-family:'Titan One';font-size:12.5px;text-align:right;line-height:1.05}
+.rope{position:relative;height:22px;border-radius:12px;border:3px solid var(--ink);
+  background:linear-gradient(90deg,var(--glitter) 0 50%,var(--thunder) 50%);
+  background-size:200% 100%}
+.rope::before{content:"";position:absolute;inset:8px 4px;border-top:3px dashed #ffffff88}
+.knot{position:absolute;top:50%;translate:-50% -50%;width:30px;height:30px;border-radius:50%;
+  background:var(--card);border:3.5px solid var(--ink);display:grid;place-items:center;
+  font-size:14px;transition:left 1s cubic-bezier(.5,1.6,.4,1)}
+.ticks{display:flex;justify-content:space-between;font-size:10px;font-weight:900;opacity:.65;padding:0 4px}
+
+footer{grid-column:1/-1;font-size:11px;font-weight:700;opacity:.6;text-align:center;padding-top:2px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<!-- ================= INITIATIVE RAIL ================= -->
+<aside class="rail">
+  <h2>Initiative<br>Order</h2>
+  <div class="slot team-a"><span class="order">1</span>
+    <svg class="portrait" viewBox="0 0 60 60"><path d="M14 44 Q10 24 26 18 Q44 12 48 30 Q50 44 34 47 Q20 50 14 44Z" fill="#F7C8E2" stroke="#2B2338" stroke-width="3"/><path d="M30 18 L38 4 L41 20" fill="#fff" stroke="#2B2338" stroke-width="2.5"/><path d="M38 4 L38 -2" stroke="#8b8b8b" stroke-width="3"/><circle cx="24" cy="30" r="2.6" fill="#2B2338"/><circle cx="36" cy="30" r="2.6" fill="#2B2338"/><path d="M24 39 Q30 43 36 39" stroke="#2B2338" stroke-width="2.5" fill="none"/></svg>
+    <div><div class="who">P. Stabby</div>
+      <div class="stats"><span>💪2</span><span>⚡3</span><span>🌀4</span></div></div>
+  </div>
+  <div class="slot team-b"><span class="order">2</span>
+    <svg class="portrait" viewBox="0 0 60 60"><path d="M10 34 Q14 12 34 14 Q52 16 50 34 Q48 50 30 50 Q12 50 10 34Z" fill="#B9E27A" stroke="#2B2338" stroke-width="3" stroke-dasharray="4 2"/><circle cx="22" cy="28" r="3" fill="#2B2338"/><circle cx="33" cy="24" r="3" fill="#2B2338"/><circle cx="42" cy="30" r="3" fill="#2B2338"/><path d="M22 40 Q30 36 40 41" stroke="#2B2338" stroke-width="2.5" fill="none"/></svg>
+    <div><div class="who">The Blob</div>
+      <div class="stats"><span>💪1</span><span>⚡2</span><span>🌀4</span></div></div>
+  </div>
+  <div class="slot team-b"><span class="order">3</span>
+    <svg class="portrait" viewBox="0 0 60 60"><rect x="14" y="30" width="34" height="16" rx="5" fill="#9AA7B8" stroke="#2B2338" stroke-width="3"/><circle cx="20" cy="48" r="6" fill="#2B2338"/><circle cx="42" cy="48" r="6" fill="#2B2338"/><path d="M24 30 Q24 12 34 12 Q40 12 40 30" fill="#D7DEE8" stroke="#2B2338" stroke-width="3"/><rect x="28" y="18" width="10" height="4" fill="#2B2338"/></svg>
+    <div><div class="who">Sir Lawnm.</div>
+      <div class="stats"><span class="pulse">💪4</span><span>⚡2</span><span>🌀1</span></div></div>
+  </div>
+  <div class="slot team-a"><span class="order">4</span>
+    <svg class="portrait" viewBox="0 0 60 60"><ellipse cx="30" cy="30" rx="17" ry="13" fill="#FFB84D" stroke="#2B2338" stroke-width="3"/><path d="M45 30 L56 22 L56 38 Z" fill="#FFB84D" stroke="#2B2338" stroke-width="3"/><circle cx="24" cy="27" r="2.8" fill="#2B2338"/><path d="M18 34 Q22 37 26 34" stroke="#2B2338" stroke-width="2.5" fill="none"/><path d="M22 43 L20 52 M30 43 L30 52" stroke="#2B2338" stroke-width="3"/></svg>
+    <div><div class="who">Gerald</div>
+      <div class="stats"><span>💪3</span><span>⚡1</span><span>🌀3</span></div></div>
+  </div>
+</aside>
+
+<!-- ================= STAGE ================= -->
+<main class="stage">
+  <div class="topbar">
+    <h1>ROUND 4</h1><span class="roundtitle">“The Fish Learns to Surf”</span>
+    <span class="replay">🔁 REPLAY!</span>
+  </div>
+
+  <!-- battlefield -->
+  <section class="arena">
+    <span class="bgnote">default CSS colosseum (arena_background image = optional override)</span>
+    <div class="zones">
+      <div class="zone"><span class="zonelabel" style="border-color:var(--glitter)">🏠 Glitter Backline</span>
+        <!-- Gerald: positive impact [blue border + pop] + green heal float -->
+        <div class="fighter helped">
+          <span class="floatnum heal">+6</span>
+          <svg viewBox="0 0 60 60"><ellipse cx="30" cy="30" rx="17" ry="13" fill="#FFB84D" stroke="#2B2338" stroke-width="3"/><path d="M45 30 L56 22 L56 38 Z" fill="#FFB84D" stroke="#2B2338" stroke-width="3"/><circle cx="24" cy="27" r="2.8" fill="#2B2338"/><path d="M18 34 Q22 37 26 34" stroke="#2B2338" stroke-width="2.5" fill="none"/><path d="M14 20 Q10 14 16 12 M46 44 L52 50" stroke="#2B2338" stroke-width="3" fill="none"/><path d="M22 43 L20 52 M30 43 L30 52 M38 43 L38 52" stroke="#2B2338" stroke-width="3"/></svg>
+          <div class="nametag">Gerald</div>
+          <div class="hpbar"><i style="width:42%"></i></div>
+          <div class="conds">😱</div>
+        </div>
+      </div>
+
+      <div class="zone"><span class="zonelabel">⚔️ The Pit</span>
+        <!-- Stabby: ACTING — action drawing (laser!) zoomed [reveal zoom] -->
+        <div class="fighter acting">
+          <svg viewBox="0 0 60 60"><path d="M14 44 Q10 24 26 18 Q44 12 48 30 Q50 44 34 47 Q20 50 14 44Z" fill="#F7C8E2" stroke="#2B2338" stroke-width="3"/><path d="M30 18 L38 4 L41 20" fill="#fff" stroke="#2B2338" stroke-width="2.5"/><path d="M39 6 L58 0 M40 9 L59 6 M41 12 L58 12" stroke="#E24FA0" stroke-width="3"/><circle cx="24" cy="30" r="2.6" fill="#2B2338"/><circle cx="36" cy="30" r="2.6" fill="#2B2338"/><path d="M24 39 Q30 43 36 39" stroke="#2B2338" stroke-width="2.5" fill="none"/></svg>
+          <div class="nametag">Princess Stabby</div>
+          <div class="hpbar hp-low"><i style="width:8%"></i></div>
+          <div class="conds">🟢</div>
+        </div>
+        <!-- Blob: damaged [red border + shake] + red crit float -->
+        <div class="fighter hit">
+          <span class="floatnum crit">−12!</span>
+          <svg viewBox="0 0 60 60"><path d="M10 34 Q14 12 34 14 Q52 16 50 34 Q48 50 30 50 Q12 50 10 34Z" fill="#B9E27A" stroke="#2B2338" stroke-width="3" stroke-dasharray="4 2"/><circle cx="22" cy="28" r="3" fill="#2B2338"/><circle cx="33" cy="24" r="3" fill="#2B2338"/><circle cx="42" cy="30" r="3" fill="#2B2338"/><path d="M20 42 Q30 47 42 42" stroke="#2B2338" stroke-width="2.5" fill="none" transform="rotate(180 31 44)"/></svg>
+          <div class="nametag">The Blob of Doom</div>
+          <div class="hpbar hp-low"><i style="width:10%"></i></div>
+          <div class="conds">✨</div>
+        </div>
+      </div>
+
+      <div class="zone"><span class="zonelabel" style="border-color:var(--thunder)">🏠 Thunder Backline</span>
+        <!-- Lawnmower: persistent action sprite from HIS last reveal (donut skid) -->
+        <div class="fighter">
+          <svg viewBox="0 0 60 60"><rect x="14" y="30" width="34" height="16" rx="5" fill="#9AA7B8" stroke="#2B2338" stroke-width="3"/><circle cx="20" cy="48" r="6" fill="#2B2338"/><circle cx="42" cy="48" r="6" fill="#2B2338"/><path d="M24 30 Q24 12 34 12 Q40 12 40 30" fill="#D7DEE8" stroke="#2B2338" stroke-width="3"/><rect x="28" y="18" width="10" height="4" fill="#2B2338"/><path d="M8 52 Q14 46 8 42 M52 52 Q46 48 52 44" stroke="#2B2338" stroke-width="2.5" fill="none"/></svg>
+          <div class="nametag">Sir Lawnmower</div>
+          <div class="hpbar"><i style="width:23%"></i></div>
+          <div class="conds">💧😳</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- narration beats: announcer duo -->
+  <section class="beatcard">
+    <div class="beat"><span class="chip">PLAY-BY-PLAY</span>
+      <span>PRINCESS STABBY FIRES THE RAINBOW LASER FROM <em>INSIDE THE BLOB!</em> CRITICAL HIT!</span></div>
+    <div class="beat"><span class="chip color">COLOR</span>
+      <span>Statistically, being eaten remains a poor defensive strategy.</span></div>
+  </section>
+
+  <!-- tug-of-war meters -->
+  <section class="meters">
+    <div class="meter"><span class="label">WHO'S<br>WINNING</span>
+      <div><div class="rope"><span class="knot" style="left:62%">🪢</span></div>
+        <div class="ticks"><span>TEAM GLITTER</span><span>TEAM THUNDER</span></div></div>
+    </div>
+    <div class="meter"><span class="label">CROWD<br>FAVORITE</span>
+      <div><div class="rope"><span class="knot" style="left:38%">📣</span></div>
+        <div class="ticks"><span>TEAM GLITTER</span><span>TEAM THUNDER</span></div></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  Mockup notes — configs demonstrated: arena_background · reveal_action_zoom_scale/seconds (Stabby) ·
+  impact borders (Blob = red+shake, Gerald = blue+pop) · float_number_seconds (crit oversized) ·
+  initiative rail w/ stat strips (Lawnmower 💪 pulsing = montage change) · persistent action sprites ·
+  speaker-tagged beats · HP + audience meters. Knot positions come from reveal_step meter values.
+</footer>
+
+<script>
+/* Tiny demo loop so the mockup breathes: meters wander, replay badge toggles. */
+const knots=[...document.querySelectorAll('.knot')];const replay=document.querySelector('.replay');
+setInterval(()=>{knots[0].style.left=(45+Math.random()*30)+'%';
+  knots[1].style.left=(30+Math.random()*40)+'%';
+  replay.style.visibility=Math.random()>.5?'visible':'hidden';},2600);
+</script>
+</body>
+</html>

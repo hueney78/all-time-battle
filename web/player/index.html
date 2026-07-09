@@ -2,12 +2,244 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Doodle Brawl — Join</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Doodle Brawl</title>
+  <link rel="stylesheet" href="/static/shared/common.css">
+  <style>
+    body { padding: .8rem; max-width: 540px; margin: 0 auto; }
+    .card { background: var(--panel); border-radius: 16px; padding: .8rem; margin-bottom: .7rem; }
+    #canvasWrap { position: relative; }
+    canvas {
+      width: 100%; aspect-ratio: 1 / 1; background: #fff;
+      border-radius: 14px; touch-action: none; border: 3px solid var(--team);
+    }
+    .tools { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-top: .5rem; }
+    .swatch { width: 30px; height: 30px; border-radius: 50%; border: 2px solid #0006; padding: 0; }
+    .swatch.sel { outline: 3px solid var(--team); }
+    .tbtn { padding: .5rem .7rem; background: #2b2c4d; }
+    .tbtn.sel { background: var(--team); }
+    .row { display: flex; gap: .5rem; align-items: center; }
+    .grow { flex: 1; }
+    .big { font-size: 1.15rem; padding: .9rem; width: 100%; }
+    #teamdot { display: inline-block; width: .8rem; height: .8rem; border-radius: 50%;
+               background: var(--team); vertical-align: middle; }
+    #timer { font-weight: 800; }
+    .status { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
+  </style>
 </head>
 <body>
-  <h1>Join Game</h1>
-  <p>Phase 4 — TODO</p>
-  <!-- join form, drawing canvas, status card -->
+  <div id="banner">Reconnecting…</div>
+
+  <!-- JOIN -->
+  <section id="join" class="card">
+    <h1>Doodle Brawl</h1>
+    <p class="muted">Enter the 4-letter code on the TV.</p>
+    <p><input id="room" type="text" maxlength="4" placeholder="CODE" style="text-transform:uppercase"></p>
+    <p><input id="name" type="text" placeholder="your name"></p>
+    <button id="joinBtn" class="big">Join</button>
+    <p id="joinMsg" class="muted"></p>
+  </section>
+
+  <!-- PLAY -->
+  <section id="play" class="hidden">
+    <div class="card status">
+      <div>
+        <div><span id="teamdot"></span> <b id="pname">…</b> <span class="muted" id="roundLbl"></span></div>
+        <div class="hpbar" style="width:160px;margin-top:.3rem"><i id="hpfill" style="width:100%"></i></div>
+        <div class="muted" id="hptext">HP —</div>
+      </div>
+      <div style="text-align:right">
+        <div class="chips" id="conds"></div>
+        <div class="muted" id="banked"></div>
+      </div>
+    </div>
+
+    <div id="drawUI" class="card">
+      <div class="status">
+        <b id="prompt">Draw!</b>
+        <span class="muted">auto-submit in <span id="timer">–</span>s</span>
+      </div>
+      <div id="hintWrap" class="hidden" style="margin:.5rem 0">
+        <input id="hint" type="text" placeholder="optional hint (e.g. 'a very angry teapot')">
+      </div>
+      <div id="canvasWrap"><canvas id="pad"></canvas></div>
+      <div class="tools" id="colors"></div>
+      <div class="tools">
+        <button class="tbtn" data-pen="4">•</button>
+        <button class="tbtn sel" data-pen="8">●</button>
+        <button class="tbtn" data-pen="18">⬤</button>
+        <button class="tbtn" data-erase="16">erase</button>
+        <button class="tbtn" data-erase="40">ERASE</button>
+        <button class="tbtn" id="undo">undo</button>
+        <button class="tbtn" id="clear">clear</button>
+        <button class="tbtn hidden" id="restore">restore character</button>
+      </div>
+      <div class="row" style="margin-top:.6rem">
+        <button id="submit" class="big grow">Submit</button>
+      </div>
+    </div>
+
+    <div id="waitUI" class="card hidden" style="text-align:center">
+      <h2 id="waitTitle">Submitted! ✓</h2>
+      <p class="muted" id="waitMsg">Look at the TV…</p>
+    </div>
+
+    <div id="overUI" class="card hidden" style="text-align:center">
+      <h1 id="overTitle">Game Over</h1>
+      <p id="overMsg" class="muted"></p>
+    </div>
+  </section>
+
+  <script src="/static/shared/ws.js"></script>
+  <script src="/static/player/canvas.js"></script>
+  <script>
+  (function () {
+    const COLORS = ['#111111','#e11d48','#f59e0b','#fde047','#22c55e','#3b82f6','#8b5cf6','#ec4899'];
+    const COND_EMOJI = {burning:'🔥',soggy:'💧',sticky:'🟢',prone:'🙃',frightened:'😱',
+      embarrassed:'😳',enraged:'😡',sparkly:'✨',hidden:'👻',off_balance:'😵',
+      pumped:'💪',confused:'🌀',shielded:'🛡',transformed:'🦋'};
+    const $ = (id) => document.getElementById(id);
+    const ACTION_SCALE = 0.8;   // shrink the character ~20% on the action canvas
+
+    const qs = new URLSearchParams(location.search);
+    $('room').value = (qs.get('room') || '').toUpperCase();
+
+    let sock, pad, teamId = null, teamColor = '#7c5cff';
+    let phase = '', round = 0, characterPng = '';
+    let submitted = false, deadline = 0, timerHandle = null;
+
+    // ---- drawing tools ----
+    function buildTools() {
+      pad = new DrawCanvas($('pad'));
+      const cbox = $('colors');
+      COLORS.forEach((c, i) => {
+        const b = document.createElement('button');
+        b.className = 'swatch' + (i === 0 ? ' sel' : '');
+        b.style.background = c;
+        b.onclick = () => { pad.setColor(c); selColor(b); selTool(null); };
+        cbox.appendChild(b);
+      });
+      document.querySelectorAll('[data-pen]').forEach(b =>
+        b.onclick = () => { pad.setPen(+b.dataset.pen); selTool(b); });
+      document.querySelectorAll('[data-erase]').forEach(b =>
+        b.onclick = () => { pad.setEraser(+b.dataset.erase); selTool(b); });
+      $('undo').onclick = () => pad.undo();
+      $('clear').onclick = () => pad.clear();
+      $('restore').onclick = () => pad.loadImage(characterPng, { markClean: false, scale: ACTION_SCALE });
+      $('submit').onclick = () => doSubmit(false);
+    }
+    function selColor(b) { document.querySelectorAll('.swatch').forEach(s => s.classList.remove('sel')); if (b) b.classList.add('sel'); }
+    function selTool(b) { document.querySelectorAll('[data-pen],[data-erase]').forEach(s => s.classList.remove('sel')); if (b) b.classList.add('sel'); }
+
+    // ---- submit / timer ----
+    function doSubmit(auto) {
+      if (submitted) return;
+      submitted = true;
+      sock.send('submit_drawing', { phase: phase, round: round, png_base64: pad.toPNG() });
+      if (phase === 'draw_characters') sock.send('submit_hint', { hint: $('hint').value });
+      stopTimer();
+      show('wait');
+      $('waitTitle').textContent = auto ? "Time! Submitted ⏰" : "Submitted! ✓";
+      $('waitMsg').textContent = 'Look at the TV…';
+    }
+    function startTimer(ts) {
+      deadline = ts; stopTimer();
+      timerHandle = setInterval(() => {
+        const left = Math.max(0, Math.round(deadline - Date.now() / 1000));
+        $('timer').textContent = left;
+        if (left <= 0) doSubmit(true);
+      }, 300);
+    }
+    function stopTimer() { if (timerHandle) { clearInterval(timerHandle); timerHandle = null; } }
+
+    // ---- screen switching ----
+    function show(which) {
+      $('drawUI').classList.toggle('hidden', which !== 'draw');
+      $('waitUI').classList.toggle('hidden', which !== 'wait');
+      $('overUI').classList.toggle('hidden', which !== 'over');
+    }
+
+    function enterDraw(kind) {
+      submitted = false;
+      show('draw');
+      const isChar = kind === 'draw_characters';
+      $('hintWrap').classList.toggle('hidden', !isChar);
+      $('restore').classList.toggle('hidden', isChar);
+      $('prompt').textContent = isChar ? 'Draw your fighter!' : 'Draw your move! (round ' + round + ')';
+      if (isChar) { pad.clear(); }
+      // Draw the move on top of the character, shrunk a bit so there's extra
+      // room around it (esp. when the character filled the original canvas).
+      else { pad.loadImage(characterPng, { markClean: true, scale: ACTION_SCALE }); }
+    }
+
+    // ---- status card ----
+    function renderStatus(p) {
+      $('pname').textContent = p.name;
+      const pct = Math.max(0, Math.round(100 * p.hp / Math.max(1, p.max_hp)));
+      $('hpfill').style.width = pct + '%';
+      $('hpfill').style.background = pct > 40 ? 'var(--good)' : 'var(--bad)';
+      $('hptext').textContent = (p.is_ko ? 'KO — Arena Gremlin' : 'HP ' + p.hp + '/' + p.max_hp);
+      $('conds').innerHTML = Object.keys(p.conditions || {}).map(k =>
+        '<span class="chip">' + (COND_EMOJI[k] || '') + ' ' + k + '</span>').join('');
+      $('banked').textContent = p.banked_actions ? ('🛡 ' + p.banked_actions + ' banked') : '';
+    }
+
+    // ---- messages ----
+    function onMessage(m) {
+      if (m.type === 'error' || m.type === 'toast') {
+        $('joinMsg').textContent = 'server: ' + (m.payload.message || '');
+      } else if (m.type === 'joined') {
+        localStorage.setItem('pid', m.payload.player_id);
+        teamId = m.payload.team_id;
+        $('join').classList.add('hidden');
+        $('play').classList.remove('hidden');
+        show('wait');
+        $('waitTitle').textContent = 'You’re in!';
+        $('waitMsg').textContent = 'Waiting for the host to start…';
+      } else if (m.type === 'lobby_state') {
+        const t = (m.payload.teams || []).find(t => t.id === teamId);
+        if (t) { teamColor = t.color; document.documentElement.style.setProperty('--team', t.color); }
+      } else if (m.type === 'phase_change') {
+        phase = m.payload.phase; round = m.payload.round;
+        $('roundLbl').textContent = round ? ('round ' + round) : '';
+        if (phase === 'draw_characters' || phase === 'draw_action') {
+          enterDraw(phase);
+          startTimer(m.payload.deadline_ts);
+        }
+      } else if (m.type === 'canvas_init') {
+        characterPng = m.payload.png || '';
+        if (phase === 'draw_action' && pad && !pad.dirty) pad.loadImage(characterPng, { markClean: true, scale: ACTION_SCALE });
+      } else if (m.type === 'player_state') {
+        renderStatus(m.payload);
+      } else if (m.type === 'reveal_step') {
+        if (!submitted) return;      // still drawing (shouldn't happen)
+        show('wait');
+        $('waitTitle').textContent = 'Fight!';
+        $('waitMsg').textContent = 'Watch the TV for the action…';
+      } else if (m.type === 'game_over') {
+        stopTimer();
+        show('over');
+        const mine = teamId, won = m.payload.winner_team_id;
+        $('overTitle').textContent = won === mine ? '🏆 You Win!' : 'Game Over';
+        $('overMsg').textContent = 'Winner: ' + (won || 'nobody');
+      }
+    }
+
+    // ---- boot ----
+    buildTools();
+    $('joinBtn').onclick = () => {
+      const room = $('room').value.toUpperCase().trim();
+      const name = $('name').value.trim() || 'Player';
+      if (room.length !== 4) { $('joinMsg').textContent = 'Enter the 4-letter room code.'; return; }
+      sock = DoodleSocket({
+        onStatus: (s) => $('banner').classList.toggle('show', s === 'offline'),
+        onOpen: (api) => api.send('join', {
+          role: 'player', name: name, room: room, player_id: localStorage.getItem('pid'),
+        }),
+        onMessage: onMessage,
+      });
+    };
+  })();
+  </script>
 </body>
 </html>

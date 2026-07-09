@@ -4,10 +4,210 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Doodle Brawl — Host</title>
+  <link rel="stylesheet" href="/static/shared/common.css">
+  <style>
+    body { padding: 1.2rem 2rem; }
+    #lobby { text-align: center; margin-top: 3vh; }
+    #code { font-size: 5rem; font-weight: 900; letter-spacing: .5rem; color: var(--accent); }
+    #joinurl { font-size: 1.4rem; }
+    #players { display: flex; flex-wrap: wrap; gap: .6rem; justify-content: center; margin: 1.2rem 0; }
+    .pill { padding: .5rem 1rem; border-radius: 999px; color: #fff; font-weight: 700; font-size: 1.2rem; }
+    #startBtn { font-size: 1.6rem; padding: 1rem 2.4rem; }
+
+    #stage { display: none; flex-direction: column; }
+    /* Battlefield reads left → right: Team A backline | Frontline | Team B backline. */
+    #arena { display: flex; flex-direction: row; gap: .8rem; align-items: stretch; }
+    .zone { flex: 1; background: var(--panel); border-radius: 14px; padding: .5rem .8rem;
+            display: flex; flex-direction: column; min-height: 66vh; }
+    .zoneLabel { color: var(--muted); font-weight: 700; margin-bottom: .3rem; text-align: center; }
+    .zoneRow { flex: 1; display: flex; flex-direction: column; gap: 1.4rem;
+               align-items: center; justify-content: center; }
+
+    .sprite { width: 150px; text-align: center; --team: #ec4899; transition: transform .35s ease; }
+    .sprite .pic {
+      width: 130px; height: 130px; margin: 0 auto; border-radius: 12px;
+      background: #fff center/contain no-repeat; border: 4px solid var(--team);
+      animation: bob 2.4s ease-in-out infinite;
+    }
+    /* Highlighted fighter grows to fill the screen so the couch can read the drawing. */
+    .sprite.acting { transform: scale(2.3); z-index: 20; }
+    .sprite.acting .pic { box-shadow: 0 0 0 8px #fde04799, 0 12px 40px #000a; animation-play-state: paused; }
+    /* Red flash on whoever just got hurt. */
+    .sprite.hit .pic { animation: hitflash .9s ease-out; }
+    .sprite.ko { opacity: .55; filter: grayscale(1); }
+    .sprite.ko .pic { transform: rotate(12deg); border-color: #555; }
+    .sprite .nm { font-weight: 700; margin-top: .3rem; }
+    .sprite .hpbar { height: 9px; margin: .25rem auto 0; width: 120px; }
+    .sprite .chips { font-size: 1.15rem; min-height: 1.3rem; }
+    @keyframes bob { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-8px) } }
+    @keyframes hitflash {
+      0%   { box-shadow: 0 0 0 10px #ef4444ee, 0 0 34px #ef4444; border-color: #ef4444; }
+      100% { box-shadow: 0 0 0 0 #ef444400; }
+    }
+
+    #caption { margin-top: 1rem; background: var(--panel); border-radius: 14px; padding: 1rem 1.4rem;
+               min-height: 3.4rem; font-size: 1.5rem; display: flex; align-items: center;
+               justify-content: space-between; gap: 1rem; }
+    #capText { flex: 1; }
+    #status { color: var(--muted); font-weight: 700; }
+
+    #over { display: none; text-align: center; margin-top: 8vh; }
+    #over h1 { font-size: 4rem; }
+  </style>
 </head>
 <body>
-  <h1>Host Screen</h1>
-  <p>Phase 4 — TODO</p>
-  <!-- lobby QR, arena renderer, reveal sequencer -->
+  <div id="banner">Reconnecting…</div>
+
+  <section id="lobby">
+    <h1>Doodle Brawl</h1>
+    <p class="muted">On your phone, open</p>
+    <p id="joinurl" class="muted">…</p>
+    <p class="muted">Room code</p>
+    <div id="code">····</div>
+    <div id="players"></div>
+    <button id="startBtn" disabled>Start Game</button>
+    <p class="muted" id="hint">Need 2–6 players.</p>
+  </section>
+
+  <section id="stage">
+    <div id="status"></div>
+    <div id="arena"></div>
+    <div id="caption">
+      <span id="capText" class="muted">Get ready…</span>
+      <button id="nextBtn" class="secondary hidden">Next ▶</button>
+    </div>
+  </section>
+
+  <section id="over">
+    <h1 id="overTitle">🏆</h1>
+    <p id="overMsg" class="muted"></p>
+  </section>
+
+  <script src="/static/shared/ws.js"></script>
+  <script src="/static/host/arena.js"></script>
+  <script>
+  (function () {
+    const SERVER_LAN_IP = "__SERVER_LAN_IP__";
+    const $ = (id) => document.getElementById(id);
+    const BEAT_MS = 2600;
+
+    let sock, arena, latestChars = [], seq = null;
+
+    function joinBase() {
+      const port = location.port ? (':' + location.port) : '';
+      return location.protocol + '//' + SERVER_LAN_IP + port;
+    }
+
+    const DISP = { lobby: 'block', stage: 'flex', over: 'block' };
+    function view(which) {
+      // Explicit values — '' would fall back to the CSS `display:none` rules on
+      // #stage/#over and leave them hidden.
+      for (const id of ['lobby', 'stage', 'over']) {
+        $(id).style.display = (id === which) ? DISP[id] : 'none';
+      }
+    }
+
+    // ---- reveal sequencer ----
+    function typewrite(el, text) {
+      el.classList.remove('muted');
+      let i = 0; el.textContent = '';
+      clearInterval(el._tw);
+      el._tw = setInterval(() => {
+        el.textContent = text.slice(0, ++i);
+        if (i >= text.length) clearInterval(el._tw);
+      }, 18);
+    }
+
+    function runReveal(payload) {
+      const beats = payload.beats || [];
+      const pngs = payload.action_pngs || {};
+      const finalById = {};
+      (payload.characters || []).forEach(c => finalById[c.player_id] = c);
+      let i = 0, lastSwap = null, timer = null;
+      $('nextBtn').classList.remove('hidden');
+      $('status').textContent = 'Round ' + payload.round + ' — reveal';
+
+      function applyFinal(pid) {
+        const c = finalById[pid]; if (!c) return;
+        arena.setHP(c.player_id, c.hp, c.max_hp);
+        arena.setConditions(c.player_id, c.conditions);
+        if (c.is_ko) arena.ko(c.player_id);
+      }
+      function revert() { if (lastSwap) { arena.revertSprite(lastSwap); lastSwap = null; } }
+      function playNext() {
+        revert();
+        if (i >= beats.length) return finish();
+        const b = beats[i++];
+        typewrite($('capText'), b.text);
+        if (b.player_id && pngs[b.player_id]) { arena.swapSprite(b.player_id, pngs[b.player_id]); lastSwap = b.player_id; }
+        [b.player_id, b.target_id, b.hurt].forEach(p => { if (p) applyFinal(p); });
+        if (b.hurt) arena.flashHit(b.hurt);   // red flash on the impacted fighter
+        clearTimeout(timer); timer = setTimeout(playNext, BEAT_MS);
+      }
+      function finish() {
+        clearTimeout(timer); revert();
+        arena.render(payload.characters || []);   // settle to final state
+        $('nextBtn').classList.add('hidden');
+        $('capText').classList.add('muted');
+        $('capText').textContent = 'Fighters scheming…';
+        sock.send('next_beat');                    // tell the server to advance
+      }
+      seq = { advance: () => { clearTimeout(timer); playNext(); }, stop: () => clearTimeout(timer) };
+      playNext();
+    }
+
+    // ---- messages ----
+    function onMessage(m) {
+      if (m.type === 'joined') {
+        localStorage.setItem('hostroom', m.payload.room);
+        $('code').textContent = m.payload.room;
+        $('joinurl').textContent = joinBase() + '/play?room=' + m.payload.room;
+      } else if (m.type === 'lobby_state') {
+        $('players').innerHTML = (m.payload.players || []).map(p => {
+          const t = (m.payload.teams || []).find(t => t.id === p.team_id) || { color: '#666' };
+          return '<span class="pill" style="background:' + t.color + '">' + p.name
+            + (p.connected ? '' : ' 💤') + '</span>';
+        }).join('');
+        $('startBtn').disabled = !m.payload.can_start;
+      } else if (m.type === 'phase_change') {
+        if (m.payload.phase === 'draw_characters') {
+          view('stage'); $('status').textContent = 'Players are drawing their fighters…';
+          $('capText').classList.add('muted'); $('capText').textContent = 'Character creation';
+        } else if (m.payload.phase === 'draw_action') {
+          view('stage'); if (seq) seq.stop();
+          $('status').textContent = 'Round ' + m.payload.round + ' — players are drawing…';
+          $('capText').classList.add('muted'); $('capText').textContent = 'Choose your move!';
+          $('nextBtn').classList.add('hidden');
+        }
+      } else if (m.type === 'arena_state') {
+        latestChars = m.payload.characters || [];
+        if (!arena.zoneIds.length) arena.setup(m.payload.zones || []);
+        if (latestChars.length) view('stage');   // resume the battlefield on reconnect
+        arena.render(latestChars);
+      } else if (m.type === 'reveal_step') {
+        runReveal(m.payload);
+      } else if (m.type === 'game_over') {
+        view('over');
+        const w = m.payload.winner_team_id;
+        $('overTitle').textContent = w ? '🏆 ' + w + ' wins!' : 'Draw!';
+        $('overMsg').textContent = 'Thanks for playing Doodle Brawl.';
+      }
+    }
+
+    // ---- boot ----
+    arena = new Arena($('arena'));
+    $('startBtn').onclick = () => sock.send('start_game');
+    $('nextBtn').onclick = () => { if (seq) seq.advance(); };
+    sock = DoodleSocket({
+      onStatus: (s) => $('banner').classList.toggle('show', s === 'offline'),
+      onOpen: (api) => api.send('join', {
+        role: 'host',
+        room: localStorage.getItem('hostroom') || undefined,   // rejoin same room on reconnect
+        player_id: localStorage.getItem('hostpid'),
+      }),
+      onMessage: (m, api) => { if (m.type === 'joined') localStorage.setItem('hostpid', m.payload.player_id); onMessage(m); },
+    });
+  })();
+  </script>
 </body>
 </html>

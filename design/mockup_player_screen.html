@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Doodle Brawl — Player Screen Mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Titan+One&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
+<style>
+/* PLAYER (PHONE) MOCKUP — action drawing phase, Team Glitter player.
+   [spec] markers map to documented features. */
+:root{--ink:#2B2338;--card:#FFF9EC;--team:#E24FA0;--posit:#6FD4F2;--sand:#E8D5A8;
+  --heal:#3FB65C;--gold:#F2B233}
+*{box-sizing:border-box;margin:0}
+body{font-family:'Nunito',sans-serif;color:var(--ink);background:#F3E7F0;
+  max-width:420px;margin:0 auto;padding:10px;display:flex;flex-direction:column;gap:10px;min-height:100vh}
+.display{font-family:'Titan One'}
+
+/* header: team color + round + timer */
+header{background:var(--team);border:4px solid var(--ink);border-radius:18px;
+  color:#fff;padding:8px 14px;display:flex;align-items:center;gap:10px}
+header .display{font-size:17px;-webkit-text-stroke:.5px var(--ink)}
+.timer{margin-left:auto;background:#fff;color:var(--ink);border:3px solid var(--ink);
+  border-radius:12px;padding:2px 10px;font-weight:900;font-size:15px}
+.timer.warn{background:var(--gold);animation:blink .6s infinite}
+@keyframes blink{50%{opacity:.55}}
+
+/* status card [spec: sprite + stats + HP + conds + banked] */
+.status{background:var(--card);border:4px solid var(--ink);border-radius:18px;
+  padding:8px 12px;display:flex;gap:10px;align-items:center}
+.status svg{width:52px;flex:none}
+.srow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-weight:900;font-size:13px}
+.srow .stat{background:#F1EADB;border-radius:8px;padding:1px 7px}
+.srow .stat.pulse{animation:statp 1.6s infinite}
+@keyframes statp{50%{background:var(--gold)}}
+.hearts{font-size:13px}.conds{font-size:14px}
+.banked{background:var(--posit);border:2px solid var(--ink);border-radius:8px;padding:1px 7px;font-size:12px;font-weight:900}
+
+/* canvas [spec: 50%-scale prefill on team side + orientation ribbon] */
+.canvaswrap{position:relative;background:var(--sand);/* canvas_background_color = arena floor */border:4px solid var(--ink);
+  border-radius:20px;aspect-ratio:1/1;overflow:hidden}
+.ribbon{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;
+  padding:5px 12px;font-weight:900;font-size:12px;background:linear-gradient(90deg,#E24FA022,#2F6FE022);
+  border-bottom:2px dashed #2B233833;z-index:2}
+.prefill{position:absolute;left:6%;bottom:12%;width:44%;/* [spec: action_canvas_character_scale≈0.5, team side] */}
+.hintarrow{position:absolute;right:8%;top:38%;font-size:13px;font-weight:800;opacity:.45;
+  text-align:center;width:34%}
+/* a player-drawn addition, to show the idea */
+.drawn{position:absolute;left:38%;top:30%;width:55%;opacity:.9}
+
+/* toolbar [spec: pens 3 widths / 8 colors, erasers multi-size, undo, clear, RESTORE] */
+.tools{display:flex;flex-wrap:wrap;gap:6px;justify-content:center}
+.tool{border:3px solid var(--ink);background:#fff;border-radius:12px;min-width:44px;height:44px;
+  font-size:17px;font-weight:900;display:grid;place-items:center;padding:0 8px}
+.tool.on{background:var(--gold)}
+.dots{display:flex;gap:4px;align-items:center;border:3px solid var(--ink);border-radius:12px;padding:0 8px;background:#fff}
+.dot{width:16px;height:16px;border-radius:50%;border:2px solid var(--ink)}
+.restore{background:var(--posit);font-size:13px}
+.eraser small{font-size:9px;display:block;line-height:.8}
+
+/* submit */
+.submit{background:var(--team);color:#fff;border:4px solid var(--ink);border-radius:18px;
+  font-family:'Titan One';font-size:20px;padding:12px;-webkit-text-stroke:.5px var(--ink)}
+footer{font-size:10.5px;font-weight:700;opacity:.6;text-align:center}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+</head>
+<body>
+
+<header>
+  <span class="display">TEAM GLITTER</span>
+  <span style="font-weight:800;font-size:13px">Drawing for Round 5</span>
+  <span class="timer warn">0:12</span>
+</header>
+
+<!-- status card -->
+<section class="status">
+  <svg viewBox="0 0 60 60"><path d="M14 44 Q10 24 26 18 Q44 12 48 30 Q50 44 34 47 Q20 50 14 44Z" fill="#F7C8E2" stroke="#2B2338" stroke-width="3"/><path d="M30 18 L38 4 L41 20" fill="#fff" stroke="#2B2338" stroke-width="2.5"/><circle cx="24" cy="30" r="2.6" fill="#2B2338"/><circle cx="36" cy="30" r="2.6" fill="#2B2338"/><path d="M24 39 Q30 43 36 39" stroke="#2B2338" stroke-width="2.5" fill="none"/></svg>
+  <div style="display:flex;flex-direction:column;gap:3px">
+    <strong class="display" style="font-size:14px">Princess Stabby</strong>
+    <div class="srow">
+      <span class="stat">💪 2</span><span class="stat pulse">⚡ 4</span><span class="stat">🌀 4</span>
+      <span class="banked">🎯 banked ×2</span>
+    </div>
+    <div class="srow"><span class="hearts">❤️❤️🖤🖤🖤🖤 6/22</span><span class="conds">🟢 sticky</span></div>
+  </div>
+</section>
+
+<!-- drawing canvas -->
+<section class="canvaswrap">
+  <div class="ribbon"><span>🏠 your side</span><span>⟵ &nbsp; ⟶</span><span>enemies 💥</span></div>
+  <!-- prefilled character at ~50% on team side -->
+  <svg class="prefill" viewBox="0 0 60 60">
+    <path d="M14 44 Q10 24 26 18 Q44 12 48 30 Q50 44 34 47 Q20 50 14 44Z" fill="#F7C8E2" stroke="#2B2338" stroke-width="3"/>
+    <path d="M30 18 L38 4 L41 20" fill="#fff" stroke="#2B2338" stroke-width="2.5"/>
+    <circle cx="24" cy="30" r="2.6" fill="#2B2338"/><circle cx="36" cy="30" r="2.6" fill="#2B2338"/>
+    <path d="M24 39 Q30 43 36 39" stroke="#2B2338" stroke-width="2.5" fill="none"/>
+  </svg>
+  <!-- example of a player-drawn action addition -->
+  <svg class="drawn" viewBox="0 0 100 60">
+    <path d="M2 22 L70 8 M2 28 L74 24 M2 34 L70 40" stroke="#E24FA0" stroke-width="4" stroke-linecap="round"/>
+    <path d="M72 6 L92 2 L86 14 L98 12 L88 26 L96 30 L78 34" fill="none" stroke="#F2B233" stroke-width="3.5" stroke-linejoin="round"/>
+  </svg>
+  <div class="hintarrow">✏️ draw your action here<br>(open space faces the enemies)</div>
+</section>
+
+<!-- tools -->
+<section class="tools">
+  <span class="tool on">✏️</span>
+  <span class="dots"><i class="dot" style="background:#2B2338"></i><i class="dot" style="background:#E24FA0"></i><i class="dot" style="background:#2F6FE0"></i><i class="dot" style="background:#3FB65C"></i><i class="dot" style="background:#F2B233"></i><i class="dot" style="background:#8F5FD6"></i><i class="dot" style="background:#FF8B4D"></i><i class="dot" style="background:#fff"></i></span>
+  <span class="tool eraser">🧽<small>S·M·L</small></span>
+  <span class="tool">↩️</span>
+  <span class="tool">🗑️</span>
+  <span class="tool restore">🔄 restore<br>character</span>
+</section>
+
+<button class="submit">SEND IT! 🚀</button>
+
+<footer>
+  Mockup notes — configs shown: action_canvas_character_scale (~50%, team side) · orientation ribbon (flips for Team B) ·
+  restore-character button · multi-size erasers · stats with change-pulse (⚡ from montage) · banked actions ·
+  timer warn state at 10s. Canvas background = canvas_background_color (#E8D5A8, matches arena floor; erasers restore it). Canvas exports 512px PNG.
+</footer>
+</body>
+</html>
