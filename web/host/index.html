@@ -37,7 +37,31 @@
     #startBtn:disabled{opacity:.45}
 
     /* ---- stage ---- */
-    #stage{display:none; flex-direction:column; gap:12px}
+    #stage{display:none; grid-template-columns:180px 1fr; gap:14px; align-items:start}
+    .stage-main{display:flex; flex-direction:column; gap:12px; min-width:0}
+
+    /* initiative rail [left-side rail + stat strips] */
+    .rail{background:var(--card); border:4px solid var(--ink); border-radius:22px;
+      padding:12px 10px; display:flex; flex-direction:column; gap:10px}
+    .rail h2{font-size:15px; text-align:center; line-height:1.1}
+    #railSlots{display:flex; flex-direction:column; gap:10px}
+    .slot{display:flex; align-items:center; gap:8px; background:#fff; border:3px solid var(--ink);
+      border-radius:14px; padding:5px 7px; position:relative; transition:transform .35s ease}
+    .slot .portrait{width:44px; height:44px; flex:none; background:center/contain no-repeat;
+      border-radius:8px}
+    .slot .order{position:absolute; top:-9px; left:-9px; width:20px; height:20px; border-radius:50%;
+      background:var(--ink); color:#fff; font-weight:900; font-size:11px; display:grid; place-items:center}
+    .slot .who{font-weight:900; font-size:11px; line-height:1}
+    .slot .stats{display:flex; gap:5px; font-size:10.5px; font-weight:900; margin-top:2px}
+    .slot .stats span{background:#F1EADB; border-radius:7px; padding:1px 4px; transition:background .2s}
+    .slot .stats span.pulse{animation:statpulse 1.6s ease-in-out 2}
+    @keyframes statpulse{50%{background:var(--gold)}}
+    .slot.team-a{box-shadow:inset 4px 0 0 var(--glitter)}
+    .slot.team-b{box-shadow:inset 4px 0 0 var(--thunder)}
+    .gremlins{display:flex; flex-wrap:wrap; gap:4px; justify-content:center; font-size:18px;
+      border-top:2px dashed #00000022; padding-top:8px}
+    .gremlins:empty{display:none}
+
     .topbar{display:flex; align-items:center; gap:14px}
     .topbar h1{font-size:26px}
     .roundtitle{font-weight:800; font-size:15px; opacity:.85}
@@ -105,6 +129,18 @@
     #nextBtn{background:var(--gold); color:var(--ink); border:3px solid var(--ink);
       border-radius:12px; font-family:'Titan One'; font-size:15px; padding:6px 14px}
 
+    /* tug-of-war meters [HP share + crowd favorite] */
+    .meters{display:flex; flex-direction:column; gap:8px}
+    .meter{display:grid; grid-template-columns:120px 1fr; align-items:center; gap:12px}
+    .meter .label{font-family:'Titan One'; font-size:12.5px; text-align:right; line-height:1.05}
+    .rope{position:relative; height:22px; border-radius:12px; border:3px solid var(--ink);
+      background:linear-gradient(90deg,var(--glitter) 0 50%,var(--thunder) 50%)}
+    .rope::before{content:""; position:absolute; inset:8px 4px; border-top:3px dashed #ffffff88}
+    .knot{position:absolute; top:50%; translate:-50% -50%; width:30px; height:30px; border-radius:50%;
+      background:var(--card); border:3.5px solid var(--ink); display:grid; place-items:center;
+      font-size:14px; left:50%; transition:left 1s cubic-bezier(.5,1.6,.4,1)}
+    .ticks{display:flex; justify-content:space-between; font-size:10px; font-weight:900; opacity:.65; padding:0 4px}
+
     /* ---- over ---- */
     #over{display:none; text-align:center; margin-top:8vh}
     #over h1{font-size:4rem; font-family:'Titan One'}
@@ -126,16 +162,31 @@
   </section>
 
   <section id="stage">
-    <div class="topbar">
-      <h1 id="roundHead">Doodle Brawl</h1>
-      <span class="roundtitle" id="roundTitle"></span>
-      <span id="status"></span>
-    </div>
-    <section class="arena" id="arena"></section>
-    <section class="beatcard">
-      <span id="capText" class="muted">Get ready…</span>
-      <button id="nextBtn" class="hidden">Next ▶</button>
-    </section>
+    <aside class="rail">
+      <h2>Initiative<br>Order</h2>
+      <div id="railSlots"></div>
+      <div class="gremlins" id="gremlins"></div>
+    </aside>
+    <main class="stage-main">
+      <div class="topbar">
+        <h1 id="roundHead">Doodle Brawl</h1>
+        <span class="roundtitle" id="roundTitle"></span>
+        <span id="status"></span>
+      </div>
+      <section class="arena" id="arena"></section>
+      <section class="beatcard">
+        <span id="capText" class="muted">Get ready…</span>
+        <button id="nextBtn" class="hidden">Next ▶</button>
+      </section>
+      <section class="meters">
+        <div class="meter"><span class="label">WHO'S<br>WINNING</span>
+          <div><div class="rope"><span class="knot" id="knotHp">🪢</span></div>
+            <div class="ticks"><span>GLITTER</span><span>THUNDER</span></div></div></div>
+        <div class="meter"><span class="label">CROWD<br>FAVORITE</span>
+          <div><div class="rope"><span class="knot" id="knotAud">📣</span></div>
+            <div class="ticks"><span>GLITTER</span><span>THUNDER</span></div></div></div>
+      </section>
+    </main>
   </section>
 
   <section id="over">
@@ -156,13 +207,84 @@
     document.documentElement.style.setProperty('--zoom', CFG.reveal_action_zoom_scale || 1.8);
 
     let sock, arena, seq = null;
+    let charById = {};                 // pid → latest character delta (merged)
+    const railSlotEls = {};            // pid → rail slot element
+    const prevStatsById = {};          // pid → last-seen stats (for change-pulse)
 
     function joinBase() {
       const port = location.port ? (':' + location.port) : '';
       return location.protocol + '//' + SERVER_LAN_IP + port;
     }
+    function upsert(c) { charById[c.player_id] = Object.assign({}, charById[c.player_id], c); }
+    function clamp01(v) { return Math.max(0, Math.min(1, v == null ? 0.5 : v)); }
+    function shortName(n) { return (n || '').length > 11 ? n.slice(0, 10) + '…' : (n || ''); }
 
-    const DISP = { lobby: 'block', stage: 'flex', over: 'block' };
+    // ---- initiative rail ----
+    function slotFor(pid) {
+      let el = railSlotEls[pid];
+      if (!el) {
+        el = document.createElement('div');
+        el.className = 'slot';
+        el.dataset.pid = pid;
+        el.innerHTML = '<span class="order"></span><div class="portrait"></div>' +
+          '<div><div class="who"></div><div class="stats">' +
+          '<span class="s-p"></span><span class="s-s"></span><span class="s-w"></span></div></div>';
+        railSlotEls[pid] = el;
+      }
+      return el;
+    }
+    function setStat(span, icon, val, pid, key) {
+      span.textContent = icon + (val == null ? '–' : val);
+      const prev = prevStatsById[pid];
+      if (prev && prev[key] !== val) { span.classList.remove('pulse'); void span.offsetWidth; span.classList.add('pulse'); }
+    }
+    function renderRail(order) {
+      const host = $('railSlots');
+      const list = (order || []).filter(pid => charById[pid] && !charById[pid].is_ko);
+      // FLIP: remember current positions before reordering.
+      const oldTop = {};
+      Object.values(railSlotEls).forEach(el => { if (el.parentElement) oldTop[el.dataset.pid] = el.getBoundingClientRect().top; });
+      list.forEach((pid, idx) => {
+        const c = charById[pid], el = slotFor(pid), st = c.stats || {};
+        el.classList.toggle('team-a', c.team_id === 'team_a');
+        el.classList.toggle('team-b', c.team_id === 'team_b');
+        el.querySelector('.order').textContent = idx + 1;
+        el.querySelector('.portrait').style.backgroundImage = c.png ? ('url(' + c.png + ')') : 'none';
+        el.querySelector('.who').textContent = shortName(c.name);
+        setStat(el.querySelector('.s-p'), '💪', st.power, pid, 'power');
+        setStat(el.querySelector('.s-s'), '⚡', st.speed, pid, 'speed');
+        setStat(el.querySelector('.s-w'), '🌀', st.weird, pid, 'weird');
+        prevStatsById[pid] = st;
+        host.appendChild(el);          // re-append in acting order
+      });
+      Object.keys(railSlotEls).forEach(pid => {
+        if (!list.includes(pid) && railSlotEls[pid].parentElement) railSlotEls[pid].remove();
+      });
+      // FLIP: play the position deltas.
+      list.forEach(pid => {
+        const el = railSlotEls[pid], prev = oldTop[pid];
+        if (prev == null) return;
+        const dy = prev - el.getBoundingClientRect().top;
+        if (dy) {
+          el.style.transition = 'none'; el.style.transform = 'translateY(' + dy + 'px)';
+          requestAnimationFrame(() => { el.style.transition = 'transform .35s ease'; el.style.transform = ''; });
+        }
+      });
+      $('gremlins').textContent = Object.values(charById).filter(c => c.is_gremlin).map(() => '👺').join('');
+    }
+    function speedOrder() {
+      return Object.values(charById).filter(c => !c.is_ko)
+        .sort((a, b) => (b.stats && b.stats.speed || 0) - (a.stats && a.stats.speed || 0)
+          || (a.player_id < b.player_id ? -1 : 1))
+        .map(c => c.player_id);
+    }
+    function updateMeters(meters) {
+      if (!meters) return;
+      $('knotHp').style.left = (clamp01(meters.hp_share) * 100) + '%';
+      $('knotAud').style.left = (clamp01(meters.audience) * 100) + '%';
+    }
+
+    const DISP = { lobby: 'block', stage: 'grid', over: 'block' };
     function view(which) {
       for (const id of ['lobby', 'stage', 'over']) {
         $(id).style.display = (id === which) ? DISP[id] : 'none';
@@ -189,6 +311,9 @@
       $('nextBtn').classList.remove('hidden');
       $('roundHead').textContent = 'ROUND ' + payload.round;
       $('status').textContent = 'reveal';
+      (payload.characters || []).forEach(upsert);
+      renderRail(payload.initiative_order || speedOrder());   // the round's acting order
+      updateMeters(payload.meters);
 
       function applyFinal(pid) {
         const c = finalById[pid]; if (!c) return;
@@ -214,6 +339,8 @@
       function finish() {
         clearTimeout(timer); arena.settleAll();
         arena.render(payload.characters || []);   // settle to final state
+        (payload.characters || []).forEach(upsert);
+        renderRail(speedOrder());          // drop anyone KO'd during the round
         $('nextBtn').classList.add('hidden');
         $('capText').classList.add('muted');
         $('capText').textContent = 'Fighters scheming…';
@@ -250,9 +377,11 @@
         }
       } else if (m.type === 'arena_state') {
         const chars = m.payload.characters || [];
+        chars.forEach(upsert);
         if (!arena.zoneIds.length) arena.setup(m.payload.zones || []);
         if (chars.length) view('stage');
         arena.render(chars);
+        renderRail(speedOrder());          // rail visible during drawing phases too
       } else if (m.type === 'reveal_step') {
         runReveal(m.payload);
       } else if (m.type === 'game_over') {
