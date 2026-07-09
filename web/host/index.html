@@ -5,54 +5,110 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Doodle Brawl — Host</title>
   <link rel="stylesheet" href="/static/shared/common.css">
+  <link href="https://fonts.googleapis.com/css2?family=Titan+One&family=Nunito:wght@600;800;900&display=swap" rel="stylesheet">
   <style>
-    body { padding: 1.2rem 2rem; }
-    #lobby { text-align: center; margin-top: 3vh; }
-    #code { font-size: 5rem; font-weight: 900; letter-spacing: .5rem; color: var(--accent); }
-    #joinurl { font-size: 1.4rem; }
-    #players { display: flex; flex-wrap: wrap; gap: .6rem; justify-content: center; margin: 1.2rem 0; }
-    .pill { padding: .5rem 1rem; border-radius: 999px; color: #fff; font-weight: 700; font-size: 1.2rem; }
-    #startBtn { font-size: 1.6rem; padding: 1rem 2.4rem; }
-
-    #stage { display: none; flex-direction: column; }
-    /* Battlefield reads left → right: Team A backline | Frontline | Team B backline. */
-    #arena { display: flex; flex-direction: row; gap: .8rem; align-items: stretch; }
-    .zone { flex: 1; background: var(--panel); border-radius: 14px; padding: .5rem .8rem;
-            display: flex; flex-direction: column; min-height: 66vh; }
-    .zoneLabel { color: var(--muted); font-weight: 700; margin-bottom: .3rem; text-align: center; }
-    .zoneRow { flex: 1; display: flex; flex-direction: column; gap: 1.4rem;
-               align-items: center; justify-content: center; }
-
-    .sprite { width: 150px; text-align: center; --team: #ec4899; transition: transform .35s ease; }
-    .sprite .pic {
-      width: 130px; height: 130px; margin: 0 auto; border-radius: 12px;
-      background: #fff center/contain no-repeat; border: 4px solid var(--team);
-      animation: bob 2.4s ease-in-out infinite;
+    /* Host (TV) page — faithful port of design/mockup_host_screen.html.
+       Rail + tug-of-war meters land in the following commit. */
+    :root{
+      --ink:#2B2338; --sand:#E8D5A8; --stone:#C9B282;
+      --glitter:#E24FA0; --thunder:#2F6FE0; --gold:#F2B233;
+      --dmg:#E23D3D; --heal:#3FB65C; --posit:#6FD4F2; --card:#FFF9EC;
+      --zoom:1.8;
     }
-    /* Highlighted fighter grows to fill the screen so the couch can read the drawing. */
-    .sprite.acting { transform: scale(2.3); z-index: 20; }
-    .sprite.acting .pic { box-shadow: 0 0 0 8px #fde04799, 0 12px 40px #000a; animation-play-state: paused; }
-    /* Red flash on whoever just got hurt. */
-    .sprite.hit .pic { animation: hitflash .9s ease-out; }
-    .sprite.ko { opacity: .55; filter: grayscale(1); }
-    .sprite.ko .pic { transform: rotate(12deg); border-color: #555; }
-    .sprite .nm { font-weight: 700; margin-top: .3rem; }
-    .sprite .hpbar { height: 9px; margin: .25rem auto 0; width: 120px; }
-    .sprite .chips { font-size: 1.15rem; min-height: 1.3rem; }
-    @keyframes bob { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-8px) } }
-    @keyframes hitflash {
-      0%   { box-shadow: 0 0 0 10px #ef4444ee, 0 0 34px #ef4444; border-color: #ef4444; }
-      100% { box-shadow: 0 0 0 0 #ef444400; }
+    body{
+      font-family:'Nunito',system-ui,sans-serif; color:var(--ink);
+      background:linear-gradient(#BFE4F2,#9ED4EA 30%,var(--sand) 30.2%);
+      min-height:100vh; padding:14px;
     }
+    h1,h2,.display{font-family:'Titan One',cursive; letter-spacing:.5px}
+    .muted{color:#2B233899}
 
-    #caption { margin-top: 1rem; background: var(--panel); border-radius: 14px; padding: 1rem 1.4rem;
-               min-height: 3.4rem; font-size: 1.5rem; display: flex; align-items: center;
-               justify-content: space-between; gap: 1rem; }
-    #capText { flex: 1; }
-    #status { color: var(--muted); font-weight: 700; }
+    /* ---- lobby ---- */
+    #lobby{text-align:center; margin-top:4vh}
+    #lobby h1{font-size:40px}
+    #code{font-size:5rem; font-weight:900; letter-spacing:.5rem; color:var(--glitter);
+      font-family:'Titan One'}
+    #joinurl{font-size:1.3rem}
+    #players{display:flex; flex-wrap:wrap; gap:.6rem; justify-content:center; margin:1.2rem 0}
+    .pill{padding:.5rem 1rem; border-radius:999px; color:#fff; font-weight:800;
+      font-size:1.1rem; border:3px solid var(--ink)}
+    #startBtn{font-family:'Titan One'; font-size:1.5rem; padding:1rem 2.4rem;
+      background:var(--gold); color:var(--ink); border:4px solid var(--ink); border-radius:16px}
+    #startBtn:disabled{opacity:.45}
 
-    #over { display: none; text-align: center; margin-top: 8vh; }
-    #over h1 { font-size: 4rem; }
+    /* ---- stage ---- */
+    #stage{display:none; flex-direction:column; gap:12px}
+    .topbar{display:flex; align-items:center; gap:14px}
+    .topbar h1{font-size:26px}
+    .roundtitle{font-weight:800; font-size:15px; opacity:.85}
+    #status{margin-left:auto; font-weight:800; opacity:.7}
+
+    /* battlefield: CSS colosseum + 3 zone bands */
+    .arena{position:relative; border:4px solid var(--ink); border-radius:24px; overflow:hidden;
+      background:
+        radial-gradient(circle at 50% 118%, #D9C08B 0 46%, transparent 46.5%),
+        repeating-linear-gradient(90deg,var(--stone) 0 46px,#BBA476 46px 52px) 0 0/100% 88px no-repeat,
+        linear-gradient(#F3E3B5 88px, var(--sand) 89px);
+      height:56vh; min-height:340px;}
+    .arena::before{content:""; position:absolute; top:14px; left:0; right:0; height:58px;
+      background:radial-gradient(circle 26px at 30px 58px, #7d6a45 0 24px, transparent 25px);
+      background-size:60px 58px; opacity:.55}
+    .arena.custombg{background:#0000 center/cover no-repeat}
+    .arena.custombg::before{display:none}
+    .zones{position:absolute; inset:96px 0 0 0; display:grid; grid-template-columns:1fr 1.15fr 1fr}
+    .zone{position:relative; border-left:3px dashed #00000022; display:flex;
+      align-items:flex-end; justify-content:center; gap:20px; padding-bottom:16px}
+    .zone:first-child{border-left:none}
+    .zonelabel{position:absolute; top:6px; left:50%; transform:translateX(-50%);
+      font-weight:900; font-size:12px; background:#ffffffc9; border:2px solid var(--ink);
+      border-radius:10px; padding:1px 9px; white-space:nowrap}
+
+    /* fighter sprites — the persistent action drawing is the sprite */
+    .fighter{position:relative; width:120px; text-align:center; transition:transform .3s;
+      transform-origin:bottom center}
+    .fighter .pic{width:104px; height:104px; margin:0 auto; background:center/contain no-repeat;
+      filter:drop-shadow(2px 3px 0 #00000025)}
+    .nametag{font-family:'Titan One'; font-size:11.5px; background:#fff; border:2.5px solid var(--ink);
+      border-radius:9px; padding:1px 5px; display:inline-block; margin-top:-2px}
+    .hpbar{height:9px; border:2px solid var(--ink); border-radius:6px; background:#fff;
+      margin:4px auto 0; width:96px; overflow:hidden}
+    .hpbar > i{display:block; height:100%; background:var(--heal); transition:width .5s ease}
+    .hpbar.low > i{background:var(--dmg)}
+    .conds{font-size:14px; height:17px; margin-top:1px}
+    .fighter.ko{opacity:.5; filter:grayscale(1)}
+    .fighter.ko .pic{transform:rotate(12deg)}
+
+    /* acting zoom [reveal_action_zoom_scale/_seconds] */
+    .fighter.acting{transform:scale(var(--zoom)); z-index:5}
+    .fighter.acting .nametag{background:var(--gold)}
+
+    /* impact feedback [red border+shake / light-blue border+pop] */
+    .fighter.hit{outline:4px solid var(--dmg); outline-offset:4px; border-radius:14px}
+    .fighter.hit .pic{animation:shake .5s 2}
+    .fighter.helped{outline:4px solid var(--posit); outline-offset:4px; border-radius:14px}
+    .fighter.helped .pic{animation:pop 1.2s ease-in-out 1}
+    @keyframes shake{25%{transform:translateX(-4px) rotate(-2deg)}75%{transform:translateX(4px) rotate(2deg)}}
+    @keyframes pop{30%{transform:scale(1.14)}55%{transform:scale(1)}}
+
+    /* floating combat numbers [red dmg / green heal, crit oversized] */
+    .floatnum{position:absolute; left:50%; top:-6px; transform:translateX(-50%);
+      font-family:'Titan One'; font-size:26px; color:var(--dmg);
+      -webkit-text-stroke:1.5px #fff; animation:floatup 1.5s ease-out forwards; pointer-events:none}
+    .floatnum.heal{color:var(--heal)}
+    .floatnum.crit{font-size:38px}
+    @keyframes floatup{0%{opacity:0; translate:0 14px}15%{opacity:1}100%{opacity:0; translate:0 -40px}}
+
+    /* narration beats */
+    .beatcard{background:var(--card); border:4px solid var(--ink); border-radius:18px;
+      padding:12px 18px; font-size:18px; font-weight:800; display:flex; align-items:center;
+      justify-content:space-between; gap:14px; min-height:3.2rem}
+    #nextBtn{background:var(--gold); color:var(--ink); border:3px solid var(--ink);
+      border-radius:12px; font-family:'Titan One'; font-size:15px; padding:6px 14px}
+
+    /* ---- over ---- */
+    #over{display:none; text-align:center; margin-top:8vh}
+    #over h1{font-size:4rem; font-family:'Titan One'}
+    @media (prefers-reduced-motion:reduce){*{animation:none!important; transition:none!important}}
   </style>
 </head>
 <body>
@@ -70,12 +126,16 @@
   </section>
 
   <section id="stage">
-    <div id="status"></div>
-    <div id="arena"></div>
-    <div id="caption">
-      <span id="capText" class="muted">Get ready…</span>
-      <button id="nextBtn" class="secondary hidden">Next ▶</button>
+    <div class="topbar">
+      <h1 id="roundHead">Doodle Brawl</h1>
+      <span class="roundtitle" id="roundTitle"></span>
+      <span id="status"></span>
     </div>
+    <section class="arena" id="arena"></section>
+    <section class="beatcard">
+      <span id="capText" class="muted">Get ready…</span>
+      <button id="nextBtn" class="hidden">Next ▶</button>
+    </section>
   </section>
 
   <section id="over">
@@ -88,10 +148,14 @@
   <script>
   (function () {
     const SERVER_LAN_IP = "__SERVER_LAN_IP__";
+    const CFG = window.DOODLE_CONFIG || {};
     const $ = (id) => document.getElementById(id);
-    const BEAT_MS = 2600;
+    const BEAT_MS = 3200;          // client-side reveal pacing (host "next" overrides)
 
-    let sock, arena, latestChars = [], seq = null;
+    document.documentElement.style.setProperty('--sand', CFG.canvas_background_color || '#E8D5A8');
+    document.documentElement.style.setProperty('--zoom', CFG.reveal_action_zoom_scale || 1.8);
+
+    let sock, arena, seq = null;
 
     function joinBase() {
       const port = location.port ? (':' + location.port) : '';
@@ -100,14 +164,11 @@
 
     const DISP = { lobby: 'block', stage: 'flex', over: 'block' };
     function view(which) {
-      // Explicit values — '' would fall back to the CSS `display:none` rules on
-      // #stage/#over and leave them hidden.
       for (const id of ['lobby', 'stage', 'over']) {
         $(id).style.display = (id === which) ? DISP[id] : 'none';
       }
     }
 
-    // ---- reveal sequencer ----
     function typewrite(el, text) {
       el.classList.remove('muted');
       let i = 0; el.textContent = '';
@@ -118,14 +179,16 @@
       }, 18);
     }
 
+    // ---- reveal sequencer ----
     function runReveal(payload) {
       const beats = payload.beats || [];
       const pngs = payload.action_pngs || {};
       const finalById = {};
       (payload.characters || []).forEach(c => finalById[c.player_id] = c);
-      let i = 0, lastSwap = null, timer = null;
+      let i = 0, timer = null;
       $('nextBtn').classList.remove('hidden');
-      $('status').textContent = 'Round ' + payload.round + ' — reveal';
+      $('roundHead').textContent = 'ROUND ' + payload.round;
+      $('status').textContent = 'reveal';
 
       function applyFinal(pid) {
         const c = finalById[pid]; if (!c) return;
@@ -133,24 +196,28 @@
         arena.setConditions(c.player_id, c.conditions);
         if (c.is_ko) arena.ko(c.player_id);
       }
-      function revert() { if (lastSwap) { arena.revertSprite(lastSwap); lastSwap = null; } }
       function playNext() {
-        revert();
         if (i >= beats.length) return finish();
         const b = beats[i++];
         typewrite($('capText'), b.text);
-        if (b.player_id && pngs[b.player_id]) { arena.swapSprite(b.player_id, pngs[b.player_id]); lastSwap = b.player_id; }
-        [b.player_id, b.target_id, b.hurt].forEach(p => { if (p) applyFinal(p); });
-        if (b.hurt) arena.flashHit(b.hurt);   // red flash on the impacted fighter
+        // The acting drawing becomes the sprite and zooms up; it PERSISTS after.
+        if (b.player_id && pngs[b.player_id]) {
+          arena.swapSprite(b.player_id, pngs[b.player_id]);
+          arena.actUp(b.player_id);
+        }
+        [b.player_id, b.target_id, b.hurt, b.helped].forEach(p => { if (p) applyFinal(p); });
+        (b.floats || []).forEach(f => arena.floatNumber(f.player_id, f.amount, f.kind, f.crit));
+        if (b.hurt) arena.impact(b.hurt, 'hit');
+        if (b.helped) arena.impact(b.helped, 'helped');
         clearTimeout(timer); timer = setTimeout(playNext, BEAT_MS);
       }
       function finish() {
-        clearTimeout(timer); revert();
+        clearTimeout(timer); arena.settleAll();
         arena.render(payload.characters || []);   // settle to final state
         $('nextBtn').classList.add('hidden');
         $('capText').classList.add('muted');
         $('capText').textContent = 'Fighters scheming…';
-        sock.send('next_beat');                    // tell the server to advance
+        sock.send('next_beat');
       }
       seq = { advance: () => { clearTimeout(timer); playNext(); }, stop: () => clearTimeout(timer) };
       playNext();
@@ -171,19 +238,21 @@
         $('startBtn').disabled = !m.payload.can_start;
       } else if (m.type === 'phase_change') {
         if (m.payload.phase === 'draw_characters') {
-          view('stage'); $('status').textContent = 'Players are drawing their fighters…';
+          view('stage'); $('roundHead').textContent = 'Doodle Brawl';
+          $('status').textContent = 'drawing fighters…';
           $('capText').classList.add('muted'); $('capText').textContent = 'Character creation';
         } else if (m.payload.phase === 'draw_action') {
           view('stage'); if (seq) seq.stop();
-          $('status').textContent = 'Round ' + m.payload.round + ' — players are drawing…';
+          $('roundHead').textContent = 'ROUND ' + m.payload.round;
+          $('status').textContent = 'drawing…';
           $('capText').classList.add('muted'); $('capText').textContent = 'Choose your move!';
           $('nextBtn').classList.add('hidden');
         }
       } else if (m.type === 'arena_state') {
-        latestChars = m.payload.characters || [];
+        const chars = m.payload.characters || [];
         if (!arena.zoneIds.length) arena.setup(m.payload.zones || []);
-        if (latestChars.length) view('stage');   // resume the battlefield on reconnect
-        arena.render(latestChars);
+        if (chars.length) view('stage');
+        arena.render(chars);
       } else if (m.type === 'reveal_step') {
         runReveal(m.payload);
       } else if (m.type === 'game_over') {
@@ -202,7 +271,7 @@
       onStatus: (s) => $('banner').classList.toggle('show', s === 'offline'),
       onOpen: (api) => api.send('join', {
         role: 'host',
-        room: localStorage.getItem('hostroom') || undefined,   // rejoin same room on reconnect
+        room: localStorage.getItem('hostroom') || undefined,
         player_id: localStorage.getItem('hostpid'),
       }),
       onMessage: (m, api) => { if (m.type === 'joined') localStorage.setItem('hostpid', m.payload.player_id); onMessage(m); },
