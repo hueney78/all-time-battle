@@ -96,7 +96,8 @@ def test_classify_keeps_adjacent_move_and_attaches_combo():
             S.AIAction(player_id="e", catalog_id="strike", targets=["p1"]),
         ],
     )
-    actions = {a.player_id: a for a in build_classified_actions(resp, state, ["p1", "p2", "e"], RULES)}
+    built = build_classified_actions(resp, state, ["p1", "p2", "e"], RULES)
+    actions = {a.player_id: a for a in built}
     assert actions["p1"].move_to == "frontline"        # adjacent → kept
     assert actions["p1"].combo_partners == ["p2"]      # leader carries the combo
     assert actions["p1"].combo_name == "GLITTERNADO"

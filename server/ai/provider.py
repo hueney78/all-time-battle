@@ -57,7 +57,7 @@ class Narration:
     round_title: str = ""
 
 
-def make_ai(rules: GameRules) -> "AIProvider":
+def make_ai(rules: GameRules) -> AIProvider:
     """Pick the provider from AI_MODE: live Claude when AI_MODE=live and a key is
     present, otherwise the offline mock. Any live-init failure degrades to mock so
     the game still runs."""

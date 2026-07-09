@@ -74,7 +74,8 @@ def main() -> int:
     for a in actions:
         if a.player_id == "p1":
             print(f"  catalog_id={a.catalog_id!r} cost={a.action_cost} targets={a.targets} "
-                  f"creativity={a.creativity_tier} move_to={a.move_to}\n  note={a.adaptation_note!r}")
+                  f"creativity={a.creativity_tier} move_to={a.move_to}")
+            print(f"  note={a.adaptation_note!r}")
 
     print("== narrate_round ==")
     events = [

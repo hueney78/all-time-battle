@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from jinja2 import Environment, FileSystemLoader
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 
 from server.ai import schemas as S
 from server.ai import validators as V
@@ -82,8 +82,8 @@ class LiveAI:
                                 "text": "Create a fighter for EACH labeled drawing below."}]
         for pid, sub in submissions.items():
             hint = (sub.hint or "").strip()
-            content.append({"type": "text",
-                            "text": f"--- player {pid}" + (f" — hint: “{hint}”" if hint else "") + " ---"})
+            label = f"--- player {pid}" + (f" — hint: “{hint}”" if hint else "") + " ---"
+            content.append({"type": "text", "text": label})
             img = _image_block(sub.png_base64)
             content.append(img if img else {"type": "text", "text": "(no drawing submitted)"})
 
@@ -244,7 +244,8 @@ def _narration_text(events: list[Event], characters: dict[str, Character]) -> st
     def nm(pid):
         return characters[pid].name if pid and pid in characters else "someone"
     who = "; ".join(f"{c.name}: {c.personality}" for c in characters.values() if c.personality)
-    lines = [f"Fighters — {who}", "", "Resolved events (narrate these; tag each beat with its event_id):"]
+    lines = [f"Fighters — {who}", "",
+             "Resolved events (narrate these; tag each beat with its event_id):"]
     for e in events:
         lines.append(json.dumps({
             "event_id": e.id, "type": e.type.value,
