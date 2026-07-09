@@ -167,6 +167,7 @@ class GameStateMachine:
                 ac=self.balance.ac_base + g.stats.speed,
                 zone_id=self.room.zone_for_team(p.team_id or "team_a"),
                 character_png_b64=p.character_png,
+                flagged=getattr(g, "flagged", False),
             )
         self.state = GameState(
             room_id=self.room.code, phase=Phase.ROUND_LOOP, round=0,
@@ -240,6 +241,7 @@ class GameStateMachine:
             })
         await self.room.broadcast(S2C.REVEAL_STEP, {
             "round": round_num,
+            "round_title": getattr(narration, "round_title", ""),
             "beats": beats,
             "characters": self._character_deltas(),
             "action_pngs": dict(self._action_pngs),

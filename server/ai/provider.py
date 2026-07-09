@@ -31,6 +31,7 @@ class GeneratedCharacter:
     stats: Stats
     personality: str = ""
     announcer_intro: str = ""
+    flagged: bool = False
 
 
 @dataclass
@@ -43,11 +44,13 @@ class ActionSubmission:
 class Beat:
     event_id: str
     text: str
+    mood: str = "comedy"
 
 
 @dataclass
 class Narration:
     beats: list[Beat] = field(default_factory=list)
+    round_title: str = ""
 
 
 class AIProvider(Protocol):
@@ -137,7 +140,7 @@ class MockAI:
                 beats.append(Beat(event_id=ev.id, text=text))
         if not beats:
             beats.append(Beat(event_id="filler", text="The fighters circle warily."))
-        return Narration(beats=beats)
+        return Narration(beats=beats, round_title=_mock_round_title(events))
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +172,18 @@ def _lowest_hp_enemy(pid: str, state: GameState) -> str | None:
     if not enemies:
         return None
     return min(enemies)[1]
+
+
+def _mock_round_title(events: list[Event]) -> str:
+    kinds = {e.type.value for e in events}
+    results = {e.data.get("result") for e in events if e.type.value == "attack_resolved"}
+    if "ko" in kinds:
+        return "Someone Hits the Sand"
+    if "crit" in results:
+        return "Critical Chaos"
+    if "fumble" in results:
+        return "A Comedy of Errors"
+    return "The Doodles Circle"
 
 
 def _name(pid: str | None, characters: dict[str, Character]) -> str:

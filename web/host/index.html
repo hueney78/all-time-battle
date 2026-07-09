@@ -310,6 +310,7 @@
       let i = 0, timer = null;
       $('nextBtn').classList.remove('hidden');
       $('roundHead').textContent = 'ROUND ' + payload.round;
+      $('roundTitle').textContent = payload.round_title ? ('“' + payload.round_title + '”') : '';
       $('status').textContent = 'reveal';
       (payload.characters || []).forEach(upsert);
       renderRail(payload.initiative_order || speedOrder());   // the round's acting order
