@@ -7,12 +7,16 @@ key. Phase 5 adds the real Anthropic-backed provider implementing the same
 
 from __future__ import annotations
 
+import logging
+import os
 import random
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from server.config import Balance
+from server.config import Balance, GameRules
 from server.engine.models import Character, ClassifiedAction, Event, GameState, Stats
+
+log = logging.getLogger("doodle.ai")
 
 
 # ---------------------------------------------------------------------------
@@ -51,6 +55,21 @@ class Beat:
 class Narration:
     beats: list[Beat] = field(default_factory=list)
     round_title: str = ""
+
+
+def make_ai(rules: GameRules) -> "AIProvider":
+    """Pick the provider from AI_MODE: live Claude when AI_MODE=live and a key is
+    present, otherwise the offline mock. Any live-init failure degrades to mock so
+    the game still runs."""
+    mode = os.environ.get("AI_MODE", "mock").strip().lower()
+    if mode == "live" and os.environ.get("ANTHROPIC_API_KEY"):
+        try:
+            from server.ai.client import LiveAI
+
+            return LiveAI(rules)
+        except Exception:
+            log.exception("live AI init failed; falling back to mock")
+    return MockAI()
 
 
 class AIProvider(Protocol):

@@ -96,6 +96,7 @@ class GameStateMachine:
         self._audience: deque[dict[str, int]] = deque(
             maxlen=max(1, rules.settings.ui.audience_recent_rounds)
         )
+        self._degraded_announced = False
 
     # -- lifecycle --------------------------------------------------------
     def start(self) -> None:
@@ -122,6 +123,13 @@ class GameStateMachine:
 
     def advance_beat(self) -> None:
         self._beat_done.set()
+
+    async def _check_degraded(self) -> None:
+        """If the AI provider fell back to non-AI results, tell the host once so
+        it can show the 'AI is napping — chaos mode' banner."""
+        if getattr(self.ai, "degraded", False) and not self._degraded_announced:
+            self._degraded_announced = True
+            await self.room.broadcast(S2C.TOAST, {"message": "🤖 AI is napping — chaos mode"})
 
     def _note_submission(self, player_id: str) -> None:
         if player_id in self._expected:
@@ -176,6 +184,7 @@ class GameStateMachine:
         await self._send_all_player_states()
         await self._send_canvas_inits()
         await self._broadcast_arena()
+        await self._check_degraded()
 
     async def _round_loop(self) -> None:
         assert self.state is not None
@@ -199,6 +208,7 @@ class GameStateMachine:
             result = resolve_round(state_for_round, actions, rng, self.balance)
             self.state = result.new_state
             narration = self.ai.narrate_round(result.events, self.state.characters)
+            await self._check_degraded()
             self.snapshots.write_round(round_num, self.state, result.events)
             self.snapshots.append_wildcards(round_num, actions)
 

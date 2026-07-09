@@ -238,7 +238,9 @@ class RoomManager:
     async def _dispatch(self, room: Room, player: Player, msg_type: str, payload: dict) -> None:
         if msg_type == C2S.START_GAME:
             if player.role == "host" and room.can_start:
-                room.machine = GameStateMachine(room, self.rules, ai=_default_ai())
+                from server.ai.provider import make_ai
+
+                room.machine = GameStateMachine(room, self.rules, ai=make_ai(self.rules))
                 room.machine.start()
         elif msg_type == C2S.SUBMIT_HINT:
             parsed = parse_payload(C2S.SUBMIT_HINT, payload)
@@ -268,9 +270,3 @@ def _new_code(existing: dict[str, Room]) -> str:
         if code not in existing:
             return code
     raise RuntimeError("could not allocate a unique room code")
-
-
-def _default_ai():
-    # Phase 3 always uses the mock. Phase 5 swaps this for the live provider.
-    from server.ai.provider import MockAI
-    return MockAI()

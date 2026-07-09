@@ -10,12 +10,17 @@ import json
 import socket
 from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from server.config import load_game_rules
 from server.room import RoomManager, SocketDisconnect
+
+# Load .env so ANTHROPIC_API_KEY / AI_MODE reach the process (no-op if absent;
+# does not override vars already set in the environment).
+load_dotenv()
 
 app = FastAPI(title="Doodle Brawl", version="0.1.0")
 
