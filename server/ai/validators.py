@@ -20,6 +20,7 @@ from server.ai import schemas as S
 from server.ai.provider import Beat, CharacterSubmission, GeneratedCharacter, Narration
 from server.config import Balance, GameRules
 from server.engine.conditions import ConditionRegistry
+from server.engine.hazards import HazardRegistry
 from server.engine.models import ClassifiedAction, GameState, Stats
 from server.engine.moves import MoveRegistry
 from server.engine.zones import ZoneRegistry
@@ -157,6 +158,41 @@ def build_classified_actions(
                 combo.leading_catalog_id if combo.leading_catalog_id in move_reg else catalog_id
             )
         out.append(ca)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# classify_gremlin
+# ---------------------------------------------------------------------------
+def build_gremlin_hazards(
+    resp: S.ClassifyGremlinsResponse,
+    gremlins: list[str],
+    rules: GameRules,
+) -> list[ClassifiedAction]:
+    """Turn gremlin hazard classifications into resolver actions. An unknown
+    hazard_id falls back to the palette's first entry (never rejected, like
+    stale intents); a gremlin with no classification drops no hazard this round.
+    The catalog_id carries the hazard id — the resolver's gremlin pass reads it
+    against the hazard registry."""
+    haz_reg = HazardRegistry(rules.hazards)
+    ids = haz_reg.all_ids
+    if not ids:
+        return []
+    default = ids[0]
+    by_pid = {h.player_id: h for h in resp.hazards}
+    out: list[ClassifiedAction] = []
+    for pid in gremlins:
+        h = by_pid.get(pid)
+        if h is None:
+            continue  # blank canvas → no hazard this round
+        hazard_id = h.hazard_id if h.hazard_id in haz_reg else default
+        out.append(ClassifiedAction(
+            player_id=pid,
+            catalog_id=hazard_id,
+            action_cost=1,
+            adaptation_note=h.adaptation_note,
+            flagged=bool(h.flagged),
+        ))
     return out
 
 

@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from server.config import Balance, GameRules
+from server.engine.hazards import HazardRegistry
 from server.engine.models import Character, ClassifiedAction, Event, GameState, Stats
 
 log = logging.getLogger("doodle.ai")
@@ -78,6 +79,10 @@ class AIProvider(Protocol):
     ) -> dict[str, GeneratedCharacter]: ...
 
     def classify_actions(
+        self, state: GameState, submissions: dict[str, ActionSubmission], round_num: int
+    ) -> list[ClassifiedAction]: ...
+
+    def classify_gremlin(
         self, state: GameState, submissions: dict[str, ActionSubmission], round_num: int
     ) -> list[ClassifiedAction]: ...
 
@@ -148,6 +153,24 @@ class MockAI:
                 adaptation_note="a no-frills energy bolt",
             ))
         return actions
+
+    def classify_gremlin(
+        self, state: GameState, submissions: dict[str, ActionSubmission], round_num: int
+    ) -> list[ClassifiedAction]:
+        """Map each gremlin's doodle to a deterministic hazard from the palette.
+        A blank canvas drops no hazard that round."""
+        haz_ids = HazardRegistry().all_ids
+        out: list[ClassifiedAction] = []
+        for pid, sub in submissions.items():
+            png = (sub.png_base64 if sub else "").strip()
+            if not png or not haz_ids:
+                continue
+            hid = haz_ids[random.Random(f"grem:{pid}").randrange(len(haz_ids))]
+            out.append(ClassifiedAction(
+                player_id=pid, catalog_id=hid, action_cost=1,
+                adaptation_note="a menacing little doodle",
+            ))
+        return out
 
     def narrate_round(
         self, events: list[Event], characters: dict[str, Character]
@@ -229,6 +252,9 @@ def _beat_text(ev: Event, characters: dict[str, Character]) -> str:
         return ""
     if t == "ko":
         return f"{who} is knocked out and becomes an Arena Gremlin!"
+    if t == "gremlin_hazard":
+        hz = str(d.get("hazard_id", "something")).replace("_", " ")
+        return f"{who} the Gremlin drops {hz} on {d.get('zone', 'the arena')}!"
     if t == "condition_applied":
         return f"{who} is now {d.get('condition', 'affected')}."
     if t == "healed":

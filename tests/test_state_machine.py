@@ -489,3 +489,47 @@ async def test_pipeline_overlaps_and_orders_under_slow_ai():
         sum(1 for hb in heartbeats if start <= hb <= end) >= 3
         for (start, end) in slow.classify_spans
     ), "event loop went silent during a slow AI call — pipeline blocked"
+
+
+# ---------------------------------------------------------------------------
+# Arena Gremlin flow: KO'd players draw hazards into the round (GAME_DESIGN §10)
+# ---------------------------------------------------------------------------
+async def test_gremlin_draws_a_hazard_into_the_round():
+    """A KO'd player is an Arena Gremlin: the pipeline keeps them in the draw
+    roster, classifies their drawing as a hazard (separately from fighters'
+    moves), and the resolver drops it — a GREMLIN_HAZARD event lands in the
+    processed round."""
+    from server.state_machine import _Drawn
+
+    rules = _rules()
+    room = Room("GREM", rules)
+    a = room.add_player("A", "player", FakeSocket(), None)   # team_a
+    b = room.add_player("B", "player", FakeSocket(), None)   # team_b
+    c = room.add_player("C", "player", FakeSocket(), None)   # team_a (gremlin, teammate of A)
+    machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
+
+    fa = Character(player_id=a.id, name="A", stats=Stats(power=2, speed=2, weird=2),
+                   hp=24, max_hp=24, ac=13, zone_id="glitter_back")
+    fb = Character(player_id=b.id, name="B", stats=Stats(power=2, speed=2, weird=2),
+                   hp=24, max_hp=24, ac=13, zone_id="thunder_back")
+    grem = Character(player_id=c.id, name="Imp", stats=Stats(power=2, speed=2, weird=2),
+                     hp=0, max_hp=24, ac=13, zone_id="glitter_back",
+                     is_ko=True, is_gremlin=True)
+    state = GameState(room_id="GREM",
+                      characters={a.id: fa, b.id: fb, c.id: grem}, teams=room.teams)
+    machine.state = state
+    machine._resolve_state = state
+
+    # The gremlin is in the draw roster (as a gremlin), the fighters as fighters.
+    fighters, gremlins = machine._draw_roster()
+    assert set(fighters) == {a.id, b.id} and gremlins == [c.id]
+
+    drawn = _Drawn(round_num=1,
+                   action_pngs={a.id: "doodle", b.id: "doodle", c.id: "hazard-doodle"},
+                   fighters=fighters, gremlins=gremlins)
+    processed = await machine._process_round(drawn)
+
+    haz = [e for e in processed.events if e.type.value == "gremlin_hazard"]
+    assert haz, "the gremlin's drawing should resolve into a hazard"
+    assert haz[0].player_id == c.id
+    assert haz[0].data["hazard_id"] in rules.hazards.hazards

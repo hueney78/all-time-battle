@@ -80,7 +80,8 @@ class _Drawn:
 
     round_num: int
     action_pngs: dict[str, str]
-    living: list[str]
+    fighters: list[str]   # living fighters — drew a move this round
+    gremlins: list[str]   # KO'd players — each drew one hazard this round
 
 
 @dataclass
@@ -223,16 +224,17 @@ class GameStateMachine:
         round_num = 1
 
         while round_num <= _SAFETY_ROUND_CAP:
-            living = self._living_for_draw()
+            fighters, gremlins = self._draw_roster()
             drawn_pngs, processed, _ = await asyncio.gather(
-                self._draw_stage(round_num, living),
+                self._draw_stage(round_num, fighters + gremlins),
                 self._process_stage(to_process),
                 self._reveal_stage(to_reveal),
             )
 
             # Shift the pipeline forward one stage.
             to_reveal = processed
-            to_process = _Drawn(round_num=round_num, action_pngs=drawn_pngs, living=living)
+            to_process = _Drawn(round_num=round_num, action_pngs=drawn_pngs,
+                                fighters=fighters, gremlins=gremlins)
 
             # A decided match: the buffered reveal still in flight plays out
             # (GAME_DESIGN.md §2), then the finale. Rounds drawn but not yet
@@ -247,12 +249,16 @@ class GameStateMachine:
 
             round_num += 1
 
-    def _living_for_draw(self) -> list[str]:
-        """Who draws this round — the living fighters in the last REVEALED state
-        (before any characters exist, everyone in the lobby)."""
+    def _draw_roster(self) -> tuple[list[str], list[str]]:
+        """Who draws this round, from the last REVEALED state: living fighters
+        (who draw a move) and Arena Gremlins (KO'd players who each draw one
+        hazard — GAME_DESIGN §10). Gremlins are is_ko, so the sets are disjoint.
+        Before characters exist, everyone in the lobby draws (their character)."""
         if self.state is None:
-            return [p.id for p in self.room.players]
-        return [pid for pid, ch in self.state.characters.items() if not ch.is_ko]
+            return [p.id for p in self.room.players], []
+        fighters = [pid for pid, ch in self.state.characters.items() if not ch.is_ko]
+        gremlins = [pid for pid, ch in self.state.characters.items() if ch.is_gremlin]
+        return fighters, gremlins
 
     async def _draw_stage(self, round_num: int, living: list[str]) -> dict[str, str]:
         self._action_pngs = {}
@@ -319,11 +325,21 @@ class GameStateMachine:
         concurrent draw/reveal stages."""
         assert self._resolve_state is not None
         state_for_round = self._resolve_state.model_copy(update={"round": drawn.round_num})
-        subs = {pid: ActionSubmission(pid, drawn.action_pngs.get(pid, "")) for pid in drawn.living}
 
+        fighter_subs = {pid: ActionSubmission(pid, drawn.action_pngs.get(pid, ""))
+                        for pid in drawn.fighters}
         actions = await asyncio.to_thread(
-            self.ai.classify_actions, state_for_round, subs, drawn.round_num
+            self.ai.classify_actions, state_for_round, fighter_subs, drawn.round_num
         )
+        # Arena Gremlins are classified separately (drawings → hazard palette) and
+        # merged in; the resolver's gremlin pass reads them off the same list.
+        if drawn.gremlins:
+            grem_subs = {pid: ActionSubmission(pid, drawn.action_pngs.get(pid, ""))
+                         for pid in drawn.gremlins}
+            grem_actions = await asyncio.to_thread(
+                self.ai.classify_gremlin, state_for_round, grem_subs, drawn.round_num
+            )
+            actions = actions + grem_actions
         rng = Dice(seed=self.seed + drawn.round_num)
         result = resolve_round(state_for_round, actions, rng, self.balance)
         self._resolve_state = result.new_state

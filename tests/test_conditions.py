@@ -117,7 +117,7 @@ def test_novel_condition_added_to_yaml(tmp_path, monkeypatch):
     import yaml
     import server.config as cfg_mod
 
-    data = yaml.safe_load(open("config/conditions.yaml"))
+    data = yaml.safe_load(open("config/conditions.yaml", encoding="utf-8"))
     data["conditions"]["turbo_charged"] = {
         "duration": 3,
         "modifiers": {"attack": 2},

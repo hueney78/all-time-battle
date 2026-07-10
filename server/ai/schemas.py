@@ -70,6 +70,23 @@ class ClassifyActionsResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# classify_gremlin — a KO'd player draws one hazard per round (GAME_DESIGN §10)
+# ---------------------------------------------------------------------------
+class AIGremlinHazard(BaseModel):
+    player_id: str = Field(description="the gremlin's id from the labeled drawing")
+    hazard_id: str = Field(description="exactly one id from the hazard palette")
+    adaptation_note: str | None = Field(
+        default=None, description="a funny read of what the gremlin scribbled"
+    )
+    flagged: bool = Field(default=False, description="true if the drawing is inappropriate")
+
+
+class ClassifyGremlinsResponse(BaseModel):
+    round: int = 0
+    hazards: list[AIGremlinHazard]
+
+
+# ---------------------------------------------------------------------------
 # narrate_round
 # ---------------------------------------------------------------------------
 class AIBeat(BaseModel):

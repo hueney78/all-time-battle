@@ -477,7 +477,7 @@ def test_novel_move_resolves_via_yaml(tmp_path, monkeypatch):
     import yaml
     import server.config as cfg_mod
 
-    moves_data = yaml.safe_load(open("config/moves.yaml"))
+    moves_data = yaml.safe_load(open("config/moves.yaml", encoding="utf-8"))
     moves_data["moves"]["nova_punch"] = {
         "pf2e": "Nova Punch",
         "roll": "power",
@@ -990,3 +990,103 @@ def test_cleanse_does_not_strip_transformed_marker():
     assert "transformed" in hero2.conditions, "cleanse must not strip the transform marker"
     assert hero2.stats.power == swapped, "stats must stay transformed, not silently revert"
     assert hero2.pre_transform_stats is not None
+
+
+# ---------------------------------------------------------------------------
+# Unit: Arena Gremlin hazards (GAME_DESIGN §10)
+# ---------------------------------------------------------------------------
+
+_GREMLIN_TEAMS = [
+    Team(id="team_a", name="A", color="red", player_ids=["g1", "a1"]),
+    Team(id="team_b", name="B", color="blue", player_ids=["b1", "b2"]),
+]
+
+
+def _gremlin(player_id: str, zone: str) -> Character:
+    ch = _char(player_id, "Imp", power=2, speed=2, weird=2, hp=0, zone=zone)
+    ch.is_ko = True
+    ch.is_gremlin = True
+    return ch
+
+
+def _one_fighter_per_zone() -> list[Character]:
+    """A living fighter in each arena zone, so whichever zone a hazard lands on
+    has exactly one occupant to catch it."""
+    return [
+        _char("a1", "A", 2, 2, 2, hp=20, zone="glitter_back"),
+        _char("b1", "B", 2, 2, 2, hp=20, zone="frontline"),
+        _char("b2", "C", 2, 2, 2, hp=20, zone="thunder_back"),
+    ]
+
+
+def test_gremlin_hazard_applies_condition_to_zone_occupants():
+    """A gremlin's `sprinkler` soaks every living fighter in the struck zone
+    (and no one elsewhere); the condition comes straight from the palette."""
+    g = _gremlin("g1", "glitter_back")
+    state = _state([g, *_one_fighter_per_zone()], _GREMLIN_TEAMS)
+    action = ClassifiedAction(player_id="g1", catalog_id="sprinkler", action_cost=1)
+
+    result = resolve_round(state, [action], Dice(seed=7), CFG)
+
+    haz = [e for e in result.events if e.type.value == "gremlin_hazard"]
+    assert len(haz) == 1
+    assert haz[0].data["hazard_id"] == "sprinkler"
+    assert haz[0].data["condition"] == "soggy"
+    zone = haz[0].data["zone"]
+    for pid, ch in result.new_state.characters.items():
+        if ch.is_ko:
+            continue
+        assert ("soggy" in ch.conditions) == (ch.zone_id == zone), (
+            f"{pid} soggy state should match being in the hazard zone {zone}"
+        )
+    # The affected list matches who actually got soaked.
+    assert set(haz[0].data["affected"]) == {
+        pid for pid, ch in result.new_state.characters.items()
+        if not ch.is_ko and "soggy" in ch.conditions
+    }
+
+
+def test_gremlin_hazard_forced_move_relocates_occupants():
+    """A `trapdoor` bumps everyone in the struck zone to an adjacent zone."""
+    g = _gremlin("g1", "glitter_back")
+    fighters = _one_fighter_per_zone()
+    state = _state([g, *fighters], _GREMLIN_TEAMS)
+    origin = {ch.player_id: ch.zone_id for ch in fighters}
+    action = ClassifiedAction(player_id="g1", catalog_id="trapdoor", action_cost=1)
+
+    result = resolve_round(state, [action], Dice(seed=3), CFG)
+
+    haz = next(e for e in result.events if e.type.value == "gremlin_hazard")
+    assert haz.data["forces_move"] is True
+    zone = haz.data["zone"]
+    displaced = [pid for pid, z in origin.items() if z == zone]
+    for pid in displaced:
+        assert result.new_state.characters[pid].zone_id in ZONE_REG.adjacent(zone)
+    moved_evs = [e for e in result.events if e.type.value == "moved"]
+    assert len(moved_evs) == len(displaced)
+
+
+def test_gremlin_with_no_drawing_drops_no_hazard():
+    """A blank gremlin canvas (no classified action) yields no hazard."""
+    g = _gremlin("g1", "glitter_back")
+    state = _state([g, *_one_fighter_per_zone()], _GREMLIN_TEAMS)
+
+    result = resolve_round(state, [], Dice(seed=1), CFG)  # no gremlin action passed
+
+    assert not [e for e in result.events if e.type.value == "gremlin_hazard"]
+
+
+def test_fighter_ko_d_this_round_does_not_drop_a_hazard():
+    """Only gremlins present at ROUND START act — a fighter KO'd this round (here
+    by a burning tick) becomes a gremlin but drops nothing until next round."""
+    doomed = _char("b1", "Doomed", 2, 2, 2, hp=1, zone="frontline", conditions={"burning": 1})
+    ally = _char("a1", "Ally", 2, 2, 2, hp=20, zone="glitter_back")
+    other = _char("b2", "Other", 2, 2, 2, hp=20, zone="thunder_back")
+    state = _state([doomed, ally, other], _GREMLIN_TEAMS)
+    # Pretend the doomed fighter also "drew" a hazard this round.
+    action = ClassifiedAction(player_id="b1", catalog_id="sprinkler", action_cost=1)
+
+    result = resolve_round(state, [action], Dice(seed=1), CFG)
+
+    assert result.new_state.characters["b1"].is_gremlin  # tick KO'd → now a gremlin
+    assert not [e for e in result.events if e.type.value == "gremlin_hazard"]

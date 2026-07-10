@@ -81,6 +81,13 @@ conditions:
     debuff: true
     emoji: "🌀"
 
+  # A single stinging tick — the Arena Gremlin "bees" hazard (GAME_DESIGN §10).
+  stung:
+    duration: 1
+    tick_damage: 1
+    debuff: true
+    emoji: "🐝"
+
   shielded:
     duration: 1
     modifiers: {ac: 2}

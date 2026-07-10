@@ -66,6 +66,10 @@ class LiveAI:
             conditions=sorted(rules.conditions.conditions),
             zones=rules.zones.zones,
         )
+        self._sys_gremlin = env.get_template("gremlin_classify.md.j2").render(
+            hazards=rules.hazards.hazards,
+            zones=rules.zones.zones,
+        )
         self._sys_narrate = env.get_template("narrate.md.j2").render()
 
         # cost/telemetry + degraded state (read by the state machine for a banner)
@@ -121,6 +125,33 @@ class LiveAI:
         if parsed is None:
             parsed = S.ClassifyActionsResponse(actions=[])         # → all stumble
         return V.build_classified_actions(parsed, state, living, self.rules)
+
+    def classify_gremlin(
+        self, state: GameState, submissions: dict[str, ActionSubmission], round_num: int
+    ) -> list[ClassifiedAction]:
+        gremlins = [pid for pid, ch in state.characters.items() if ch.is_gremlin]
+        header = f"Round {round_num}. Classify each Arena Gremlin's hazard drawing."
+        content: list[dict] = [{"type": "text", "text": header}]
+        drawn: list[str] = []
+        for pid in gremlins:
+            png = submissions[pid].png_base64 if pid in submissions else ""
+            img = _image_block(png)
+            if img is None:
+                continue                          # blank canvas → no hazard this round
+            name = state.characters[pid].name
+            content.append({"type": "text", "text": f"=== gremlin {name} ({pid}) ==="})
+            content.append(img)
+            drawn.append(pid)
+
+        if not drawn:
+            return []
+        parsed = self._call_tool(
+            self._sys_gremlin, content, S.ClassifyGremlinsResponse,
+            "submit_gremlin_hazards", self.ai.classify_model,
+        )
+        if parsed is None:
+            parsed = S.ClassifyGremlinsResponse(hazards=[])        # → drop nothing
+        return V.build_gremlin_hazards(parsed, drawn, self.rules)
 
     def narrate_round(
         self, events: list[Event], characters: dict[str, Character]

@@ -156,3 +156,28 @@ def test_make_ai_live_with_key(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake-for-construction-only")
     ai = make_ai(RULES)
     assert isinstance(ai, LiveAI)                    # constructed, not called
+
+
+# ---------------------------------------------------------------------------
+# classify_gremlin
+# ---------------------------------------------------------------------------
+def _gremlin_state():
+    st = _two_player_state()
+    st.characters["p1"].is_ko = True
+    st.characters["p1"].is_gremlin = True
+    return st
+
+
+def test_classify_gremlin_parses_hazard():
+    script = [{"round": 2, "hazards": [
+        {"player_id": "p1", "hazard_id": "bees", "adaptation_note": "an angry swarm"}]}]
+    ai = LiveAI(RULES, client=FakeAnthropic(script))
+    out = ai.classify_gremlin(_gremlin_state(), {"p1": ActionSubmission("p1", _PNG)}, 2)
+    assert len(out) == 1 and out[0].player_id == "p1" and out[0].catalog_id == "bees"
+    assert ai.degraded is False and ai.client.messages.calls == 1
+
+
+def test_classify_gremlin_skips_api_when_no_drawings():
+    ai = LiveAI(RULES, client=FakeAnthropic([{"round": 2, "hazards": []}]))
+    out = ai.classify_gremlin(_gremlin_state(), {"p1": ActionSubmission("p1", "")}, 2)
+    assert out == [] and ai.client.messages.calls == 0   # nothing drawn → no API call

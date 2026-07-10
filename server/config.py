@@ -293,6 +293,31 @@ def load_moves(config_dir: Path | None = None) -> MovesConfig:
 
 
 # ---------------------------------------------------------------------------
+# hazards.yaml — the Arena Gremlin hazard palette (GAME_DESIGN §10)
+# ---------------------------------------------------------------------------
+
+
+class HazardDef(BaseModel):
+    model_config = {"extra": "allow"}
+    # A hazard applies a condition to a zone's occupants, forces them to move, or
+    # both. Effects reuse existing registries so adding a hazard is YAML-only.
+    applies_condition: str | None = None
+    forces_move: bool = False
+    emoji: str = ""
+    sfx: str = ""
+    desc: str = ""
+
+
+class HazardsConfig(BaseModel):
+    hazards: dict[str, HazardDef]
+
+
+def load_hazards(config_dir: Path | None = None) -> HazardsConfig:
+    data = _load_yaml("hazards.yaml", config_dir)
+    return _parse(HazardsConfig, data, "hazards.yaml")
+
+
+# ---------------------------------------------------------------------------
 # Bundle — passed to resolver and AI layer
 # ---------------------------------------------------------------------------
 
@@ -303,6 +328,7 @@ class GameRules(BaseModel):
     zones: ZonesConfig
     conditions: ConditionsConfig
     moves: MovesConfig
+    hazards: HazardsConfig = HazardsConfig(hazards={})
 
 
 def load_game_rules(config_dir: Path | None = None) -> GameRules:
@@ -312,4 +338,5 @@ def load_game_rules(config_dir: Path | None = None) -> GameRules:
         zones=load_zones(config_dir),
         conditions=load_conditions(config_dir),
         moves=load_moves(config_dir),
+        hazards=load_hazards(config_dir),
     )

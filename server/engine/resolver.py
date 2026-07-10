@@ -31,6 +31,7 @@ from server.engine.models import (
     Stats,
     Team,
 )
+from server.engine.hazards import HazardRegistry
 from server.engine.moves import MoveRegistry
 from server.engine.zones import ZoneRegistry
 
@@ -57,12 +58,17 @@ def resolve_round(
     cond_reg = ConditionRegistry()
     zone_reg = ZoneRegistry()
     move_reg = MoveRegistry()
+    haz_reg = HazardRegistry()
 
     chars: dict[str, Character] = {
         pid: ch.model_copy(deep=True) for pid, ch in state.characters.items()
     }
     events: list[Event] = []
     round_num = state.round
+
+    # Arena Gremlins that were already KO'd coming into this round — a fighter
+    # KO'd *this* round only starts dropping hazards next round (GAME_DESIGN §10).
+    start_gremlins = [pid for pid, ch in chars.items() if ch.is_gremlin]
 
     # ------------------------------------------------------------------
     # 1. Tick conditions at round start
@@ -107,16 +113,7 @@ def resolve_round(
             continue
         ch = chars.get(pid)
         if ch is None or ch.is_ko:
-            continue
-
-        if ch.is_gremlin:
-            action = action_map.get(pid)
-            if action:
-                _resolve_gremlin(
-                    pid, action, chars, _living(chars), events, round_num, rng, zone_reg
-                )
-            processed.add(pid)
-            continue
+            continue  # KO'd/gremlin fighters are handled in the gremlin pass below
 
         # --- Combo ---
         if pid in combo_of:
@@ -164,6 +161,19 @@ def resolve_round(
             state,
         )
         processed.add(pid)
+
+    # ------------------------------------------------------------------
+    # 5b. Arena Gremlins drop hazards (GAME_DESIGN §10)
+    # ------------------------------------------------------------------
+    # Runs after the round's combat so a hazard sets up the arena for the *next*
+    # round rather than retroactively changing fights already resolved. Only
+    # gremlins present at round start act, in stable player_id order.
+    for pid in sorted(start_gremlins):
+        action = action_map.get(pid)
+        if action is not None:
+            _resolve_gremlin(
+                pid, action, chars, events, round_num, rng, zone_reg, cond_reg, haz_reg
+            )
 
     # ------------------------------------------------------------------
     # 6. Set banked actions earned this round (for next round's defense)
@@ -903,17 +913,26 @@ def _resolve_gremlin(
     pid: str,
     action: ClassifiedAction,
     chars: dict[str, Character],
-    living: dict[str, Character],
     events: list[Event],
     round_num: int,
     rng: Dice,
     zone_reg: ZoneRegistry,
+    cond_reg: ConditionRegistry,
+    haz_reg: HazardRegistry,
 ) -> None:
-    # Pick a random zone for the hazard
+    """A gremlin drops a hazard on a random zone; every living fighter standing
+    there suffers its effect — a condition and/or a forced move. The hazard id
+    comes from the gremlin's classified drawing (config/hazards.yaml), so adding
+    a hazard type is a YAML-only change."""
     all_zones = zone_reg.all_ids
     if not all_zones:
         return
     target_zone = rng.choice(all_zones)
+    hazard_id = action.catalog_id
+    hdef = haz_reg.get(hazard_id) if hazard_id in haz_reg else None
+
+    # Snapshot occupants before any forced move mutates zones.
+    occupants = [c for c in chars.values() if not c.is_ko and c.zone_id == target_zone]
     events.append(
         Event(
             id=_eid("grem"),
@@ -921,12 +940,27 @@ def _resolve_gremlin(
             round=round_num,
             player_id=pid,
             data={
-                "catalog_id": action.catalog_id,
+                "hazard_id": hazard_id,
                 "zone": target_zone,
+                "condition": hdef.applies_condition if hdef else None,
+                "forces_move": bool(hdef.forces_move) if hdef else False,
+                "affected": [c.player_id for c in occupants],
                 "adaptation_note": action.adaptation_note,
             },
         )
     )
+    if hdef is None:
+        return
+
+    for occ in occupants:
+        if hdef.applies_condition:
+            _apply_condition(
+                hdef.applies_condition, occ.player_id, occ, chars, events, round_num, cond_reg
+            )
+        if hdef.forces_move:
+            adj = zone_reg.adjacent(target_zone)
+            if adj:
+                _do_move(occ.player_id, occ, rng.choice(adj), chars, events, round_num, zone_reg)
 
 
 # ---------------------------------------------------------------------------

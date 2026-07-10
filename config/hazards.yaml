@@ -1,0 +1,37 @@
+# hazards.yaml — the Arena Gremlin hazard palette (GAME_DESIGN.md §10).
+#
+# A KO'd player becomes an Arena Gremlin and draws ONE hazard each round. The AI
+# maps the drawing to exactly one hazard below; the resolver drops it on a random
+# zone, hitting every living fighter standing there. Effects reuse the condition
+# registry and movement, so adding a hazard is a YAML-only change (zero Python) —
+# `desc` is injected into the classifier prompt, so write it visually.
+#
+# Effect keys (a hazard uses one):
+#   applies_condition: <id from conditions.yaml>   apply that condition to occupants
+#   forces_move: true                              bump occupants to a random adjacent zone
+
+hazards:
+  banana_peel:
+    applies_condition: prone
+    emoji: "🍌"
+    sfx: banana_slip
+    desc: "slippery peels, oil slicks, marbles, ice — anything underfoot that drops you"
+
+  sprinkler:
+    applies_condition: soggy
+    emoji: "💦"
+    sfx: splash
+    desc: "water, rain clouds, sprinklers, waves, splashing — anything that soaks a spot"
+
+  bees:
+    applies_condition: stung
+    emoji: "🐝"
+    sfx: buzz
+    desc: "bees, wasps, hornets, angry swarms — anything that keeps stinging"
+
+  trapdoor:
+    applies_condition: null
+    forces_move: true
+    emoji: "🕳️"
+    sfx: whoosh
+    desc: "pits, trapdoors, holes, chasms, portals — anything that yanks you elsewhere"

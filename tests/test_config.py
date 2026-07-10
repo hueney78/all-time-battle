@@ -368,12 +368,44 @@ def test_moves_wildcard_exists():
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# hazards.yaml — the Arena Gremlin palette (data-driven, GAME_DESIGN §10)
+# ---------------------------------------------------------------------------
+
+
+def test_hazards_load_and_map_to_effects():
+    from server.config import load_hazards
+    h = load_hazards().hazards
+    assert h["sprinkler"].applies_condition == "soggy"
+    assert h["bees"].applies_condition == "stung"
+    assert h["trapdoor"].forces_move is True
+
+
+def test_novel_hazard_added_to_yaml(tmp_path: Path, monkeypatch):
+    """A hazard added only to hazards.yaml loads — zero Python (data-driven),
+    the gremlin analogue of the High Ground zone test."""
+    from server.engine.hazards import HazardRegistry
+
+    data = yaml.safe_load(open("config/hazards.yaml", encoding="utf-8"))
+    data["hazards"]["quicksand"] = {
+        "applies_condition": "sticky", "emoji": "⌛", "desc": "sinking sand",
+    }
+    (tmp_path / "hazards.yaml").write_text(yaml.dump(data), encoding="utf-8")
+    monkeypatch.setattr(cfg_mod, "CONFIG_DIR", tmp_path)
+
+    reg = HazardRegistry()
+    assert "quicksand" in reg
+    assert reg.get("quicksand").applies_condition == "sticky"
+
+
 def test_load_game_rules_bundle():
     rules = load_game_rules()
     assert rules.balance.hp_base == 18
     assert len(rules.zones.zones) == 3
     assert "strike" in rules.moves.moves
     assert "burning" in rules.conditions.conditions
+    assert "stung" in rules.conditions.conditions          # bees hazard's condition
+    assert rules.hazards.hazards["bees"].applies_condition == "stung"
 
 
 def test_bad_yaml_raises_clear_error(tmp_path: Path, monkeypatch):

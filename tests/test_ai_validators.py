@@ -11,6 +11,7 @@ from server.ai.provider import CharacterSubmission
 from server.ai.validators import (
     build_classified_actions,
     build_generated_characters,
+    build_gremlin_hazards,
     build_narration,
     normalize_stats,
 )
@@ -121,3 +122,21 @@ def test_narration_salvages_when_all_ids_unknown():
     resp = S.NarrateResponse(beats=[S.AIBeat(event_id="ghost", text="still funny")])
     n = build_narration(resp, {"e1"})
     assert n.beats and n.beats[0].text == "still funny" and n.beats[0].event_id == "e1"
+
+
+# ---------------------------------------------------------------------------
+# classify_gremlin
+# ---------------------------------------------------------------------------
+def test_build_gremlin_hazards_maps_validates_and_skips():
+    """Valid hazard ids pass through; an unknown id falls back to the palette
+    (never rejected); a gremlin with no classification drops no hazard."""
+    resp = S.ClassifyGremlinsResponse(hazards=[
+        S.AIGremlinHazard(player_id="g1", hazard_id="sprinkler"),
+        S.AIGremlinHazard(player_id="g2", hazard_id="not_a_real_hazard"),
+    ])
+    out = {a.player_id: a for a in build_gremlin_hazards(resp, ["g1", "g2", "g3"], RULES)}
+
+    assert out["g1"].catalog_id == "sprinkler"                  # valid → kept
+    assert out["g2"].catalog_id in RULES.hazards.hazards        # unknown → palette fallback
+    assert "g3" not in out                                      # unclassified → no hazard
+    assert all(a.action_cost == 1 for a in out.values())
