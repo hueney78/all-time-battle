@@ -63,6 +63,11 @@ class S2C:
     CANVAS_INIT = "canvas_init"
     ARENA_STATE = "arena_state"
     PHASE_CHANGE = "phase_change"
+    # The moment all drawings are in: the TV shows every submitted drawing side by
+    # side ("the judges deliberate…") while the round is classified/resolved/
+    # narrated — the latency mask, never a spinner. Also fronts the montage's
+    # "training montage" interstitial. Payload: {round, kind, drawings}.
+    DELIBERATION = "deliberation"
     REVEAL_STEP = "reveal_step"
     MONTAGE = "montage_reveal"    # Power-Up Montage stat pulses (S2)
     GALLERY = "gallery_roster"    # past characters for the host stands (S4)
