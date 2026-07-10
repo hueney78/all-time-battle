@@ -136,6 +136,12 @@
     .replaybanner.show{display:inline-block}
     @keyframes replaypulse{50%{transform:rotate(-2deg) scale(1.06)}}
 
+    /* audio controls [Web Audio manager — volume/mute] */
+    .audioctl{display:flex; align-items:center; gap:6px}
+    #muteBtn{background:var(--card); border:3px solid var(--ink); border-radius:10px;
+      font-size:15px; padding:2px 8px; cursor:pointer}
+    .audioctl input{width:90px; accent-color:var(--gold)}
+
     /* narration beats */
     .beatcard{background:var(--card); border:4px solid var(--ink); border-radius:18px;
       padding:12px 18px; font-size:18px; font-weight:800; display:flex; align-items:center;
@@ -194,6 +200,10 @@
         <span class="roundtitle" id="roundTitle"></span>
         <span class="replaybanner" id="replayBanner">🔁 REPLAY!</span>
         <span id="status"></span>
+        <span class="audioctl">
+          <button id="muteBtn" title="Mute">🔊</button>
+          <input type="range" id="vol" min="0" max="100" step="5" title="Volume">
+        </span>
       </div>
       <section class="arena" id="arena">
         <div class="splash" id="comboSplash"><span class="combotext"></span></div>
@@ -219,6 +229,7 @@
   </section>
 
   <script src="/static/shared/ws.js"></script>
+  <script src="/static/host/audio.js"></script>
   <script src="/static/host/arena.js"></script>
   <script>
   (function () {
@@ -228,12 +239,13 @@
     const BEAT_MS = 3200;          // client-side reveal pacing (host "next" overrides)
     const REPLAY_CFG = CFG.instant_replay || {};
     const SPLASH_MS = (CFG.combo_splash_seconds || 2) * 1000;
+    const STING = (CFG.audio || {}).events_sfx || {};   // event type → stinger clip
     const SCHEMING = ['Fighters scheming…', 'Pencils sharpening…', 'The crowd holds its breath…'];
 
     document.documentElement.style.setProperty('--sand', CFG.canvas_background_color || '#E8D5A8');
     document.documentElement.style.setProperty('--zoom', CFG.reveal_action_zoom_scale || 1.8);
 
-    let sock, arena, seq = null;
+    let sock, arena, audio, seq = null;
     let charById = {};                 // pid → latest character delta (merged)
     const railSlotEls = {};            // pid → rail slot element
     const prevStatsById = {};          // pid → last-seen stats (for change-pulse)
@@ -367,6 +379,17 @@
         return (trig.includes('crit') && (b.floats || []).some(f => f.crit))
             || (trig.includes('ko') && b.type === 'ko');
       }
+      // The beat's soundtrack: the move's clip plays as the beat lands, then a
+      // stinger (settings.yaml events_sfx) staggered behind it. Stingers derive
+      // from engine event data (type/result/floats), never narration text.
+      function beatSfx(b) {
+        if (b.sfx) audio.play(b.sfx);
+        if (b.combo_name) audio.play(STING.combo, 120);
+        if (b.type === 'ko') audio.play(STING.ko, 250);
+        else if (b.type === 'sudden_death') audio.play(STING.sudden_death, 250);
+        else if ((b.floats || []).some(f => f.crit)) audio.play(STING.crit, 250);
+        else if (b.result === 'fumble') audio.play(STING.fumble, 250);
+      }
       function comboSplash(name) {
         const sp = $('comboSplash');
         sp.querySelector('.combotext').textContent = '💥 COMBO! ' + name;
@@ -380,6 +403,7 @@
         typewrite($('capText'), b.text);
         if (b.combo_name) comboSplash(b.combo_name);
         playEffects(b, 1);
+        beatSfx(b);
         [b.player_id, b.target_id, b.hurt, b.helped].forEach(p => { if (p) applyFinal(p); });
         clearTimeout(timer);
         timer = setTimeout(wantsReplay(b) ? () => playReplay(b) : playNext, BEAT_MS);
@@ -389,6 +413,7 @@
       function playReplay(b) {
         const mult = REPLAY_CFG.slowmo_factor || 2;
         $('replayBanner').classList.add('show');
+        audio.play(STING.replay);
         playEffects(b, mult);
         clearTimeout(timer);
         timer = setTimeout(playNext, BEAT_MS);
@@ -457,6 +482,11 @@
 
     // ---- boot ----
     arena = new Arena($('arena'));
+    audio = DoodleAudio(CFG.audio || {});
+    $('vol').value = Math.round(audio.volume * 100);
+    $('muteBtn').textContent = audio.muted ? '🔇' : '🔊';
+    $('muteBtn').onclick = () => { $('muteBtn').textContent = audio.toggleMute() ? '🔇' : '🔊'; };
+    $('vol').oninput = (e) => audio.setVolume(e.target.value / 100);
     $('startBtn').onclick = () => sock.send('start_game');
     $('nextBtn').onclick = () => { if (seq) seq.advance(); };
     sock = DoodleSocket({

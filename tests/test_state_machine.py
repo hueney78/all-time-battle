@@ -250,6 +250,45 @@ async def test_reveal_step_carries_initiative_meters_and_floats():
     assert beats["e2"]["floats"][0]["kind"] == "heal"
 
 
+async def test_reveal_beats_carry_sfx_and_result():
+    """Each beat ships its move's sound clip (moves.yaml sfx key, looked up
+    from the event's catalog_id) and the attack result, so the host's audio
+    manager can play move sounds and fire the fumble stinger from engine data."""
+    from server.ai.provider import Beat, Narration
+    from server.engine.models import Event, EventType
+
+    rules = _rules()
+    room = Room("TEST", rules)
+    sock = FakeSocket()
+    p = room.add_player("Alice", "player", sock, None)
+    machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
+
+    ch = Character(player_id=p.id, name="Alice", stats=Stats(power=2, speed=2, weird=4),
+                   hp=20, max_hp=20, ac=13, zone_id="glitter_back")
+    machine.state = GameState(room_id="TEST", characters={p.id: ch}, teams=room.teams)
+
+    zap = Event(id="e1", type=EventType.ATTACK_RESOLVED, round=1, player_id=p.id,
+                target_id=p.id, data={"result": "fumble", "catalog_id": "ray"})
+    ko = Event(id="e2", type=EventType.KO, round=1, player_id=p.id, data={})
+    narration = Narration(beats=[Beat(event_id="e1", text="zap!"),
+                                 Beat(event_id="e2", text="down!")])
+
+    await machine._reveal(1, narration, [zap, ko])
+
+    reveal = None
+    for _ in range(6):
+        env = await asyncio.wait_for(sock.client_recv(), 1.0)
+        if env.type == "reveal_step":
+            reveal = env
+            break
+    assert reveal is not None
+    beats = {bt["event_id"]: bt for bt in reveal.payload["beats"]}
+    assert beats["e1"]["sfx"] == rules.moves.moves["ray"].sfx  # "zap"
+    assert beats["e1"]["result"] == "fumble"
+    assert beats["e2"]["sfx"] is None        # KO has no catalog move — stinger only
+    assert beats["e2"]["result"] is None
+
+
 async def test_reveal_beats_carry_combo_name_for_splash():
     """A combo beat ships its fused-move name so the host can play the
     COMBO! splash; ordinary beats carry combo_name: None."""

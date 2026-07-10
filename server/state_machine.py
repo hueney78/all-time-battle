@@ -489,6 +489,7 @@ class GameStateMachine:
                 "speaker": "pbp",   # the play-by-play announcer hypes each fighter
                 "player_id": pid, "target_id": None, "type": "intro",
                 "hurt": None, "helped": None, "floats": [],
+                "combo_name": None, "sfx": None, "result": None,
             }
             for pid in processed.initiative_order if pid in chars
         ]
@@ -560,6 +561,13 @@ class GameStateMachine:
                 "floats": self._floats(ev) if ev else [],
                 # Fused-move name for the host's COMBO! splash (combo beats only).
                 "combo_name": (ev.data.get("combo_name") or None) if ev else None,
+                # The move's sound clip (moves.yaml sfx key) — the host's audio
+                # manager plays it when the beat lands. Event stingers map
+                # client-side from ui.audio.events_sfx using type/result.
+                "sfx": self._beat_sfx(ev) if ev else None,
+                # Attack outcome (hit/crit/miss/fumble) so the host can fire
+                # the fumble stinger without parsing narration text.
+                "result": (ev.data.get("result") or None) if ev else None,
             })
         await self.room.broadcast(S2C.REVEAL_STEP, {
             "round": round_num,
@@ -581,6 +589,13 @@ class GameStateMachine:
             await asyncio.wait_for(self._beat_done.wait(), timeout)
         except TimeoutError:
             pass
+
+    def _beat_sfx(self, ev) -> str | None:
+        """The sound clip for this beat's move (moves.yaml sfx key), or None
+        when the event has no catalog move (KOs, victory, combos — those are
+        covered by the client-side event stingers)."""
+        move = self.rules.moves.moves.get(ev.data.get("catalog_id", ""))
+        return (move.sfx or None) if move else None
 
     def _hurt_target(self, ev) -> str | None:
         """The player negatively impacted by an event (damaged, debuffed, KO'd),

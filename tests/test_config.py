@@ -380,6 +380,45 @@ def test_moves_wildcard_exists():
 
 
 # ---------------------------------------------------------------------------
+# audio layer (GAME_DESIGN.md §13) — per-move sfx keys + event stingers
+# ---------------------------------------------------------------------------
+
+
+def test_settings_ui_audio_block():
+    """The Web Audio manager knobs ship in ui: (→ DOODLE_CONFIG): master
+    volume, ±10% pitch variation, and the event-type → stinger mapping."""
+    s = load_settings()
+    audio = s.ui.audio
+    assert audio.enabled is True
+    assert audio.volume == 0.8
+    assert audio.pitch_variation == 0.10
+    assert audio.events_sfx["crit"] == "crowd_roar"
+    assert audio.events_sfx["fumble"] == "sad_trombone"
+    assert audio.events_sfx["ko"] == "ko_bell"
+    assert audio.events_sfx["combo"] == "air_horn"
+    assert audio.events_sfx["sudden_death"] == "drumroll"
+    assert audio.events_sfx["replay"] == "replay"
+
+
+def test_moves_all_have_sfx():
+    """Every catalog move names a sound clip — the host plays it when the
+    move's beat lands."""
+    m = load_moves()
+    for name, move in m.moves.items():
+        assert move.sfx, f"Move {name!r} is missing an sfx key"
+
+
+def test_all_referenced_sfx_clips_exist():
+    """Every clip referenced by moves.yaml or events_sfx exists in the sfx
+    pack (web/host/assets/sfx/<name>.wav) — regenerate with scripts/make_sfx.py."""
+    sfx_dir = Path(__file__).parent.parent / "web" / "host" / "assets" / "sfx"
+    referenced = {move.sfx for move in load_moves().moves.values()}
+    referenced |= set(load_settings().ui.audio.events_sfx.values())
+    missing = {name for name in referenced if not (sfx_dir / f"{name}.wav").exists()}
+    assert not missing, f"SFX clips missing from {sfx_dir}: {sorted(missing)}"
+
+
+# ---------------------------------------------------------------------------
 # Bundle
 # ---------------------------------------------------------------------------
 
