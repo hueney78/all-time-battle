@@ -8,6 +8,12 @@ venv/
 # Env / secrets
 .env
 
+# Tooling caches
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
 # Runtime game output
 snapshots/
 
