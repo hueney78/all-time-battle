@@ -93,6 +93,11 @@ class AIBeat(BaseModel):
     event_id: str = Field(description="the primary engine event id this beat narrates")
     text: str = Field(description="1–3 funny sentences with a comedic specific")
     mood: str = Field(default="comedy", description="comedy | epic | somber")
+    speaker: str = Field(
+        default="pbp",
+        description='who says this beat: "pbp" (hyper play-by-play announcer) or '
+                    '"color" (deadpan color commentator)',
+    )
 
 
 class NarrateResponse(BaseModel):

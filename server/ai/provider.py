@@ -50,6 +50,9 @@ class Beat:
     event_id: str
     text: str
     mood: str = "comedy"
+    # Which announcer voices this beat: "pbp" (hyper play-by-play) or "color"
+    # (deadpan color commentator). The host styles the two differently (S1).
+    speaker: str = "pbp"
 
 
 @dataclass
@@ -179,9 +182,10 @@ class MockAI:
         for ev in events:
             text = _beat_text(ev, characters)
             if text:
-                beats.append(Beat(event_id=ev.id, text=text))
+                beats.append(Beat(event_id=ev.id, text=text, speaker=_mock_speaker(ev)))
         if not beats:
-            beats.append(Beat(event_id="filler", text="The fighters circle warily."))
+            beats.append(Beat(event_id="filler", text="The fighters circle warily.",
+                              speaker="color"))
         return Narration(beats=beats, round_title=_mock_round_title(events))
 
 
@@ -226,6 +230,18 @@ def _mock_round_title(events: list[Event]) -> str:
     if "fumble" in results:
         return "A Comedy of Errors"
     return "The Doodles Circle"
+
+
+def _mock_speaker(ev: Event) -> str:
+    """Split beats between the two announcers so both voices show up every round:
+    the deadpan color commentator handles the whiffs, fizzles, and dry asides;
+    the play-by-play announcer calls the big swings."""
+    t = ev.type.value
+    if t == "attack_resolved" and ev.data.get("result") in ("miss", "fumble"):
+        return "color"
+    if t in ("condition_applied", "condition_ticked", "banked", "gremlin_hazard", "stumble"):
+        return "color"
+    return "pbp"
 
 
 def _name(pid: str | None, characters: dict[str, Character]) -> str:

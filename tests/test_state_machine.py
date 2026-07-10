@@ -533,3 +533,38 @@ async def test_gremlin_draws_a_hazard_into_the_round():
     assert haz, "the gremlin's drawing should resolve into a hazard"
     assert haz[0].player_id == c.id
     assert haz[0].data["hazard_id"] in rules.hazards.hazards
+
+
+# ---------------------------------------------------------------------------
+# Announcer duo: reveal_step beats carry a speaker (sync point S1)
+# ---------------------------------------------------------------------------
+async def test_reveal_beats_carry_speaker_for_both_announcers():
+    """Each reveal beat ships its announcer voice so the host can style pbp vs
+    color chips differently — the S1 reveal_step contract for Track B."""
+    from server.ai.provider import Beat, Narration
+    from server.engine.models import Event, EventType
+
+    rules = _rules()
+    room = Room("SPKR", rules)
+    p = room.add_player("Alice", "player", FakeSocket(), None)
+    machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
+    ch = Character(player_id=p.id, name="Alice", stats=Stats(power=2, speed=2, weird=4),
+                   hp=20, max_hp=20, ac=13, zone_id="glitter_back")
+    machine.state = GameState(room_id="SPKR", characters={p.id: ch}, teams=room.teams)
+
+    ev = Event(id="e1", type=EventType.ATTACK_RESOLVED, round=1, player_id=p.id,
+               target_id=p.id, data={"result": "hit"})
+    narration = Narration(beats=[
+        Beat(event_id="e1", text="KABOOM!", speaker="pbp"),
+        Beat(event_id="e1", text="It is not.", speaker="color"),
+    ])
+    await machine._reveal(1, narration, [ev])
+
+    reveal = None
+    for _ in range(6):
+        env = await asyncio.wait_for(room.participants[p.id].socket.client_recv(), 1.0)
+        if env.type == "reveal_step":
+            reveal = env
+            break
+    assert reveal is not None
+    assert [b["speaker"] for b in reveal.payload["beats"]] == ["pbp", "color"]

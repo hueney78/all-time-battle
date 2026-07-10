@@ -140,3 +140,19 @@ def test_build_gremlin_hazards_maps_validates_and_skips():
     assert out["g2"].catalog_id in RULES.hazards.hazards        # unknown → palette fallback
     assert "g3" not in out                                      # unclassified → no hazard
     assert all(a.action_cost == 1 for a in out.values())
+
+
+# ---------------------------------------------------------------------------
+# narrate — announcer duo (speaker field, sync point S1)
+# ---------------------------------------------------------------------------
+def test_build_narration_carries_and_clamps_speaker():
+    """Each beat keeps its announcer voice; an unknown speaker defaults to pbp."""
+    resp = S.NarrateResponse(beats=[
+        S.AIBeat(event_id="e1", text="KABOOM!", speaker="pbp"),
+        S.AIBeat(event_id="e2", text="It is not.", speaker="color"),
+        S.AIBeat(event_id="e3", text="huh", speaker="bogus"),
+    ], round_title="T")
+    by = {b.event_id: b for b in build_narration(resp, {"e1", "e2", "e3"}).beats}
+    assert by["e1"].speaker == "pbp"
+    assert by["e2"].speaker == "color"
+    assert by["e3"].speaker == "pbp"     # unknown voice → default

@@ -128,6 +128,28 @@ def test_narrate_fallback_uses_template():
     assert ai.degraded is True
 
 
+def test_narrate_parses_speaker_per_beat():
+    """The announcer duo comes through structured: each beat keeps its voice."""
+    script = [{"round_title": "Boom", "beats": [
+        {"event_id": "e1", "text": "KABOOM, a pigeon faints.", "speaker": "pbp"},
+        {"event_id": "e1", "text": "Mm. A pigeon.", "speaker": "color"}]}]
+    ai = LiveAI(RULES, client=FakeAnthropic(script))
+    n = ai.narrate_round(_events(), _two_player_state().characters)
+    assert [b.speaker for b in n.beats] == ["pbp", "color"]
+
+
+def test_mock_narration_uses_both_announcers():
+    """MockAI splits beats across pbp/color so Track B can build speaker chips
+    against AI_MODE=mock (the S1 mock fixtures)."""
+    hit = Event(id="hit", type=EventType.ATTACK_RESOLVED, round=1, player_id="p1",
+                target_id="p2", data={"result": "hit", "damage": 5})
+    miss = Event(id="miss", type=EventType.ATTACK_RESOLVED, round=1, player_id="p2",
+                 target_id="p1", data={"result": "miss"})
+    n = MockAI().narrate_round([hit, miss], _two_player_state().characters)
+    by = {b.event_id: b.speaker for b in n.beats}
+    assert by["hit"] == "pbp" and by["miss"] == "color"
+
+
 # ---------------------------------------------------------------------------
 # generate_characters
 # ---------------------------------------------------------------------------

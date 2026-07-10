@@ -382,6 +382,7 @@ class GameStateMachine:
             {
                 "event_id": f"intro-{pid}",
                 "text": chars[pid].announcer_intro or f"Introducing {chars[pid].name}!",
+                "speaker": "pbp",   # the play-by-play announcer hypes each fighter
                 "player_id": pid, "target_id": None, "type": "intro",
                 "hurt": None, "helped": None, "floats": [],
             }
@@ -413,6 +414,9 @@ class GameStateMachine:
             beats.append({
                 "event_id": b.event_id,
                 "text": b.text,
+                # Which announcer voices this beat — the host styles pbp vs color
+                # chips differently (sync point S1).
+                "speaker": b.speaker,
                 "player_id": ev.player_id if ev else None,
                 "target_id": ev.target_id if ev else None,
                 "type": ev.type.value if ev else None,

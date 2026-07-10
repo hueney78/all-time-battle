@@ -36,6 +36,15 @@ def test_classify_schema_exposes_action_fields():
         assert field in action
 
 
+def test_narrate_schema_exposes_speaker():
+    """Each beat carries a speaker so the announcer duo is structured, not just
+    prose (sync point S1)."""
+    schema = NarrateResponse.model_json_schema()
+    beat = schema["$defs"]["AIBeat"]["properties"]
+    assert "speaker" in beat
+    assert beat["speaker"]["default"] == "pbp"
+
+
 def test_prompts_render_with_live_config():
     """Templates render with real config injected (catalog/zones/conditions),
     so YAML edits reach the AI automatically and no template is broken."""
@@ -55,3 +64,9 @@ def test_prompts_render_with_live_config():
 
     narrate = env.get_template("narrate.md.j2").render()
     assert "COMEDY MANDATE" in narrate
+    assert "pbp" in narrate and "color" in narrate    # the announcer duo + speaker field
+
+    gremlin = env.get_template("gremlin_classify.md.j2").render(
+        hazards=rules.hazards.hazards, zones=rules.zones.zones,
+    )
+    assert "banana_peel" in gremlin and "Gremlin" in gremlin   # hazard palette injected

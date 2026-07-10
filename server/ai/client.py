@@ -32,6 +32,7 @@ from server.ai.provider import (
     Narration,
     _beat_text,
     _mock_round_title,
+    _mock_speaker,
 )
 from server.config import Balance, GameRules
 from server.engine.models import Character, ClassifiedAction, Event, GameState
@@ -286,7 +287,8 @@ def _narration_text(events: list[Event], characters: dict[str, Character]) -> st
 
 
 def _fallback_narration(events: list[Event], characters: dict[str, Character]) -> Narration:
-    beats = [Beat(event_id=e.id, text=t) for e in events if (t := _beat_text(e, characters))]
+    beats = [Beat(event_id=e.id, text=t, speaker=_mock_speaker(e))
+             for e in events if (t := _beat_text(e, characters))]
     if not beats:
         beats = [Beat(event_id="filler", text="The crowd blinks. Something happened, probably.")]
     return Narration(beats=beats, round_title=_mock_round_title(events))

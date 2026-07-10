@@ -199,16 +199,25 @@ def build_gremlin_hazards(
 # ---------------------------------------------------------------------------
 # narrate_round
 # ---------------------------------------------------------------------------
+_SPEAKERS = ("pbp", "color")
+
+
+def _speaker(value: str) -> str:
+    """Clamp to a known announcer voice; anything else defaults to play-by-play."""
+    return value if value in _SPEAKERS else "pbp"
+
+
 def build_narration(resp: S.NarrateResponse, valid_event_ids: set[str]) -> Narration:
     beats = [
-        Beat(event_id=b.event_id, text=b.text, mood=b.mood)
+        Beat(event_id=b.event_id, text=b.text, mood=b.mood, speaker=_speaker(b.speaker))
         for b in resp.beats
         if b.event_id in valid_event_ids and b.text.strip()
     ]
     if not beats and resp.beats:
         # Salvage the text even if the model tagged an unknown event id.
         eid = next(iter(sorted(valid_event_ids)), resp.beats[0].event_id)
-        beats = [Beat(event_id=eid, text=resp.beats[0].text or "Something happened.")]
+        beats = [Beat(event_id=eid, text=resp.beats[0].text or "Something happened.",
+                      speaker=_speaker(resp.beats[0].speaker))]
     if not beats:
         beats = [Beat(event_id="filler", text="The crowd blinks. Something happened, probably.")]
     return Narration(beats=beats, round_title=resp.round_title or "")
