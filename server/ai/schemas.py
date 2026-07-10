@@ -87,6 +87,19 @@ class ClassifyGremlinsResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# classify_montage — a survivor adds to their character for +1 stat (§10.1)
+# ---------------------------------------------------------------------------
+class AIMontage(BaseModel):
+    player_id: str = Field(description="the id from the labeled before/after pair")
+    stat: str = Field(description='which stat the addition boosts: "power", "speed", or "weird"')
+    flavor: str = Field(default="", description="a short punchy line about the upgrade")
+
+
+class ClassifyMontageResponse(BaseModel):
+    montages: list[AIMontage]
+
+
+# ---------------------------------------------------------------------------
 # narrate_round
 # ---------------------------------------------------------------------------
 class AIBeat(BaseModel):

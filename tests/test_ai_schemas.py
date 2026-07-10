@@ -45,6 +45,15 @@ def test_narrate_schema_exposes_speaker():
     assert beat["speaker"]["default"] == "pbp"
 
 
+def test_montage_schema_exposes_stat():
+    """The montage response grants one stat per fighter (sync point S2)."""
+    from server.ai.schemas import ClassifyMontageResponse
+    schema = ClassifyMontageResponse.model_json_schema()
+    assert schema["type"] == "object"
+    montage = schema["$defs"]["AIMontage"]["properties"]
+    assert "stat" in montage and "player_id" in montage
+
+
 def test_prompts_render_with_live_config():
     """Templates render with real config injected (catalog/zones/conditions),
     so YAML edits reach the AI automatically and no template is broken."""
@@ -70,3 +79,6 @@ def test_prompts_render_with_live_config():
         hazards=rules.hazards.hazards, zones=rules.zones.zones,
     )
     assert "banana_peel" in gremlin and "Gremlin" in gremlin   # hazard palette injected
+
+    montage = env.get_template("montage_classify.md.j2").render()
+    assert "power" in montage and "Montage" in montage         # stat-choice rules present

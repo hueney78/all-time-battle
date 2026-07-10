@@ -17,7 +17,13 @@ Pure and offline — unit-tested without an API key.
 from __future__ import annotations
 
 from server.ai import schemas as S
-from server.ai.provider import Beat, CharacterSubmission, GeneratedCharacter, Narration
+from server.ai.provider import (
+    Beat,
+    CharacterSubmission,
+    GeneratedCharacter,
+    MontageResult,
+    Narration,
+)
 from server.config import Balance, GameRules
 from server.engine.conditions import ConditionRegistry
 from server.engine.hazards import HazardRegistry
@@ -193,6 +199,29 @@ def build_gremlin_hazards(
             adaptation_note=h.adaptation_note,
             flagged=bool(h.flagged),
         ))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# classify_montage
+# ---------------------------------------------------------------------------
+_STAT_NAMES = ("power", "speed", "weird")
+
+
+def build_montage(
+    resp: S.ClassifyMontageResponse,
+    survivors: list[str],
+) -> list[MontageResult]:
+    """One +1-stat grant per survivor who added to their character. An unknown
+    stat defaults to `weird` (the catch-all); a survivor absent from the response
+    (blank montage canvas) earns nothing (GAME_DESIGN §10.1)."""
+    survivor_set = set(survivors)
+    out: list[MontageResult] = []
+    for m in resp.montages:
+        if m.player_id not in survivor_set:
+            continue
+        stat = m.stat if m.stat in _STAT_NAMES else "weird"
+        out.append(MontageResult(player_id=m.player_id, stat=stat, flavor=m.flavor))
     return out
 
 

@@ -64,6 +64,7 @@ class S2C:
     ARENA_STATE = "arena_state"
     PHASE_CHANGE = "phase_change"
     REVEAL_STEP = "reveal_step"
+    MONTAGE = "montage_reveal"    # Power-Up Montage stat pulses (S2)
     PLAYER_STATE = "player_state"
     GAME_OVER = "game_over"
     ERROR = "error"

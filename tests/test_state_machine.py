@@ -303,21 +303,25 @@ async def test_full_4player_mock_game_reaches_victory_over_websockets():
             if env.type == "game_over":
                 return env
             if env.type == "phase_change" and env.payload.get("phase") in (
-                "draw_characters", "draw_action",
+                "draw_characters", "draw_action", "montage",
             ):
                 sock.client_send("submit_drawing", {
                     "phase": env.payload["phase"],
                     "round": env.payload["round"],
-                    "png_base64": "doodle",   # non-blank → the mock attacks
+                    "png_base64": "doodle",   # non-blank → the mock attacks / upgrades
                 })
+
+    montages_seen: list[Envelope] = []
 
     async def host_driver(sock: FakeSocket) -> Envelope:
         while True:
             env = await sock.client_recv()
             if env.type == "game_over":
                 return env
-            if env.type == "reveal_step":
-                sock.client_send("next_beat")   # advance reveals instantly
+            if env.type == "montage_reveal":
+                montages_seen.append(env)
+            if env.type in ("reveal_step", "montage_reveal"):
+                sock.client_send("next_beat")   # advance reveals + montages instantly
 
     drivers = [asyncio.create_task(host_driver(host))]
     drivers += [asyncio.create_task(player_driver(s)) for s in players]
@@ -327,6 +331,8 @@ async def test_full_4player_mock_game_reaches_victory_over_websockets():
 
     winners = {r.payload["winner_team_id"] for r in results}
     assert winners == {"team_a"} or winners == {"team_b"}, f"no decisive winner: {winners}"
+    # A montage fires every few rounds and the pipeline absorbs it without stalling.
+    assert montages_seen, "expected at least one Power-Up Montage in a full game"
 
     # Everyone saw the game end; tidy up the connection tasks.
     for s in players:
@@ -399,6 +405,12 @@ class _SlowAI:
         self.classify_spans.append((start, time.monotonic()))
         return out
 
+    def classify_gremlin(self, state, submissions, round_num):
+        return self._inner.classify_gremlin(state, submissions, round_num)
+
+    def classify_montage(self, state, submissions, round_num):
+        return self._inner.classify_montage(state, submissions, round_num)
+
     def narrate_round(self, events, characters):
         time.sleep(self._delay)
         return self._inner.narrate_round(events, characters)
@@ -435,7 +447,7 @@ async def test_pipeline_overlaps_and_orders_under_slow_ai():
             except TimeoutError:
                 continue
             if env.type == "phase_change" and env.payload.get("phase") in (
-                "draw_characters", "draw_action",
+                "draw_characters", "draw_action", "montage",
             ):
                 machine.submit_drawing(pid, SubmitDrawingMsg(png_base64="doodle"))
 
@@ -447,6 +459,8 @@ async def test_pipeline_overlaps_and_orders_under_slow_ai():
                 continue
             if env.type == "reveal_step":
                 reveal_rounds.append(env.payload["round"])
+                machine.advance_beat()
+            elif env.type == "montage_reveal":
                 machine.advance_beat()
             elif env.type == "game_over":
                 done.set()
@@ -568,3 +582,87 @@ async def test_reveal_beats_carry_speaker_for_both_announcers():
             break
     assert reveal is not None
     assert [b["speaker"] for b in reveal.payload["beats"]] == ["pbp", "color"]
+
+
+# ---------------------------------------------------------------------------
+# Power-Up Montage: +1 stat, formula deltas, new "original" everywhere (S2)
+# ---------------------------------------------------------------------------
+class _MontageAI(MockAI):
+    """MockAI that always grants a chosen stat, so a test can assert deltas."""
+
+    def __init__(self, stat: str) -> None:
+        self._stat = stat
+
+    def classify_montage(self, state, submissions, round_num):
+        from server.ai.provider import MontageResult
+        return [MontageResult(player_id=pid, stat=self._stat, flavor="buffed")
+                for pid, s in submissions.items() if s.png_base64.strip()]
+
+
+async def test_montage_applies_stat_and_becomes_new_original():
+    """A montage grants +1 stat (with formula deltas), swaps in the upgraded
+    drawing as the new original everywhere, and broadcasts the stat pulse (S2)."""
+    from server.state_machine import _MontageDrawn
+
+    rules = _rules()
+    room = Room("MTG", rules)
+    p = room.add_player("A", "player", FakeSocket(), None)
+    machine = GameStateMachine(room, rules, ai=_MontageAI("power"), timers=Timers(1, 1, 0.01))
+    ch = Character(player_id=p.id, name="A", stats=Stats(power=2, speed=2, weird=2),
+                   hp=18, max_hp=22, ac=13, zone_id="glitter_back", character_png_b64="OLD")
+    machine.state = GameState(room_id="MTG", characters={p.id: ch}, teams=room.teams)
+    machine._resolve_state = machine.state.model_copy(deep=True)   # engine truth: separate object
+    machine._latest_action_png[p.id] = "STALE_SPRITE"
+
+    md = _MontageDrawn(round_num=3, montage_pngs={p.id: "UPGRADED"}, survivors=[p.id])
+    processed = await machine._process_montage(md)
+
+    assert processed.is_montage and processed.montage[0].stat == "power"
+    # engine-truth chain buffed so later rounds fight with the upgrade
+    rch = machine._resolve_state.characters[p.id]
+    assert rch.stats.power == 3 and rch.character_png_b64 == "UPGRADED"
+
+    await machine._reveal_montage(processed)
+
+    sch = machine.state.characters[p.id]
+    assert sch.stats.power == 3
+    assert sch.max_hp == 22 + rules.balance.hp_per_power   # Power +1 → +2 max HP
+    assert sch.hp == 18 + rules.balance.hp_per_power         # healed by the gain
+    assert sch.character_png_b64 == "UPGRADED"               # new original everywhere
+    assert p.id not in machine._latest_action_png            # sprite baseline reset
+
+    # the montage broadcast + refreshed canvas_init reached the player
+    seen: dict[str, Envelope] = {}
+    sock = room.participants[p.id].socket
+    for _ in range(12):
+        try:
+            env = await asyncio.wait_for(sock.client_recv(), 1.0)
+        except TimeoutError:
+            break
+        seen[env.type] = env
+    assert "montage_reveal" in seen
+    up = seen["montage_reveal"].payload["upgrades"][0]
+    assert up["stat"] == "power" and up["png"] == "UPGRADED"
+    assert seen["canvas_init"].payload["png"] == "UPGRADED"
+
+
+def test_apply_montage_speed_recomputes_ac_and_noops_without_results():
+    from server.ai.provider import MontageResult
+
+    rules = _rules()
+    room = Room("MTG2", rules)
+    p = room.add_player("A", "player", FakeSocket(), None)
+    machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
+    ch = Character(player_id=p.id, name="A", stats=Stats(power=2, speed=2, weird=2),
+                   hp=20, max_hp=22, ac=13, zone_id="glitter_back", character_png_b64="OLD")
+    state = GameState(room_id="MTG2", characters={p.id: ch}, teams=room.teams)
+
+    machine._apply_montage(state, [MontageResult(p.id, "speed", "zoom")], {p.id: "NEW"})
+    assert ch.stats.speed == 3
+    assert ch.ac == rules.balance.ac_base + 3     # AC = ac_base + Speed
+    assert ch.character_png_b64 == "NEW"
+
+    # a blank montage (no results) changes nothing
+    before = (ch.stats.speed, ch.ac, ch.character_png_b64)
+    machine._apply_montage(state, [], {})
+    assert (ch.stats.speed, ch.ac, ch.character_png_b64) == before

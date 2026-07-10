@@ -12,6 +12,7 @@ from server.ai.validators import (
     build_classified_actions,
     build_generated_characters,
     build_gremlin_hazards,
+    build_montage,
     build_narration,
     normalize_stats,
 )
@@ -140,6 +141,23 @@ def test_build_gremlin_hazards_maps_validates_and_skips():
     assert out["g2"].catalog_id in RULES.hazards.hazards        # unknown → palette fallback
     assert "g3" not in out                                      # unclassified → no hazard
     assert all(a.action_cost == 1 for a in out.values())
+
+
+# ---------------------------------------------------------------------------
+# classify_montage — power-up montage (sync point S2)
+# ---------------------------------------------------------------------------
+def test_build_montage_validates_stat_and_skips_non_survivors():
+    """Known stats pass; an unknown stat defaults to weird; a result for a
+    non-survivor (or a survivor who didn't draw) is dropped."""
+    resp = S.ClassifyMontageResponse(montages=[
+        S.AIMontage(player_id="p1", stat="power", flavor="swole"),
+        S.AIMontage(player_id="p2", stat="banana", flavor="???"),
+        S.AIMontage(player_id="ghost", stat="speed"),   # not a survivor
+    ])
+    out = {m.player_id: m for m in build_montage(resp, ["p1", "p2"])}
+    assert out["p1"].stat == "power"
+    assert out["p2"].stat == "weird"       # unknown → catch-all
+    assert "ghost" not in out              # not among the survivors
 
 
 # ---------------------------------------------------------------------------

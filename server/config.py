@@ -48,11 +48,13 @@ class GameConfig(BaseModel):
     max_players: int = 6
     min_players: int = 2
     room_code_length: int = 4
+    montage_every_rounds: int = 3   # 0 disables the Power-Up Montage
 
 
 class TimerConfig(BaseModel):
     draw_characters_seconds: int = 90
     draw_action_seconds: int = 75
+    montage_seconds: int = 20
     warning_seconds: int = 10
     beat_seconds: int = 6
 

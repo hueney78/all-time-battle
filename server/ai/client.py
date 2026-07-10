@@ -29,6 +29,7 @@ from server.ai.provider import (
     Beat,
     CharacterSubmission,
     GeneratedCharacter,
+    MontageResult,
     Narration,
     _beat_text,
     _mock_round_title,
@@ -71,6 +72,7 @@ class LiveAI:
             hazards=rules.hazards.hazards,
             zones=rules.zones.zones,
         )
+        self._sys_montage = env.get_template("montage_classify.md.j2").render()
         self._sys_narrate = env.get_template("narrate.md.j2").render()
 
         # cost/telemetry + degraded state (read by the state machine for a banner)
@@ -153,6 +155,36 @@ class LiveAI:
         if parsed is None:
             parsed = S.ClassifyGremlinsResponse(hazards=[])        # → drop nothing
         return V.build_gremlin_hazards(parsed, drawn, self.rules)
+
+    def classify_montage(
+        self, state: GameState, submissions: dict[str, ActionSubmission], round_num: int
+    ) -> list[MontageResult]:
+        content: list[dict] = [{"type": "text",
+                                "text": "Grant +1 stat per upgraded fighter (before → after)."}]
+        drawn: list[str] = []
+        for pid, sub in submissions.items():
+            after = _image_block(sub.png_base64)
+            if after is None:
+                continue                          # blank montage canvas → no grant
+            ch = state.characters.get(pid)
+            content.append({"type": "text", "text": f"=== {ch.name if ch else pid} ({pid}) ==="})
+            before = _image_block(ch.character_png_b64) if ch else None
+            if before:
+                content.append({"type": "text", "text": "PREVIOUS CHARACTER:"})
+                content.append(before)
+            content.append({"type": "text", "text": "UPGRADED CHARACTER:"})
+            content.append(after)
+            drawn.append(pid)
+
+        if not drawn:
+            return []
+        parsed = self._call_tool(
+            self._sys_montage, content, S.ClassifyMontageResponse,
+            "submit_montage", self.ai.classify_model,
+        )
+        if parsed is None:
+            parsed = S.ClassifyMontageResponse(montages=[])       # → no grants
+        return V.build_montage(parsed, drawn)
 
     def narrate_round(
         self, events: list[Event], characters: dict[str, Character]

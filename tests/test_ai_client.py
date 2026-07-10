@@ -138,6 +138,21 @@ def test_narrate_parses_speaker_per_beat():
     assert [b.speaker for b in n.beats] == ["pbp", "color"]
 
 
+def test_classify_montage_parses_stat_grants():
+    """The montage classifier returns one +1-stat grant per upgraded fighter."""
+    script = [{"montages": [{"player_id": "p1", "stat": "power", "flavor": "swole"}]}]
+    ai = LiveAI(RULES, client=FakeAnthropic(script))
+    st = _two_player_state()
+    out = ai.classify_montage(st, {"p1": ActionSubmission("p1", _PNG)}, 3)
+    assert len(out) == 1 and out[0].player_id == "p1" and out[0].stat == "power"
+
+
+def test_classify_montage_skips_api_when_no_drawings():
+    ai = LiveAI(RULES, client=FakeAnthropic([{"montages": []}]))
+    out = ai.classify_montage(_two_player_state(), {"p1": ActionSubmission("p1", "")}, 3)
+    assert out == [] and ai.client.messages.calls == 0    # blank canvas → no grant, no call
+
+
 def test_mock_narration_uses_both_announcers():
     """MockAI splits beats across pbp/color so Track B can build speaker chips
     against AI_MODE=mock (the S1 mock fixtures)."""

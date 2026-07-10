@@ -45,13 +45,20 @@ def test_settings_timers():
     s = load_settings()
     assert s.timers.draw_characters_seconds == 90
     assert s.timers.draw_action_seconds == 75
-    assert s.timers.beat_seconds == 6
+    assert s.timers.beat_seconds == 15
 
 
 def test_settings_game():
     s = load_settings()
     assert s.game.max_players == 6
     assert s.game.min_players == 2
+
+
+def test_settings_montage():
+    """Power-Up Montage cadence + bonus-phase timer (GAME_DESIGN §10.1)."""
+    s = load_settings()
+    assert s.game.montage_every_rounds == 3
+    assert s.timers.montage_seconds == 20
 
 
 def test_settings_ui_tokens():

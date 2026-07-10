@@ -46,6 +46,13 @@ class ActionSubmission:
 
 
 @dataclass
+class MontageResult:
+    player_id: str
+    stat: str            # "power" | "speed" | "weird"
+    flavor: str = ""
+
+
+@dataclass
 class Beat:
     event_id: str
     text: str
@@ -88,6 +95,10 @@ class AIProvider(Protocol):
     def classify_gremlin(
         self, state: GameState, submissions: dict[str, ActionSubmission], round_num: int
     ) -> list[ClassifiedAction]: ...
+
+    def classify_montage(
+        self, state: GameState, submissions: dict[str, ActionSubmission], round_num: int
+    ) -> list[MontageResult]: ...
 
     def narrate_round(
         self, events: list[Event], characters: dict[str, Character]
@@ -173,6 +184,22 @@ class MockAI:
                 player_id=pid, catalog_id=hid, action_cost=1,
                 adaptation_note="a menacing little doodle",
             ))
+        return out
+
+    def classify_montage(
+        self, state: GameState, submissions: dict[str, ActionSubmission], round_num: int
+    ) -> list[MontageResult]:
+        """Grant +1 to a deterministic stat for each non-blank montage addition;
+        a blank canvas earns nothing (GAME_DESIGN §10.1)."""
+        stats = ("power", "speed", "weird")
+        out: list[MontageResult] = []
+        for pid, sub in submissions.items():
+            png = (sub.png_base64 if sub else "").strip()
+            if not png:
+                continue
+            stat = stats[random.Random(f"montage:{pid}:{round_num}").randrange(3)]
+            out.append(MontageResult(player_id=pid, stat=stat,
+                                     flavor="bristling with fresh upgrades"))
         return out
 
     def narrate_round(
