@@ -142,10 +142,16 @@
       font-size:15px; padding:2px 8px; cursor:pointer}
     .audioctl input{width:90px; accent-color:var(--gold)}
 
-    /* narration beats */
+    /* narration beats [announcer duo — speaker-tagged chips (S1)] */
     .beatcard{background:var(--card); border:4px solid var(--ink); border-radius:18px;
-      padding:12px 18px; font-size:18px; font-weight:800; display:flex; align-items:center;
+      padding:10px 16px; font-size:18px; font-weight:800; display:flex; align-items:center;
       justify-content:space-between; gap:14px; min-height:3.2rem}
+    #beats{display:flex; flex-direction:column; gap:6px; min-width:0}
+    .beat{display:flex; gap:10px; align-items:baseline}
+    .beat.old{opacity:.55}
+    .chip{flex:none; font-family:'Titan One'; font-size:11px; border:2.5px solid var(--ink);
+      border-radius:9px; padding:1px 8px; background:var(--gold)}
+    .chip.color{background:var(--posit)}
     #nextBtn{background:var(--gold); color:var(--ink); border:3px solid var(--ink);
       border-radius:12px; font-family:'Titan One'; font-size:15px; padding:6px 14px}
 
@@ -209,7 +215,7 @@
         <div class="splash" id="comboSplash"><span class="combotext"></span></div>
       </section>
       <section class="beatcard">
-        <span id="capText" class="muted">Get ready…</span>
+        <div id="beats"><span class="muted">Get ready…</span></div>
         <button id="nextBtn" class="hidden">Next ▶</button>
       </section>
       <section class="meters">
@@ -331,13 +337,37 @@
     }
 
     function typewrite(el, text) {
-      el.classList.remove('muted');
       let i = 0; el.textContent = '';
       clearInterval(el._tw);
       el._tw = setInterval(() => {
         el.textContent = text.slice(0, ++i);
         if (i >= text.length) clearInterval(el._tw);
       }, 18);
+    }
+
+    // ---- announcer duo beat chips (S1) ----
+    // Each beat renders as a chip-tagged row: gold PLAY-BY-PLAY for the hype
+    // announcer, light-blue COLOR for the deadpan commentator. The previous
+    // beat stays visible (dimmed) so the duo's banter reads as an exchange.
+    const SPEAKER_LABEL = { pbp: 'PLAY-BY-PLAY', color: 'COLOR' };
+    function setStatus(text) {
+      $('beats').innerHTML = '';
+      const s = document.createElement('span');
+      s.className = 'muted'; s.textContent = text;
+      $('beats').appendChild(s);
+    }
+    function addBeat(b) {
+      const host = $('beats');
+      const rows = host.querySelectorAll('.beat');
+      host.querySelectorAll(':scope > :not(.beat)').forEach(el => el.remove());
+      rows.forEach((el, idx) => { if (idx < rows.length - 1) el.remove(); else el.classList.add('old'); });
+      const row = document.createElement('div');
+      row.className = 'beat';
+      const speaker = b.speaker === 'color' ? 'color' : 'pbp';
+      row.innerHTML = '<span class="chip' + (speaker === 'color' ? ' color' : '') + '">'
+        + SPEAKER_LABEL[speaker] + '</span><span class="txt"></span>';
+      host.appendChild(row);
+      typewrite(row.querySelector('.txt'), b.text);
     }
 
     // ---- reveal sequencer ----
@@ -400,7 +430,7 @@
         $('replayBanner').classList.remove('show');
         if (i >= beats.length) return finish();
         const b = beats[i++];
-        typewrite($('capText'), b.text);
+        addBeat(b);
         if (b.combo_name) comboSplash(b.combo_name);
         playEffects(b, 1);
         beatSfx(b);
@@ -425,8 +455,7 @@
         (payload.characters || []).forEach(upsert);
         renderRail(speedOrder());          // drop anyone KO'd during the round
         $('nextBtn').classList.add('hidden');
-        $('capText').classList.add('muted');
-        $('capText').textContent = SCHEMING[Math.floor(Math.random() * SCHEMING.length)];
+        setStatus(SCHEMING[Math.floor(Math.random() * SCHEMING.length)]);
         sock.send('next_beat');
       }
       seq = { advance: () => { clearTimeout(timer); playNext(); }, stop: () => clearTimeout(timer) };
@@ -450,12 +479,12 @@
         if (m.payload.phase === 'draw_characters') {
           view('stage'); $('roundHead').textContent = 'Doodle Brawl';
           $('status').textContent = 'drawing fighters…';
-          $('capText').classList.add('muted'); $('capText').textContent = 'Character creation';
+          setStatus('Character creation');
         } else if (m.payload.phase === 'draw_action') {
           view('stage'); if (seq) seq.stop();
           $('roundHead').textContent = 'ROUND ' + m.payload.round;
           $('status').textContent = 'drawing…';
-          $('capText').classList.add('muted'); $('capText').textContent = 'Choose your move!';
+          setStatus('Choose your move!');
           $('nextBtn').classList.add('hidden');
         }
       } else if (m.type === 'arena_state') {
