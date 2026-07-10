@@ -153,6 +153,31 @@ def test_classify_montage_skips_api_when_no_drawings():
     assert out == [] and ai.client.messages.calls == 0    # blank canvas → no grant, no call
 
 
+# ---------------------------------------------------------------------------
+# generate_awards (sync point S3)
+# ---------------------------------------------------------------------------
+def _match_summary():
+    from server.ai.provider import MatchSummary
+    return MatchSummary(winner_team_id="team_a", players=[
+        {"player_id": "p1", "name": "A", "team_id": "team_a", "alive": True},
+        {"player_id": "p2", "name": "B", "team_id": "team_b", "alive": False},
+    ])
+
+
+def test_generate_awards_parses_and_covers_all_players():
+    script = [{"awards": [{"title": "Most Creative Doodle", "player_id": "p1", "blurb": "wow"}]}]
+    ai = LiveAI(RULES, client=FakeAnthropic(script))
+    awards = ai.generate_awards(_match_summary())
+    # p1 from the AI, p2 backfilled by the validator — everyone covered.
+    assert {a.player_id for a in awards} == {"p1", "p2"}
+
+
+def test_mock_awards_cover_every_player():
+    awards = MockAI().generate_awards(_match_summary())
+    assert {a.player_id for a in awards} == {"p1", "p2"}
+    assert all(a.title for a in awards)
+
+
 def test_mock_narration_uses_both_announcers():
     """MockAI splits beats across pbp/color so Track B can build speaker chips
     against AI_MODE=mock (the S1 mock fixtures)."""

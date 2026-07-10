@@ -54,6 +54,16 @@ def test_montage_schema_exposes_stat():
     assert "stat" in montage and "player_id" in montage
 
 
+def test_awards_schema_exposes_title_and_player():
+    """The awards response is a list of {title, player_id, blurb} (sync point S3)."""
+    from server.ai.schemas import GenerateAwardsResponse
+    schema = GenerateAwardsResponse.model_json_schema()
+    assert schema["type"] == "object"
+    award = schema["$defs"]["AIAward"]["properties"]
+    for field in ("title", "player_id", "blurb"):
+        assert field in award
+
+
 def test_prompts_render_with_live_config():
     """Templates render with real config injected (catalog/zones/conditions),
     so YAML edits reach the AI automatically and no template is broken."""
@@ -82,3 +92,6 @@ def test_prompts_render_with_live_config():
 
     montage = env.get_template("montage_classify.md.j2").render()
     assert "power" in montage and "Montage" in montage         # stat-choice rules present
+
+    awards = env.get_template("awards.md.j2").render()
+    assert "at least one" in awards and "AWARDS CEREMONY" in awards   # every-player rule present

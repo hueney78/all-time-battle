@@ -453,6 +453,9 @@ class _SlowAI:
     def classify_montage(self, state, submissions, round_num):
         return self._inner.classify_montage(state, submissions, round_num)
 
+    def generate_awards(self, summary):
+        return self._inner.generate_awards(summary)
+
     def narrate_round(self, events, characters):
         time.sleep(self._delay)
         return self._inner.narrate_round(events, characters)
@@ -708,3 +711,58 @@ def test_apply_montage_speed_recomputes_ac_and_noops_without_results():
     before = (ch.stats.speed, ch.ac, ch.character_png_b64)
     machine._apply_montage(state, [], {})
     assert (ch.stats.speed, ch.ac, ch.character_png_b64) == before
+
+
+# ---------------------------------------------------------------------------
+# Victory: awards ceremony + match poster in game_over (sync point S3)
+# ---------------------------------------------------------------------------
+async def test_game_over_carries_awards_and_poster(tmp_path):
+    """The finale awards every player and writes a match poster, both surfaced
+    in the game_over payload."""
+    from pathlib import Path
+
+    rules = _rules(snapshots=True)
+    rules.settings.snapshots.dir = str(tmp_path)
+    room = Room("FIN", rules)
+    a = room.add_player("A", "player", FakeSocket(), None)
+    b = room.add_player("B", "player", FakeSocket(), None)
+    machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
+    ca = Character(player_id=a.id, name="A", stats=Stats(power=2, speed=2, weird=2),
+                   hp=20, max_hp=20, ac=13, zone_id="glitter_back")
+    cb = Character(player_id=b.id, name="B", stats=Stats(power=2, speed=2, weird=2),
+                   hp=0, max_hp=20, ac=13, zone_id="thunder_back", is_ko=True)
+    machine.state = GameState(room_id="FIN", characters={a.id: ca, b.id: cb},
+                              teams=room.teams, winner_team_id="team_a")
+
+    await machine._game_over()
+
+    env = None
+    sock = room.participants[a.id].socket
+    for _ in range(8):
+        e = await asyncio.wait_for(sock.client_recv(), 1.0)
+        if e.type == "game_over":
+            env = e
+            break
+    assert env is not None
+    pay = env.payload
+    assert pay["winner_team_id"] == "team_a"
+    # every player receives at least one award (the ceremony's hard rule)
+    assert {aw["player_id"] for aw in pay["awards"]} == {a.id, b.id}
+    # a match poster was composed to snapshots/<room>/poster.png
+    assert pay["poster_path"] and Path(pay["poster_path"]).exists()
+
+
+async def test_game_over_without_winner_skips_ceremony():
+    """A crash/no-winner finale still sends game_over — just no awards/poster."""
+    rules = _rules()
+    room = Room("NOP", rules)
+    p = room.add_player("A", "player", FakeSocket(), None)
+    machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
+    machine.state = None   # loop crashed before any state
+
+    await machine._game_over()
+
+    env = await asyncio.wait_for(room.participants[p.id].socket.client_recv(), 1.0)
+    assert env.type == "game_over"
+    assert env.payload["winner_team_id"] is None
+    assert env.payload["awards"] == [] and env.payload["poster_path"] is None

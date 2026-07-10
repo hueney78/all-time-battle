@@ -7,8 +7,9 @@ condition/move_to repair, combo attachment, and narration salvage.
 from __future__ import annotations
 
 from server.ai import schemas as S
-from server.ai.provider import CharacterSubmission
+from server.ai.provider import CharacterSubmission, MatchSummary
 from server.ai.validators import (
+    build_awards,
     build_classified_actions,
     build_generated_characters,
     build_gremlin_hazards,
@@ -141,6 +142,27 @@ def test_build_gremlin_hazards_maps_validates_and_skips():
     assert out["g2"].catalog_id in RULES.hazards.hazards        # unknown → palette fallback
     assert "g3" not in out                                      # unclassified → no hazard
     assert all(a.action_cost == 1 for a in out.values())
+
+
+# ---------------------------------------------------------------------------
+# generate_awards — victory ceremony (sync point S3)
+# ---------------------------------------------------------------------------
+def test_build_awards_guarantees_every_player_gets_one():
+    """Keep valid AI awards; drop awards for unknown ids; add a fallback for any
+    player the AI skipped — every player must end up with at least one."""
+    summary = MatchSummary(players=[
+        {"player_id": "p1", "name": "Stabby", "team_id": "team_a", "alive": True},
+        {"player_id": "p2", "name": "Blob", "team_id": "team_b", "alive": False},
+        {"player_id": "p3", "name": "Tim", "team_id": "team_a", "alive": True},
+    ])
+    resp = S.GenerateAwardsResponse(awards=[
+        S.AIAward(title="Most Creative Doodle", player_id="p1", blurb="wow"),
+        S.AIAward(title="Ghost Award", player_id="nobody", blurb="dropped"),  # unknown id
+    ])
+    awards = build_awards(resp, summary)
+    by_player = {a.player_id for a in awards}
+    assert by_player == {"p1", "p2", "p3"}          # p2 + p3 got fallbacks; nobody dropped
+    assert all(a.title for a in awards)             # never blank
 
 
 # ---------------------------------------------------------------------------

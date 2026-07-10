@@ -18,9 +18,11 @@ from __future__ import annotations
 
 from server.ai import schemas as S
 from server.ai.provider import (
+    Award,
     Beat,
     CharacterSubmission,
     GeneratedCharacter,
+    MatchSummary,
     MontageResult,
     Narration,
 )
@@ -223,6 +225,29 @@ def build_montage(
         stat = m.stat if m.stat in _STAT_NAMES else "weird"
         out.append(MontageResult(player_id=m.player_id, stat=stat, flavor=m.flavor))
     return out
+
+
+# ---------------------------------------------------------------------------
+# generate_awards
+# ---------------------------------------------------------------------------
+def build_awards(resp: S.GenerateAwardsResponse, summary: MatchSummary) -> list[Award]:
+    """Keep the AI's awards (for real players only) and GUARANTEE every player
+    gets at least one — the hard rule of the ceremony (GAME_DESIGN §10.2)."""
+    by_id = {p["player_id"]: p for p in summary.players}
+    awards = [
+        Award(title=(a.title or "").strip() or "Participation Trophy",
+              player_id=a.player_id, blurb=a.blurb)
+        for a in resp.awards if a.player_id in by_id
+    ]
+    covered = {a.player_id for a in awards}
+    for pid, p in by_id.items():
+        if pid not in covered:
+            awards.append(Award(
+                title="Heart of a Doodle",
+                player_id=pid,
+                blurb=f"{p.get('name', 'Someone')} showed up and threw down.",
+            ))
+    return awards
 
 
 # ---------------------------------------------------------------------------

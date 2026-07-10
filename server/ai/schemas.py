@@ -100,6 +100,19 @@ class ClassifyMontageResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# generate_awards — the victory ceremony (GAME_DESIGN §10.2)
+# ---------------------------------------------------------------------------
+class AIAward(BaseModel):
+    title: str = Field(description="a short, affectionate superlative (never mocking)")
+    player_id: str = Field(description="the winner's id — EVERY player must get at least one")
+    blurb: str = Field(default="", description="one witty, warm sentence")
+
+
+class GenerateAwardsResponse(BaseModel):
+    awards: list[AIAward]
+
+
+# ---------------------------------------------------------------------------
 # narrate_round
 # ---------------------------------------------------------------------------
 class AIBeat(BaseModel):

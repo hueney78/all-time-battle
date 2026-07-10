@@ -38,6 +38,7 @@ from server.ai.provider import (
     ActionSubmission,
     AIProvider,
     CharacterSubmission,
+    MatchSummary,
     MontageResult,
     Narration,
 )
@@ -177,6 +178,13 @@ class GameStateMachine:
             maxlen=max(1, rules.settings.ui.audience_recent_rounds)
         )
         self._degraded_announced = False
+
+        # Match-wide tallies for the victory awards ceremony (GAME_DESIGN §10.2).
+        self._creativity_totals: dict[str, int] = {}
+        self._fumble_counts: dict[str, int] = {}
+        self._combos_seen: list[dict] = []
+        self._round_titles: list[str] = []
+        self._best_line: str = ""
 
     # -- lifecycle --------------------------------------------------------
     def start(self) -> None:
@@ -450,6 +458,7 @@ class GameStateMachine:
         narration = await asyncio.to_thread(
             self.ai.narrate_round, result.events, result.new_state.characters
         )
+        self._accumulate_match(actions, result.events, narration)
         return _Processed(
             round_num=drawn.round_num, narration=narration, events=result.events,
             initiative_order=result.initiative_order, action_pngs=drawn.action_pngs,
@@ -646,6 +655,58 @@ class GameStateMachine:
                 entry[tid] += max(0, a.creativity_tier)
         self._audience.append(entry)
 
+    # -- awards ceremony match summary (GAME_DESIGN §10.2) ----------------
+    def _accumulate_match(self, actions, events, narration) -> None:
+        """Tally match-wide highlights (creativity, fumbles, combos, titles, a
+        best line) as rounds resolve, so the finale can hand out awards."""
+        for a in actions:
+            self._creativity_totals[a.player_id] = (
+                self._creativity_totals.get(a.player_id, 0) + max(0, a.creativity_tier)
+            )
+            if a.combo_name and a.combo_partners:
+                self._combos_seen.append({
+                    "combo_name": a.combo_name,
+                    "partners": [a.player_id, *a.combo_partners],
+                })
+        crit_ids = set()
+        for e in events:
+            if e.type.value == "attack_resolved":
+                res = e.data.get("result")
+                if res == "fumble" and e.player_id:
+                    self._fumble_counts[e.player_id] = self._fumble_counts.get(e.player_id, 0) + 1
+                elif res == "crit":
+                    crit_ids.add(e.id)
+        if narration is not None:
+            if narration.round_title:
+                self._round_titles.append(narration.round_title)
+            # The highlight line is the latest crit beat; fall back to the first beat.
+            for b in narration.beats:
+                if b.event_id in crit_ids:
+                    self._best_line = b.text
+                    break
+            if not self._best_line and narration.beats:
+                self._best_line = narration.beats[0].text
+
+    def _build_match_summary(self) -> MatchSummary:
+        players = []
+        for p in self.room.players:
+            ch = self.state.characters.get(p.id) if self.state else None
+            players.append({
+                "player_id": p.id,
+                "name": ch.name if ch else p.name,
+                "team_id": self.room.team_of(p.id),
+                "alive": bool(ch and not ch.is_ko),
+            })
+        return MatchSummary(
+            winner_team_id=self.state.winner_team_id if self.state else None,
+            players=players,
+            creativity=dict(self._creativity_totals),
+            fumbles=dict(self._fumble_counts),
+            combos=list(self._combos_seen),
+            round_titles=list(self._round_titles),
+            best_line=self._best_line,
+        )
+
     def _meters(self) -> dict:
         """Both knot positions as team_b's fraction in [0,1] — the knot is pulled
         toward whichever team leads (0.5 = tie). Computed server-side."""
@@ -678,10 +739,37 @@ class GameStateMachine:
     async def _game_over(self) -> None:
         self._phase = "game_over"
         winner = self.state.winner_team_id if self.state else None
+        awards: list = []
+        poster_path: str | None = None
+        # Only a real victory earns the ceremony (a crashed loop leaves winner unset).
+        if winner and self.state is not None:
+            summary = self._build_match_summary()
+            awards = await asyncio.to_thread(self.ai.generate_awards, summary)
+            poster_path = await asyncio.to_thread(self._compose_poster, summary)
         await self.room.broadcast(S2C.GAME_OVER, {
             "winner_team_id": winner,
             "characters": self._character_deltas(),
+            # Awards ceremony + downloadable match poster (sync point S3).
+            "awards": [{"title": a.title, "player_id": a.player_id, "blurb": a.blurb}
+                       for a in awards],
+            "poster_path": poster_path,
         })
+
+    def _compose_poster(self, summary: MatchSummary) -> str | None:
+        """Render the match poster to snapshots/<room>/poster.png. Gated on the
+        snapshot writer (tests disable disk output) and never raises — a failed
+        poster just means no poster."""
+        if not self.snapshots.enabled or self.state is None:
+            return None
+        try:
+            from server.poster import compose_poster
+            path = self.snapshots.dir / "poster.png"
+            compose_poster(path, self.state, self.room.teams, summary,
+                           self.rules.settings.ui.canvas_background_color)
+            return str(path)
+        except Exception:  # pragma: no cover - defensive; poster is best-effort
+            log.exception("poster composition failed in room %s", self.room.code)
+            return None
 
     # -- reconnection -----------------------------------------------------
     async def resync(self, player_id: str) -> None:

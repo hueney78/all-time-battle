@@ -53,6 +53,27 @@ class MontageResult:
 
 
 @dataclass
+class MatchSummary:
+    """Everything the awards ceremony needs about a finished match (§10.2)."""
+
+    winner_team_id: str | None = None
+    # {player_id, name, team_id, alive}
+    players: list[dict] = field(default_factory=list)
+    creativity: dict[str, int] = field(default_factory=dict)   # pid → total tiers
+    fumbles: dict[str, int] = field(default_factory=dict)      # pid → fumble count
+    combos: list[dict] = field(default_factory=list)           # {combo_name, partners}
+    round_titles: list[str] = field(default_factory=list)
+    best_line: str = ""
+
+
+@dataclass
+class Award:
+    title: str
+    player_id: str
+    blurb: str = ""
+
+
+@dataclass
 class Beat:
     event_id: str
     text: str
@@ -104,6 +125,8 @@ class AIProvider(Protocol):
         self, events: list[Event], characters: dict[str, Character]
     ) -> Narration: ...
 
+    def generate_awards(self, summary: MatchSummary) -> list[Award]: ...
+
 
 # ---------------------------------------------------------------------------
 # Mock implementation — instant, deterministic, always valid
@@ -115,6 +138,11 @@ _MOCK_NAMES = [
 _MOCK_PERSONALITIES = [
     "boundlessly overconfident", "quietly menacing", "deeply confused",
     "aggressively cheerful", "world-weary", "unreasonably dramatic",
+]
+# Affectionate superlatives (GAME_DESIGN §10.2) — celebrate the comedy, never mock.
+_AWARD_TITLES = [
+    "Most Creative Doodle", "Fumble of the Match", "Best Combo Name",
+    "Crowd Favorite", "Bravest Use of a Household Object", "Heart of a Champion",
 ]
 
 
@@ -214,6 +242,16 @@ class MockAI:
             beats.append(Beat(event_id="filler", text="The fighters circle warily.",
                               speaker="color"))
         return Narration(beats=beats, round_title=_mock_round_title(events))
+
+    def generate_awards(self, summary: MatchSummary) -> list[Award]:
+        """One affectionate superlative per player (every player gets one),
+        picked deterministically from a rotating palette (GAME_DESIGN §10.2)."""
+        out: list[Award] = []
+        for i, p in enumerate(summary.players):
+            title = _AWARD_TITLES[i % len(_AWARD_TITLES)]
+            out.append(Award(title=title, player_id=p["player_id"],
+                             blurb=f"{p.get('name', 'Someone')} — a certified doodle legend."))
+        return out
 
 
 # ---------------------------------------------------------------------------

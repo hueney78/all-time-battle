@@ -26,9 +26,11 @@ from server.ai import schemas as S
 from server.ai import validators as V
 from server.ai.provider import (
     ActionSubmission,
+    Award,
     Beat,
     CharacterSubmission,
     GeneratedCharacter,
+    MatchSummary,
     MontageResult,
     Narration,
     _beat_text,
@@ -74,6 +76,7 @@ class LiveAI:
         )
         self._sys_montage = env.get_template("montage_classify.md.j2").render()
         self._sys_narrate = env.get_template("narrate.md.j2").render()
+        self._sys_awards = env.get_template("awards.md.j2").render()
 
         # cost/telemetry + degraded state (read by the state machine for a banner)
         self._cost = 0.0
@@ -198,6 +201,16 @@ class LiveAI:
             return _fallback_narration(events, characters)
         return V.build_narration(parsed, {e.id for e in events})
 
+    def generate_awards(self, summary: MatchSummary) -> list[Award]:
+        content = [{"type": "text", "text": _awards_text(summary)}]
+        parsed = self._call_tool(
+            self._sys_awards, content, S.GenerateAwardsResponse,
+            "submit_awards", self.ai.narrate_model,
+        )
+        if parsed is None:
+            parsed = S.GenerateAwardsResponse(awards=[])   # → all fallback awards
+        return V.build_awards(parsed, summary)
+
     # -- core call -------------------------------------------------------
     def _call_tool(self, system_text, content, model_cls, tool_name, model):
         """Forced tool-use with one repair retry, then None (caller falls back)."""
@@ -315,6 +328,26 @@ def _narration_text(events: list[Event], characters: dict[str, Character]) -> st
             "event_id": e.id, "type": e.type.value,
             "actor": nm(e.player_id), "target": nm(e.target_id), "data": e.data,
         }))
+    return "\n".join(lines)
+
+
+def _awards_text(summary: MatchSummary) -> str:
+    lines = [f"Match over. Winning team: {summary.winner_team_id or 'nobody (draw)'}.",
+             "Give EVERY player below at least one affectionate award.", "", "Players:"]
+    for p in summary.players:
+        pid = p["player_id"]
+        lines.append(
+            f"- {p.get('name', pid)} ({pid}) team={p.get('team_id')} "
+            f"alive={p.get('alive')} creativity={summary.creativity.get(pid, 0)} "
+            f"fumbles={summary.fumbles.get(pid, 0)}"
+        )
+    combo_names = [c.get("combo_name", "") for c in summary.combos if c.get("combo_name")]
+    if combo_names:
+        lines.append("Combos pulled off: " + "; ".join(combo_names))
+    if summary.round_titles:
+        lines.append("Round titles: " + " | ".join(summary.round_titles))
+    if summary.best_line:
+        lines.append(f"Best narrated line: {summary.best_line}")
     return "\n".join(lines)
 
 
