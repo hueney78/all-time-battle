@@ -78,16 +78,11 @@ _SAFETY_ROUND_CAP = 60  # guards against a pathological no-victory loop
 
 
 # ---------------------------------------------------------------------------
-# Pipeline buffers — the two slots that connect draw → process → reveal.
+# Round data — collected drawings and a processed round.
 # ---------------------------------------------------------------------------
-class _CharGen:
-    """Sentinel: the first process stage generates characters instead of
-    resolving a round (GAME_DESIGN.md §2, T2)."""
-
-
 @dataclass
 class _Drawn:
-    """Drawings collected during a draw stage, awaiting their process stage."""
+    """Action drawings collected during a draw stage."""
 
     round_num: int
     action_pngs: dict[str, str]
@@ -96,20 +91,8 @@ class _Drawn:
 
 
 @dataclass
-class _MontageDrawn:
-    """Power-Up Montage additions collected in a montage sub-phase, awaiting
-    classification in the next process window (GAME_DESIGN §10.1)."""
-
-    round_num: int        # the round whose reveal triggered this montage
-    montage_pngs: dict[str, str]
-    survivors: list[str]
-
-
-@dataclass
 class _Processed:
-    """A processed round (or the character intros / a montage), awaiting its
-    reveal stage. Carries everything the reveal needs so it replays independently
-    of how far the engine has since run ahead."""
+    """A classified/resolved/narrated round, ready to reveal."""
 
     round_num: int
     narration: Narration | None
@@ -118,10 +101,6 @@ class _Processed:
     action_pngs: dict[str, str]
     post_state: GameState
     actions: list[ClassifiedAction] = field(default_factory=list)
-    is_intro: bool = False
-    is_montage: bool = False
-    montage: list[MontageResult] = field(default_factory=list)
-    montage_pngs: dict[str, str] = field(default_factory=dict)
 
 
 class GameStateMachine:
@@ -150,10 +129,8 @@ class GameStateMachine:
         self._gallery_names: list[str] = []
         self.seed = room.seed
 
-        # `state` is the last REVEALED state; `_resolve_state` is the engine's
-        # forward truth (rounds processed ahead of what the TV has shown).
+        # The single live game state — updated as each round is revealed.
         self.state: GameState | None = None
-        self._resolve_state: GameState | None = None
         self.task: asyncio.Task | None = None
 
         # phase/reveal bookkeeping (owned by the draw stage; also used by resync)
@@ -252,72 +229,65 @@ class GameStateMachine:
         await self._enter_phase("draw_characters", round_num=0,
                                 timeout=self.timers.draw_characters)
         await self._collect([p.id for p in self.room.players], self.timers.draw_characters)
-        # Character *generation* is deferred to the first pipeline process stage
-        # so it runs concurrently with Round 1 drawing (GAME_DESIGN.md §2, T2).
+        # Character *generation* runs concurrently with Round 1 drawing — the
+        # first move needs no prior info (GAME_DESIGN.md §2). See _round_loop.
 
-    # -- the prediction pipeline (round loop) -----------------------------
+    # -- the sequential round loop (GAME_DESIGN.md §2) --------------------
     async def _round_loop(self) -> None:
-        # Buffers: `to_process` holds drawings awaiting processing (seeded with
-        # the char-gen sentinel); `to_reveal` holds a processed round awaiting
-        # its TV reveal. Both are 1-deep, so reveals emerge in strict round order.
-        to_process: _CharGen | _Drawn | _MontageDrawn | None = _CharGen()
-        to_reveal: _Processed | None = None
-        round_num = 1
-        montage_due: int | None = None   # a round whose reveal earned a montage
         cadence = self.rules.settings.game.montage_every_rounds
 
-        while round_num <= _SAFETY_ROUND_CAP:
-            revealed = to_reveal   # what this tick's reveal stage will play
+        # Round 1 keeps the only two overlaps that survive sequential play:
+        # character generation runs WHILE players draw their first move (it needs
+        # no prior info), then the character intros play on the TV WHILE Round 1 is
+        # processed — the intros mask Round 1's classify/resolve/narrate.
+        r1_fighters, r1_gremlins = self._draw_roster()   # no chars yet → all players
+        intro_order, r1_pngs = await asyncio.gather(
+            self._process_characters(),
+            self._draw_stage(1, r1_fighters + r1_gremlins),
+        )
+        processed, _ = await asyncio.gather(
+            self._process_round(_Drawn(1, r1_pngs, r1_fighters, r1_gremlins)),
+            self._reveal_intros(intro_order),
+        )
+        await self._reveal_round(processed)
+        if self._has_winner():
+            return
+        if cadence and 1 % cadence == 0:
+            await self._run_montage(1)
 
-            if montage_due is not None:
-                # Montage sub-phase: survivors upgrade their character instead of
-                # drawing an action, while process+reveal keep flowing (no stall).
-                # The additions are classified next tick — piggybacked (§10.1).
-                survivors = self._draw_roster()[0]
-                montage_pngs, processed, _ = await asyncio.gather(
-                    self._montage_draw_stage(montage_due, survivors),
-                    self._process_stage(to_process),
-                    self._reveal_stage(to_reveal),
-                )
-                to_reveal = processed
-                to_process = _MontageDrawn(round_num=montage_due,
-                                           montage_pngs=montage_pngs, survivors=survivors)
-                montage_due = None
-            else:
-                fighters, gremlins = self._draw_roster()
-                drawn_pngs, processed, _ = await asyncio.gather(
-                    self._draw_stage(round_num, fighters + gremlins),
-                    self._process_stage(to_process),
-                    self._reveal_stage(to_reveal),
-                )
-                to_reveal = processed
-                to_process = _Drawn(round_num=round_num, action_pngs=drawn_pngs,
-                                    fighters=fighters, gremlins=gremlins)
-                round_num += 1
-
-            # A combat round just revealed on a montage cadence earns the next
-            # tick a montage draw (GAME_DESIGN §10.1). Intros/montages don't count.
-            if (cadence and revealed is not None and not revealed.is_intro
-                    and not revealed.is_montage and revealed.round_num > 0
-                    and revealed.round_num % cadence == 0):
-                montage_due = revealed.round_num
-
-            # A decided match: the buffered reveal still in flight plays out
-            # (GAME_DESIGN.md §2), then the finale. Rounds drawn but not yet
-            # processed are dropped — the outcome is already settled.
-            if (
-                processed is not None
-                and processed.post_state is not None
-                and processed.post_state.winner_team_id
-            ):
-                await self._reveal_stage(to_reveal)
+        # Rounds 2+ are strictly sequential: draw → deliberation interlude →
+        # process → reveal. Each move is on screen right after it's drawn.
+        for round_num in range(2, _SAFETY_ROUND_CAP + 1):
+            fighters, gremlins = self._draw_roster()
+            action_pngs = await self._draw_stage(round_num, fighters + gremlins)
+            await self._deliberation_interlude(round_num, action_pngs)
+            processed = await self._process_round(
+                _Drawn(round_num, action_pngs, fighters, gremlins)
+            )
+            await self._reveal_round(processed)
+            if self._has_winner():
                 return
+            if cadence and round_num % cadence == 0:
+                await self._run_montage(round_num)
+
+    def _has_winner(self) -> bool:
+        return self.state is not None and self.state.winner_team_id is not None
+
+    async def _deliberation_interlude(self, round_num: int, drawings: dict[str, str],
+                                      kind: str = "deliberation") -> None:
+        """The latency mask (GAME_DESIGN §2): the moment all drawings are in, the
+        TV shows every submitted drawing side by side while the round is
+        classified/resolved/narrated — never a spinner. Also fronts the montage's
+        training-montage interstitial."""
+        self._phase = "deliberate"
+        await self.room.broadcast(S2C.DELIBERATION, {
+            "round": round_num, "kind": kind, "drawings": dict(drawings),
+        })
 
     def _draw_roster(self) -> tuple[list[str], list[str]]:
-        """Who draws this round, from the last REVEALED state: living fighters
-        (who draw a move) and Arena Gremlins (KO'd players who each draw one
-        hazard — GAME_DESIGN §10). Gremlins are is_ko, so the sets are disjoint.
-        Before characters exist, everyone in the lobby draws (their character)."""
+        """Who draws this round: living fighters (a move) and Arena Gremlins
+        (a hazard — GAME_DESIGN §10). Gremlins are is_ko, so the sets are
+        disjoint. Before characters exist, everyone in the lobby draws."""
         if self.state is None:
             return [p.id for p in self.room.players], []
         fighters = [pid for pid, ch in self.state.characters.items() if not ch.is_ko]
@@ -333,50 +303,59 @@ class GameStateMachine:
         await self._collect(living, self.timers.draw_action)
         return dict(self._action_pngs)
 
-    async def _process_stage(
-        self, to_process: _CharGen | _Drawn | _MontageDrawn | None
-    ) -> _Processed | None:
-        if to_process is None:
-            return None
-        if isinstance(to_process, _CharGen):
-            return await self._process_characters()
-        if isinstance(to_process, _MontageDrawn):
-            return await self._process_montage(to_process)
-        return await self._process_round(to_process)
+    # -- Power-Up Montage (GAME_DESIGN §10.1) -----------------------------
+    async def _run_montage(self, round_num: int) -> None:
+        """A montage sub-phase: survivors upgrade their character, the TV masks
+        the classify with a training-montage interstitial, then the stat-pulse
+        reveal plays. Sequential — the loop waits for it before Round r+1."""
+        survivors = self._draw_roster()[0]
+        if not survivors:
+            return
+        montage_pngs = await self._montage_draw_stage(round_num, survivors)
+        await self._deliberation_interlude(round_num, montage_pngs, kind="montage")
+        await self._resolve_montage(round_num, montage_pngs, survivors)
 
     async def _montage_draw_stage(self, round_num: int, survivors: list[str]) -> dict[str, str]:
-        """The Power-Up Montage bonus phase: survivors' canvases preload their
-        current full-size character (the host renders it full-size from the
-        `montage` phase) and they add an upgrade."""
+        """The montage bonus phase: survivors' canvases preload their current
+        full-size character (host scales by the `montage` phase) to add an upgrade."""
         self._montage_pngs = {}
         await self._enter_phase("montage", round_num=round_num, timeout=self.timers.montage)
-        await self._send_canvas_inits()   # current original at full size (client scales by phase)
+        await self._send_canvas_inits()
         await self._collect(survivors, self.timers.montage)
         return dict(self._montage_pngs)
 
-    async def _process_montage(self, md: _MontageDrawn) -> _Processed:
-        """Classify each survivor's upgrade → +1 stat, and apply it to the
-        engine-truth chain so later rounds fight with the boosted stats. The
-        reveal (next tick) commits the same buffs to the revealed state."""
-        assert self._resolve_state is not None
-        subs = {pid: ActionSubmission(pid, md.montage_pngs.get(pid, "")) for pid in md.survivors}
-        results = await asyncio.to_thread(
-            self.ai.classify_montage, self._resolve_state, subs, md.round_num
-        )
-        self._apply_montage(self._resolve_state, results, md.montage_pngs)
+    async def _resolve_montage(self, round_num: int, montage_pngs: dict[str, str],
+                               survivors: list[str]) -> list[MontageResult]:
+        """Classify each upgrade → +1 stat, apply it, make the upgraded drawing the
+        new 'original' everywhere, and broadcast the stat pulses (S2)."""
+        subs = {pid: ActionSubmission(pid, montage_pngs.get(pid, "")) for pid in survivors}
+        results = await asyncio.to_thread(self.ai.classify_montage, self.state, subs, round_num)
+        self._apply_montage(self.state, results, montage_pngs)
         await self._check_degraded()
-        return _Processed(
-            round_num=md.round_num, narration=None, events=[], initiative_order=[],
-            action_pngs={}, post_state=self._resolve_state,
-            is_montage=True, montage=results, montage_pngs=md.montage_pngs,
-        )
+        for r in results:
+            # Reset the sprite so the upgraded original shows until the next action.
+            self._latest_action_png.pop(r.player_id, None)
+        self._beat_done = asyncio.Event()
+        upgrades = [
+            {"player_id": r.player_id, "stat": r.stat, "flavor": r.flavor,
+             "png": montage_pngs.get(r.player_id, "")}
+            for r in results
+        ]
+        await self.room.broadcast(S2C.MONTAGE, {
+            "round": round_num, "upgrades": upgrades,
+            "characters": self._character_deltas(include_png=True),
+        })
+        await self._send_all_player_states()
+        await self._send_canvas_inits()
+        await self._broadcast_arena()
+        await self._pace_beats(max(1, len(upgrades)))
+        return results
 
     def _apply_montage(
         self, state: GameState, results: list[MontageResult], montage_pngs: dict[str, str]
     ) -> None:
         """Apply +1 stat with formula deltas and swap in the upgraded drawing as
-        the character's new 'original'. Idempotent per state object — call once
-        on the engine-truth state and once on the revealed state."""
+        the character's new 'original'."""
         for r in results:
             ch = state.characters.get(r.player_id)
             if ch is None or ch.is_ko:
@@ -392,9 +371,9 @@ class GameStateMachine:
             if png:
                 ch.character_png_b64 = png               # the new original everywhere
 
-    async def _process_characters(self) -> _Processed:
-        """Generate characters (T2 process) and build the initial game state.
-        Returns the character-intro reveal to play one tick later (T3)."""
+    async def _process_characters(self) -> list[str]:
+        """Generate characters and build the initial game state. Returns the intro
+        acting order (initiative = Speed) for the character-intro reveal."""
         subs = {
             p.id: CharacterSubmission(p.id, p.character_png, p.hint)
             for p in self.room.players
@@ -422,7 +401,6 @@ class GameStateMachine:
             room_id=self.room.code, phase=Phase.ROUND_LOOP, round=0,
             characters=chars, teams=self.room.teams,
         )
-        self._resolve_state = self.state  # seed the engine-truth chain
         if self.gallery.enabled:
             self._gallery_names = await asyncio.to_thread(self.gallery.all_names)
         await self._send_all_player_states()
@@ -430,19 +408,15 @@ class GameStateMachine:
         await self._broadcast_arena()
         await self._check_degraded()
 
-        # Preview the rail's acting order (initiative = Speed) for the intros.
-        order = sorted(chars, key=lambda pid: -chars[pid].stats.speed)
-        return _Processed(
-            round_num=0, narration=None, events=[], initiative_order=order,
-            action_pngs={}, post_state=self.state, actions=[], is_intro=True,
-        )
+        # The rail's acting order (initiative = Speed) for the intros.
+        return sorted(chars, key=lambda pid: -chars[pid].stats.speed)
 
     async def _process_round(self, drawn: _Drawn) -> _Processed:
-        """Classify → resolve → narrate one round, advancing the engine-truth
-        chain. AI calls run off the event loop so a slow API can't stall the
-        concurrent draw/reveal stages."""
-        assert self._resolve_state is not None
-        state_for_round = self._resolve_state.model_copy(update={"round": drawn.round_num})
+        """Classify → resolve → narrate one round against the current state. AI
+        calls run off the event loop so a slow API doesn't freeze the interlude.
+        Does not commit the state — `_reveal_round` does that as the beats play."""
+        assert self.state is not None
+        state_for_round = self.state.model_copy(update={"round": drawn.round_num})
 
         fighter_subs = {pid: ActionSubmission(pid, drawn.action_pngs.get(pid, ""))
                         for pid in drawn.fighters}
@@ -460,7 +434,6 @@ class GameStateMachine:
             actions = actions + grem_actions
         rng = Dice(seed=self.seed + drawn.round_num)
         result = resolve_round(state_for_round, actions, rng, self.balance)
-        self._resolve_state = result.new_state
         await self._check_degraded()
         self.snapshots.write_round(drawn.round_num, result.new_state, result.events)
         self.snapshots.append_wildcards(drawn.round_num, actions)
@@ -475,18 +448,9 @@ class GameStateMachine:
             post_state=result.new_state, actions=actions,
         )
 
-    async def _reveal_stage(self, processed: _Processed | None) -> None:
-        if processed is None:
-            return  # warm-up tick (T2): nothing buffered to reveal yet
-        if processed.is_intro:
-            await self._reveal_intros(processed)
-            return
-        if processed.is_montage:
-            await self._reveal_montage(processed)
-            return
-        # This round's results become visible now: commit the revealed state and
-        # bank its creativity for the meter, THEN play the beats (so the reveal
-        # payload reflects exactly this round, not how far the engine has run on).
+    async def _reveal_round(self, processed: _Processed) -> None:
+        """Commit the round's results to the live state and play the beats — this
+        ends the deliberation interlude on the host and shows the outcome."""
         self.state = processed.post_state
         self._accumulate_audience(processed.actions)
         await self._reveal(processed.round_num, processed.narration, processed.events,
@@ -496,9 +460,9 @@ class GameStateMachine:
         await self._send_all_player_states()
         await self._broadcast_arena()
 
-    async def _reveal_intros(self, processed: _Processed) -> None:
-        """Character-intro reveal (T3) — the announcer duo greets each fighter
-        while players draw Round 2. Reuses the reveal_step shape (round 0)."""
+    async def _reveal_intros(self, order: list[str]) -> None:
+        """Character-intro reveal — the announcer duo greets each fighter while
+        Round 1 is processed behind it. Reuses the reveal_step shape (round 0)."""
         self._beat_done = asyncio.Event()
         chars = self.state.characters if self.state else {}
         beats = [
@@ -510,7 +474,7 @@ class GameStateMachine:
                 "hurt": None, "helped": None, "floats": [],
                 "combo_name": None, "sfx": None, "result": None,
             }
-            for pid in processed.initiative_order if pid in chars
+            for pid in order if pid in chars
         ]
         await self.room.broadcast(S2C.REVEAL_STEP, {
             "round": 0,
@@ -518,38 +482,10 @@ class GameStateMachine:
             "beats": beats,
             "characters": self._character_deltas(),
             "action_pngs": {},
-            "initiative_order": list(processed.initiative_order),
+            "initiative_order": list(order),
             "meters": self._meters(),
         })
         await self._pace_beats(len(beats))
-
-    async def _reveal_montage(self, processed: _Processed) -> None:
-        """Commit the montage buffs to the revealed state, make each upgraded
-        drawing the new 'original' everywhere, and broadcast the stat pulses (S2)."""
-        if self.state is None:
-            return
-        self._apply_montage(self.state, processed.montage, processed.montage_pngs)
-        for r in processed.montage:
-            # Reset the battlefield sprite so the upgraded original shows until
-            # this character's next action replaces it.
-            self._latest_action_png.pop(r.player_id, None)
-        self._beat_done = asyncio.Event()
-        upgrades = [
-            {"player_id": r.player_id, "stat": r.stat, "flavor": r.flavor,
-             "png": processed.montage_pngs.get(r.player_id, "")}
-            for r in processed.montage
-        ]
-        await self.room.broadcast(S2C.MONTAGE, {
-            "round": processed.round_num,
-            "upgrades": upgrades,
-            "characters": self._character_deltas(include_png=True),
-        })
-        # The upgraded original propagates everywhere: status cards, canvas
-        # prefill, rail portraits, and battlefield sprites.
-        await self._send_all_player_states()
-        await self._send_canvas_inits()
-        await self._broadcast_arena()
-        await self._pace_beats(max(1, len(upgrades)))
 
     async def _reveal(self, round_num: int, narration, events, initiative_order=None,
                       action_pngs: dict[str, str] | None = None) -> None:

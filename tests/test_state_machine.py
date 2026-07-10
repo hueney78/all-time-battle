@@ -462,14 +462,14 @@ async def test_websocket_endpoint_accepts_host_and_creates_room():
 
 
 # ---------------------------------------------------------------------------
-# Pipeline overlap + ordering under a slow AI (the Track A item-1 acceptance)
+# Deliberation interlude under a slow AI (the Track A item-1 acceptance)
 # ---------------------------------------------------------------------------
 class _SlowAI:
     """Wraps the mock with a per-call delay to simulate a sluggish API. Because
     the state machine runs AI calls in a thread, this sleep does NOT block the
-    event loop — drawing and reveal must keep flowing around it. Records each
-    classify call's [start, end] span (monotonic) so a test can prove a reveal
-    ran concurrently with a slow classification."""
+    event loop — the deliberation interlude stays live (never a frozen spinner).
+    Records each classify call's [start, end] span so a test can prove the loop
+    kept ticking during a slow classification."""
 
     degraded = False
 
@@ -502,10 +502,11 @@ class _SlowAI:
         return self._inner.narrate_round(events, characters, gallery_names)
 
 
-async def test_pipeline_overlaps_and_orders_under_slow_ai():
-    """A 15s-class AI stall must not stall the pipeline or reorder reveals:
-    reveals emerge in strict round order, drawing/reveal overlap the slow
-    processing, and the game still reaches a decisive game_over."""
+async def test_deliberation_interlude_masks_slow_ai_and_orders_reveals():
+    """A 15s-class AI stall is masked by the deliberation interlude, not a
+    spinner: the moment drawings are in the TV shows them (a DELIBERATION
+    message) while classify/resolve/narrate runs off the event loop; reveals
+    stay in strict round order and the game still reaches a decisive game_over."""
     rules = _rules()
     room = Room("SLOW", rules)
     player_socks: dict[str, FakeSocket] = {}
@@ -516,13 +517,14 @@ async def test_pipeline_overlaps_and_orders_under_slow_ai():
     host_sock = FakeSocket()
     room.add_player("Host", "host", host_sock, None)
 
-    # Delay >> the sub-millisecond reveal latency, so a reveal is guaranteed to
-    # land inside a classify span if (and only if) they run concurrently.
+    # Delay >> the interlude broadcast latency, so the interlude is guaranteed to
+    # be on screen while the slow classify runs.
     slow = _SlowAI(delay=0.15)
     machine = GameStateMachine(room, rules, ai=slow, timers=Timers(0.05, 0.05, 0.01))
     room.machine = machine
 
     reveal_rounds: list[int] = []
+    interludes: list[dict] = []
     heartbeats: list[float] = []
     done = asyncio.Event()
 
@@ -543,7 +545,9 @@ async def test_pipeline_overlaps_and_orders_under_slow_ai():
                 env = await asyncio.wait_for(host_sock.client_recv(), 0.25)
             except TimeoutError:
                 continue
-            if env.type == "reveal_step":
+            if env.type == "deliberation":
+                interludes.append(env.payload)          # the interlude, not a spinner
+            elif env.type == "reveal_step":
                 reveal_rounds.append(env.payload["round"])
                 machine.advance_beat()
             elif env.type == "montage_reveal":
@@ -570,25 +574,28 @@ async def test_pipeline_overlaps_and_orders_under_slow_ai():
             machine.task.cancel()
         await asyncio.gather(*pumps, machine.task, return_exceptions=True)
 
-    # Ordering: intros (round 0) first, then rounds strictly ascending with no
-    # gaps or reordering — the slow AI never let a later reveal jump the queue.
+    # The interlude masked the wait: at least one deliberation was shown, carrying
+    # the submitted drawings (never a spinner).
+    assert interludes, "no deliberation interlude was shown under a slow AI"
+    assert any(iv["kind"] == "deliberation" and iv["drawings"] for iv in interludes)
+
+    # Ordering: intros (round 0) first, then rounds strictly ascending, no gaps.
     assert reveal_rounds[0] == 0, f"intros should reveal first: {reveal_rounds}"
     assert reveal_rounds == sorted(reveal_rounds), f"out-of-order reveals: {reveal_rounds}"
     non_intro = [r for r in reveal_rounds if r > 0]
     assert non_intro == list(range(1, len(non_intro) + 1)), f"gapped rounds: {reveal_rounds}"
 
-    # No stall: the match actually finished with a winner despite the slow AI.
+    # No stall: the match finished with a winner despite the slow AI.
     assert done.is_set() and machine.state is not None
     assert machine.state.winner_team_id in {"team_a", "team_b"}
 
-    # Concurrency proof: the event loop stayed live *throughout* a slow classify
-    # call — if AI processing had blocked the loop, no heartbeat could have ticked
-    # during its span. (Runs in a thread precisely so drawing/reveal keep going.)
+    # The interlude stayed LIVE (not a frozen spinner): the event loop kept ticking
+    # throughout a slow classify — the call runs in a thread precisely for this.
     assert slow.classify_spans, "no classify calls recorded"
     assert any(
         sum(1 for hb in heartbeats if start <= hb <= end) >= 3
         for (start, end) in slow.classify_spans
-    ), "event loop went silent during a slow AI call — pipeline blocked"
+    ), "event loop went silent during a slow AI call — interlude would be frozen"
 
 
 # ---------------------------------------------------------------------------
@@ -618,7 +625,6 @@ async def test_gremlin_draws_a_hazard_into_the_round():
     state = GameState(room_id="GREM",
                       characters={a.id: fa, b.id: fb, c.id: grem}, teams=room.teams)
     machine.state = state
-    machine._resolve_state = state
 
     # The gremlin is in the draw roster (as a gremlin), the fighters as fighters.
     fighters, gremlins = machine._draw_roster()
@@ -688,8 +694,6 @@ class _MontageAI(MockAI):
 async def test_montage_applies_stat_and_becomes_new_original():
     """A montage grants +1 stat (with formula deltas), swaps in the upgraded
     drawing as the new original everywhere, and broadcasts the stat pulse (S2)."""
-    from server.state_machine import _MontageDrawn
-
     rules = _rules()
     room = Room("MTG", rules)
     p = room.add_player("A", "player", FakeSocket(), None)
@@ -697,19 +701,11 @@ async def test_montage_applies_stat_and_becomes_new_original():
     ch = Character(player_id=p.id, name="A", stats=Stats(power=2, speed=2, weird=2),
                    hp=18, max_hp=22, ac=13, zone_id="glitter_back", character_png_b64="OLD")
     machine.state = GameState(room_id="MTG", characters={p.id: ch}, teams=room.teams)
-    machine._resolve_state = machine.state.model_copy(deep=True)   # engine truth: separate object
     machine._latest_action_png[p.id] = "STALE_SPRITE"
 
-    md = _MontageDrawn(round_num=3, montage_pngs={p.id: "UPGRADED"}, survivors=[p.id])
-    processed = await machine._process_montage(md)
+    results = await machine._resolve_montage(3, {p.id: "UPGRADED"}, [p.id])
 
-    assert processed.is_montage and processed.montage[0].stat == "power"
-    # engine-truth chain buffed so later rounds fight with the upgrade
-    rch = machine._resolve_state.characters[p.id]
-    assert rch.stats.power == 3 and rch.character_png_b64 == "UPGRADED"
-
-    await machine._reveal_montage(processed)
-
+    assert results[0].stat == "power"
     sch = machine.state.characters[p.id]
     assert sch.stats.power == 3
     assert sch.max_hp == 22 + rules.balance.hp_per_power   # Power +1 → +2 max HP
@@ -838,7 +834,7 @@ async def test_gallery_names_are_sampled_into_narration():
     cb = Character(player_id=b.id, name="Blob", stats=Stats(power=2, speed=2, weird=2),
                    hp=24, max_hp=24, ac=13, zone_id="thunder_back")
     state = GameState(room_id="CAM", characters={a.id: ca, b.id: cb}, teams=room.teams)
-    machine.state = machine._resolve_state = state
+    machine.state = state
     machine._gallery_names = ["Old Timer", "Grandpa Doodle", "Stabby"]   # Stabby also in ring
 
     drawn = _Drawn(round_num=1, action_pngs={a.id: "x", b.id: "x"},
