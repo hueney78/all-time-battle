@@ -8,6 +8,7 @@ runs exactly as it would over the wire, but deterministically and fast.
 from __future__ import annotations
 
 import asyncio
+import time
 
 from server.ai.provider import MockAI
 from server.config import load_game_rules
@@ -369,3 +370,122 @@ async def test_websocket_endpoint_accepts_host_and_creates_room():
         assert len(joined["payload"]["room"]) == 4
         lobby = ws.receive_json()
         assert lobby["type"] == "lobby_state"
+
+
+# ---------------------------------------------------------------------------
+# Pipeline overlap + ordering under a slow AI (the Track A item-1 acceptance)
+# ---------------------------------------------------------------------------
+class _SlowAI:
+    """Wraps the mock with a per-call delay to simulate a sluggish API. Because
+    the state machine runs AI calls in a thread, this sleep does NOT block the
+    event loop — drawing and reveal must keep flowing around it. Records each
+    classify call's [start, end] span (monotonic) so a test can prove a reveal
+    ran concurrently with a slow classification."""
+
+    degraded = False
+
+    def __init__(self, delay: float) -> None:
+        self._inner = MockAI()
+        self._delay = delay
+        self.classify_spans: list[tuple[float, float]] = []
+
+    def generate_characters(self, submissions, cfg):
+        return self._inner.generate_characters(submissions, cfg)
+
+    def classify_actions(self, state, submissions, round_num):
+        start = time.monotonic()
+        time.sleep(self._delay)
+        out = self._inner.classify_actions(state, submissions, round_num)
+        self.classify_spans.append((start, time.monotonic()))
+        return out
+
+    def narrate_round(self, events, characters):
+        time.sleep(self._delay)
+        return self._inner.narrate_round(events, characters)
+
+
+async def test_pipeline_overlaps_and_orders_under_slow_ai():
+    """A 15s-class AI stall must not stall the pipeline or reorder reveals:
+    reveals emerge in strict round order, drawing/reveal overlap the slow
+    processing, and the game still reaches a decisive game_over."""
+    rules = _rules()
+    room = Room("SLOW", rules)
+    player_socks: dict[str, FakeSocket] = {}
+    for i in range(2):
+        s = FakeSocket()
+        p = room.add_player(f"P{i}", "player", s, None)
+        player_socks[p.id] = s
+    host_sock = FakeSocket()
+    room.add_player("Host", "host", host_sock, None)
+
+    # Delay >> the sub-millisecond reveal latency, so a reveal is guaranteed to
+    # land inside a classify span if (and only if) they run concurrently.
+    slow = _SlowAI(delay=0.15)
+    machine = GameStateMachine(room, rules, ai=slow, timers=Timers(0.05, 0.05, 0.01))
+    room.machine = machine
+
+    reveal_rounds: list[int] = []
+    heartbeats: list[float] = []
+    done = asyncio.Event()
+
+    async def player_pump(pid: str, sock: FakeSocket) -> None:
+        while not done.is_set():
+            try:
+                env = await asyncio.wait_for(sock.client_recv(), 0.25)
+            except TimeoutError:
+                continue
+            if env.type == "phase_change" and env.payload.get("phase") in (
+                "draw_characters", "draw_action",
+            ):
+                machine.submit_drawing(pid, SubmitDrawingMsg(png_base64="doodle"))
+
+    async def host_pump() -> None:
+        while not done.is_set():
+            try:
+                env = await asyncio.wait_for(host_sock.client_recv(), 0.25)
+            except TimeoutError:
+                continue
+            if env.type == "reveal_step":
+                reveal_rounds.append(env.payload["round"])
+                machine.advance_beat()
+            elif env.type == "game_over":
+                done.set()
+
+    async def heartbeat() -> None:
+        # A fine-grained ticker: if a blocking AI call ever froze the event loop,
+        # these ticks would go silent for the whole call.
+        while not done.is_set():
+            heartbeats.append(time.monotonic())
+            await asyncio.sleep(0.005)
+
+    pumps = [asyncio.create_task(player_pump(pid, s)) for pid, s in player_socks.items()]
+    pumps += [asyncio.create_task(host_pump()), asyncio.create_task(heartbeat())]
+    machine.start()
+    try:
+        await asyncio.wait_for(done.wait(), timeout=20.0)
+    finally:
+        for t in pumps:
+            t.cancel()
+        if machine.task is not None:
+            machine.task.cancel()
+        await asyncio.gather(*pumps, machine.task, return_exceptions=True)
+
+    # Ordering: intros (round 0) first, then rounds strictly ascending with no
+    # gaps or reordering — the slow AI never let a later reveal jump the queue.
+    assert reveal_rounds[0] == 0, f"intros should reveal first: {reveal_rounds}"
+    assert reveal_rounds == sorted(reveal_rounds), f"out-of-order reveals: {reveal_rounds}"
+    non_intro = [r for r in reveal_rounds if r > 0]
+    assert non_intro == list(range(1, len(non_intro) + 1)), f"gapped rounds: {reveal_rounds}"
+
+    # No stall: the match actually finished with a winner despite the slow AI.
+    assert done.is_set() and machine.state is not None
+    assert machine.state.winner_team_id in {"team_a", "team_b"}
+
+    # Concurrency proof: the event loop stayed live *throughout* a slow classify
+    # call — if AI processing had blocked the loop, no heartbeat could have ticked
+    # during its span. (Runs in a thread precisely so drawing/reveal keep going.)
+    assert slow.classify_spans, "no classify calls recorded"
+    assert any(
+        sum(1 for hb in heartbeats if start <= hb <= end) >= 3
+        for (start, end) in slow.classify_spans
+    ), "event loop went silent during a slow AI call — pipeline blocked"

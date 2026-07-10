@@ -161,21 +161,3 @@ From here, remaining work (the old Phases 6–8) is organized as **two parallel 
 | State machine | Fake clock, simulated clients, full mock games |
 | AI layer | Fixture-based schema tests; repair & fallback paths; live smoke script |
 | End-to-end | Scripted mock game over real websockets in CI; human couch playtests at checkpoints |
-
-## 11. Kickoff Prompt (paste into Claude Code to start)
-
-```
-Read ARCHITECTURE.md, GAME_DESIGN.md, and IMPLEMENTATION_PLAN.md in this
-directory. Create CLAUDE.md with the ground rules from the plan's §0. Then
-execute Phase 1 exactly as specified: scaffold the project, config system,
-engine models, and dice module, with tests. Stop at the Phase 1 acceptance
-criteria and tell me how to run the demo checkpoint.
-```
-
-Then proceed one phase at a time: "Execute Phase 2 per IMPLEMENTATION_PLAN.md."
-Resist doing multiple phases in one shot — the checkpoints exist to catch
-design drift while it's cheap. After Phase 5, work splits into the two
-parallel tracks in sections 7-9: kick off sessions with "Execute Track A
-item 4 (montage server side) per IMPLEMENTATION_PLAN.md" and respect the
-sync-point ordering (Track A lands contracts + mock fixtures before Track B
-consumes them).

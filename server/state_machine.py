@@ -1,12 +1,28 @@
 """Game phase state machine + pipeline orchestration (asyncio).
 
-Phases: LOBBY → DRAW_CHARACTERS → ROUND_LOOP(draw → process → reveal) → GAME_OVER
+Phases: LOBBY → DRAW_CHARACTERS → ROUND_LOOP(draw ‖ process ‖ reveal) → GAME_OVER
 
-Phase 3 drives the phases sequentially with instant mock AI; the concurrent
-draw(r+1) ‖ process(r) ‖ reveal(r-1) overlap (ARCHITECTURE.md §4.2) is layered
-on in Phase 6. Each drawing phase ends as soon as every living player submits,
-or when the timer fires (missing canvases auto-submit blank → the classifier
-reads that as a `stumble`).
+The round loop runs the three-track prediction pipeline from ARCHITECTURE.md
+§4.2 / GAME_DESIGN.md §2: on every tick players draw round *r+1* while the
+AI+engine process round *r* and the TV reveals round *r−1*, all concurrently via
+`asyncio.gather`. Two 1-deep buffers connect the stages (drawings awaiting
+processing; a processed round awaiting reveal). Because the AI provider is a
+blocking client, its calls run in `asyncio.to_thread` so a slow API never
+freezes drawing or reveal — the pipeline keeps flowing.
+
+State versioning: `self.state` is the last *revealed* state (what phones, the
+arena, and reconnecting clients see), so players draw their intents without
+peeking at results that haven't been shown yet. A separate `_resolve_state`
+chains the engine's forward truth as rounds are processed ahead of the reveal.
+
+Special cases (the pipeline's warm-up, GAME_DESIGN.md §2):
+  T2 — character *generation* is the first process stage, running concurrently
+       with Round 1 drawing; the TV shows warm-up filler.
+  T3 — the character-intro reveal fills the Round 2 drawing gap.
+
+Each drawing phase ends as soon as every living player submits, or when the
+timer fires (missing canvases auto-submit blank → the classifier reads that as a
+`stumble`).
 """
 
 from __future__ import annotations
@@ -15,13 +31,13 @@ import asyncio
 import logging
 import time
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from server.ai.provider import ActionSubmission, AIProvider, CharacterSubmission
+from server.ai.provider import ActionSubmission, AIProvider, CharacterSubmission, Narration
 from server.config import GameRules
 from server.engine.dice import Dice
-from server.engine.models import Character, GameState, Phase
+from server.engine.models import Character, ClassifiedAction, Event, GameState, Phase
 from server.engine.resolver import resolve_round
 from server.protocol import S2C
 from server.snapshots import SnapshotWriter
@@ -50,6 +66,39 @@ class Timers:
 _SAFETY_ROUND_CAP = 60  # guards against a pathological no-victory loop
 
 
+# ---------------------------------------------------------------------------
+# Pipeline buffers — the two slots that connect draw → process → reveal.
+# ---------------------------------------------------------------------------
+class _CharGen:
+    """Sentinel: the first process stage generates characters instead of
+    resolving a round (GAME_DESIGN.md §2, T2)."""
+
+
+@dataclass
+class _Drawn:
+    """Drawings collected during a draw stage, awaiting their process stage."""
+
+    round_num: int
+    action_pngs: dict[str, str]
+    living: list[str]
+
+
+@dataclass
+class _Processed:
+    """A processed round (or the character intros), awaiting its reveal stage.
+    Carries everything the reveal needs so it replays independently of how far
+    the engine has since run ahead."""
+
+    round_num: int
+    narration: Narration | None
+    events: list[Event]
+    initiative_order: list[str]
+    action_pngs: dict[str, str]
+    post_state: GameState
+    actions: list[ClassifiedAction] = field(default_factory=list)
+    is_intro: bool = False
+
+
 class GameStateMachine:
     def __init__(
         self,
@@ -71,10 +120,13 @@ class GameStateMachine:
         )
         self.seed = room.seed
 
+        # `state` is the last REVEALED state; `_resolve_state` is the engine's
+        # forward truth (rounds processed ahead of what the TV has shown).
         self.state: GameState | None = None
+        self._resolve_state: GameState | None = None
         self.task: asyncio.Task | None = None
 
-        # phase/reveal bookkeeping (also used by resync)
+        # phase/reveal bookkeeping (owned by the draw stage; also used by resync)
         self._phase: str = "lobby"
         self._round: int = 0
         self._deadline: float = 0.0
@@ -83,6 +135,9 @@ class GameStateMachine:
         self._expected: set[str] = set()
         self._collected: set[str] = set()
         self._collect_done = asyncio.Event()
+        # Live draw buffer for the drawing stage currently in flight. Processed
+        # rounds keep their own snapshot, so this is only ever the round being
+        # drawn right now (no cross-stage collision).
         self._action_pngs: dict[str, str] = {}
         self._beat_done = asyncio.Event()
 
@@ -117,7 +172,9 @@ class GameStateMachine:
             p = self.room.participants.get(player_id)
             if p is not None:
                 p.character_png = msg.png_base64
-        elif self._phase == "draw_action":
+        else:
+            # Any round-loop phase: the only drawings arriving are action
+            # canvases for the round currently being drawn.
             self._action_pngs[player_id] = msg.png_base64
         self._note_submission(player_id)
 
@@ -148,17 +205,79 @@ class GameStateMachine:
         except TimeoutError:
             pass  # missing players auto-submit (blank canvas → stumble)
 
-    # -- phases -----------------------------------------------------------
+    # -- character drawing (T1) -------------------------------------------
     async def _draw_characters(self) -> None:
         await self._enter_phase("draw_characters", round_num=0,
                                 timeout=self.timers.draw_characters)
         await self._collect([p.id for p in self.room.players], self.timers.draw_characters)
+        # Character *generation* is deferred to the first pipeline process stage
+        # so it runs concurrently with Round 1 drawing (GAME_DESIGN.md §2, T2).
 
+    # -- the prediction pipeline (round loop) -----------------------------
+    async def _round_loop(self) -> None:
+        # Buffers: `to_process` holds drawings awaiting processing (seeded with
+        # the char-gen sentinel); `to_reveal` holds a processed round awaiting
+        # its TV reveal. Both are 1-deep, so reveals emerge in strict round order.
+        to_process: _CharGen | _Drawn | None = _CharGen()
+        to_reveal: _Processed | None = None
+        round_num = 1
+
+        while round_num <= _SAFETY_ROUND_CAP:
+            living = self._living_for_draw()
+            drawn_pngs, processed, _ = await asyncio.gather(
+                self._draw_stage(round_num, living),
+                self._process_stage(to_process),
+                self._reveal_stage(to_reveal),
+            )
+
+            # Shift the pipeline forward one stage.
+            to_reveal = processed
+            to_process = _Drawn(round_num=round_num, action_pngs=drawn_pngs, living=living)
+
+            # A decided match: the buffered reveal still in flight plays out
+            # (GAME_DESIGN.md §2), then the finale. Rounds drawn but not yet
+            # processed are dropped — the outcome is already settled.
+            if (
+                processed is not None
+                and processed.post_state is not None
+                and processed.post_state.winner_team_id
+            ):
+                await self._reveal_stage(to_reveal)
+                return
+
+            round_num += 1
+
+    def _living_for_draw(self) -> list[str]:
+        """Who draws this round — the living fighters in the last REVEALED state
+        (before any characters exist, everyone in the lobby)."""
+        if self.state is None:
+            return [p.id for p in self.room.players]
+        return [pid for pid, ch in self.state.characters.items() if not ch.is_ko]
+
+    async def _draw_stage(self, round_num: int, living: list[str]) -> dict[str, str]:
+        self._action_pngs = {}
+        await self._enter_phase("draw_action", round_num=round_num,
+                                timeout=self.timers.draw_action)
+        await self._send_canvas_inits()
+        await self._broadcast_arena()
+        await self._collect(living, self.timers.draw_action)
+        return dict(self._action_pngs)
+
+    async def _process_stage(self, to_process: _CharGen | _Drawn | None) -> _Processed | None:
+        if to_process is None:
+            return None
+        if isinstance(to_process, _CharGen):
+            return await self._process_characters()
+        return await self._process_round(to_process)
+
+    async def _process_characters(self) -> _Processed:
+        """Generate characters (T2 process) and build the initial game state.
+        Returns the character-intro reveal to play one tick later (T3)."""
         subs = {
             p.id: CharacterSubmission(p.id, p.character_png, p.hint)
             for p in self.room.players
         }
-        generated = self.ai.generate_characters(subs, self.balance)
+        generated = await asyncio.to_thread(self.ai.generate_characters, subs, self.balance)
 
         chars: dict[str, Character] = {}
         for p in self.room.players:
@@ -181,53 +300,92 @@ class GameStateMachine:
             room_id=self.room.code, phase=Phase.ROUND_LOOP, round=0,
             characters=chars, teams=self.room.teams,
         )
+        self._resolve_state = self.state  # seed the engine-truth chain
         await self._send_all_player_states()
         await self._send_canvas_inits()
         await self._broadcast_arena()
         await self._check_degraded()
 
-    async def _round_loop(self) -> None:
-        assert self.state is not None
-        round_num = 1
-        while round_num <= _SAFETY_ROUND_CAP:
-            # ---- draw ----
-            self._action_pngs = {}
-            living = [pid for pid, ch in self.state.characters.items() if not ch.is_ko]
-            await self._enter_phase("draw_action", round_num=round_num,
-                                    timeout=self.timers.draw_action)
-            await self._send_canvas_inits()
-            await self._broadcast_arena()
-            await self._collect(living, self.timers.draw_action)
+        # Preview the rail's acting order (initiative = Speed) for the intros.
+        order = sorted(chars, key=lambda pid: -chars[pid].stats.speed)
+        return _Processed(
+            round_num=0, narration=None, events=[], initiative_order=order,
+            action_pngs={}, post_state=self.state, actions=[], is_intro=True,
+        )
 
-            # ---- process (classify → resolve → narrate) ----
-            state_for_round = self.state.model_copy(update={"round": round_num})
-            subs = {pid: ActionSubmission(pid, self._action_pngs.get(pid, "")) for pid in living}
-            actions = self.ai.classify_actions(state_for_round, subs, round_num)
-            self._accumulate_audience(actions)
-            rng = Dice(seed=self.seed + round_num)
-            result = resolve_round(state_for_round, actions, rng, self.balance)
-            self.state = result.new_state
-            narration = self.ai.narrate_round(result.events, self.state.characters)
-            await self._check_degraded()
-            self.snapshots.write_round(round_num, self.state, result.events)
-            self.snapshots.append_wildcards(round_num, actions)
+    async def _process_round(self, drawn: _Drawn) -> _Processed:
+        """Classify → resolve → narrate one round, advancing the engine-truth
+        chain. AI calls run off the event loop so a slow API can't stall the
+        concurrent draw/reveal stages."""
+        assert self._resolve_state is not None
+        state_for_round = self._resolve_state.model_copy(update={"round": drawn.round_num})
+        subs = {pid: ActionSubmission(pid, drawn.action_pngs.get(pid, "")) for pid in drawn.living}
 
-            # ---- reveal ----
-            await self._reveal(round_num, narration, result.events, result.initiative_order)
-            # The revealed action drawings are now the persistent battlefield
-            # sprites (they stay until the character's next action replaces them).
-            self._latest_action_png.update(self._action_pngs)
-            await self._send_all_player_states()
-            await self._broadcast_arena()
+        actions = await asyncio.to_thread(
+            self.ai.classify_actions, state_for_round, subs, drawn.round_num
+        )
+        rng = Dice(seed=self.seed + drawn.round_num)
+        result = resolve_round(state_for_round, actions, rng, self.balance)
+        self._resolve_state = result.new_state
+        await self._check_degraded()
+        self.snapshots.write_round(drawn.round_num, result.new_state, result.events)
+        self.snapshots.append_wildcards(drawn.round_num, actions)
+        narration = await asyncio.to_thread(
+            self.ai.narrate_round, result.events, result.new_state.characters
+        )
+        return _Processed(
+            round_num=drawn.round_num, narration=narration, events=result.events,
+            initiative_order=result.initiative_order, action_pngs=drawn.action_pngs,
+            post_state=result.new_state, actions=actions,
+        )
 
-            if self.state.winner_team_id:
-                return
-            round_num += 1
+    async def _reveal_stage(self, processed: _Processed | None) -> None:
+        if processed is None:
+            return  # warm-up tick (T2): nothing buffered to reveal yet
+        if processed.is_intro:
+            await self._reveal_intros(processed)
+            return
+        # This round's results become visible now: commit the revealed state and
+        # bank its creativity for the meter, THEN play the beats (so the reveal
+        # payload reflects exactly this round, not how far the engine has run on).
+        self.state = processed.post_state
+        self._accumulate_audience(processed.actions)
+        await self._reveal(processed.round_num, processed.narration, processed.events,
+                           processed.initiative_order, action_pngs=processed.action_pngs)
+        # The revealed action drawings are now the persistent battlefield sprites.
+        self._latest_action_png.update(processed.action_pngs)
+        await self._send_all_player_states()
+        await self._broadcast_arena()
 
-    async def _reveal(self, round_num: int, narration, events, initiative_order=None) -> None:
-        self._phase = "reveal"
-        self._round = round_num
+    async def _reveal_intros(self, processed: _Processed) -> None:
+        """Character-intro reveal (T3) — the announcer duo greets each fighter
+        while players draw Round 2. Reuses the reveal_step shape (round 0)."""
         self._beat_done = asyncio.Event()
+        chars = self.state.characters if self.state else {}
+        beats = [
+            {
+                "event_id": f"intro-{pid}",
+                "text": chars[pid].announcer_intro or f"Introducing {chars[pid].name}!",
+                "player_id": pid, "target_id": None, "type": "intro",
+                "hurt": None, "helped": None, "floats": [],
+            }
+            for pid in processed.initiative_order if pid in chars
+        ]
+        await self.room.broadcast(S2C.REVEAL_STEP, {
+            "round": 0,
+            "round_title": "Meet the Fighters",
+            "beats": beats,
+            "characters": self._character_deltas(),
+            "action_pngs": {},
+            "initiative_order": list(processed.initiative_order),
+            "meters": self._meters(),
+        })
+        await self._pace_beats(len(beats))
+
+    async def _reveal(self, round_num: int, narration, events, initiative_order=None,
+                      action_pngs: dict[str, str] | None = None) -> None:
+        self._beat_done = asyncio.Event()
+        pngs = self._action_pngs if action_pngs is None else action_pngs
         # Attach each beat's acting/target player so the host can sprite-swap the
         # right character while the beat plays (ARCHITECTURE.md §4.5), plus the
         # impact + floating-number data the host renders (all from engine events,
@@ -254,14 +412,17 @@ class GameStateMachine:
             "round_title": getattr(narration, "round_title", ""),
             "beats": beats,
             "characters": self._character_deltas(),
-            "action_pngs": dict(self._action_pngs),
+            "action_pngs": dict(pngs),
             # The rail's acting order + the two tug-of-war meter positions.
             "initiative_order": list(initiative_order or []),
             "meters": self._meters(),
         })
-        # Host paces beats client-side and signals completion; fall back to a
-        # timeout so a missing/!clicking host never stalls the game.
-        timeout = max(0.05, self.timers.reveal * max(1, len(beats)))
+        await self._pace_beats(len(beats))
+
+    async def _pace_beats(self, n_beats: int) -> None:
+        """Host paces beats client-side and signals completion; fall back to a
+        timeout so a missing/!clicking host never stalls the game."""
+        timeout = max(0.05, self.timers.reveal * max(1, n_beats))
         try:
             await asyncio.wait_for(self._beat_done.wait(), timeout)
         except TimeoutError:
@@ -321,7 +482,9 @@ class GameStateMachine:
     # -- tug-of-war meters ------------------------------------------------
     def _accumulate_audience(self, actions) -> None:
         """Bank this round's per-team creativity so the Crowd Favorite meter can
-        weight recent rounds (the deque's maxlen owns the recency window)."""
+        weight recent rounds (the deque's maxlen owns the recency window).
+        Called at reveal time so the meter only reflects rounds the crowd has
+        actually seen — never rounds the engine has processed ahead."""
         entry: dict[str, int] = {t.id: 0 for t in self.state.teams} if self.state else {}
         for a in actions:
             tid = self.room.team_of(a.player_id)
