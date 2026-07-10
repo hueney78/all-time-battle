@@ -558,6 +558,8 @@ class GameStateMachine:
                 "helped": self._helped_target(ev) if ev else None,
                 # Floating combat numbers: [{player_id, amount, kind, crit}].
                 "floats": self._floats(ev) if ev else [],
+                # Fused-move name for the host's COMBO! splash (combo beats only).
+                "combo_name": (ev.data.get("combo_name") or None) if ev else None,
             })
         await self.room.broadcast(S2C.REVEAL_STEP, {
             "round": round_num,

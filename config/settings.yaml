@@ -34,6 +34,11 @@ ui:
   reveal_action_zoom_seconds: 2.5      # how long the zoom holds before settling
   float_number_seconds: 1.5            # floating damage/heal number lifetime
   audience_recent_rounds: 3            # Crowd Favorite meter recency window (rounds)
+  combo_splash_seconds: 2.0            # how long the COMBO! splash holds on screen
+  instant_replay:                      # crit/KO beats replay once in slow-mo
+    enabled: true
+    triggers: [crit, ko]               # which beat events earn a replay
+    slowmo_factor: 2.0                 # replay plays this many times slower
 
 snapshots:
   enabled: true

@@ -73,6 +73,12 @@ class SnapshotConfig(BaseModel):
     dir: str = "snapshots"
 
 
+class InstantReplayConfig(BaseModel):
+    enabled: bool = True
+    triggers: list[str] = ["crit", "ko"]
+    slowmo_factor: float = 2.0
+
+
 class UIConfig(BaseModel):
     """Presentation knobs handed to the browser as window.DOODLE_CONFIG.
 
@@ -86,6 +92,8 @@ class UIConfig(BaseModel):
     reveal_action_zoom_seconds: float = 2.5
     float_number_seconds: float = 1.5
     audience_recent_rounds: int = 3
+    combo_splash_seconds: float = 2.0
+    instant_replay: InstantReplayConfig = InstantReplayConfig()
 
 
 class Settings(BaseModel):
