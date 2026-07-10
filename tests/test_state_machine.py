@@ -320,6 +320,11 @@ async def _connect(manager: RoomManager, join_payload: dict):
 
 
 async def test_full_4player_mock_game_reaches_victory_over_websockets():
+    # Seed the global RNG so player ids (and thus the whole mock game, including
+    # its length) are deterministic — otherwise "a montage fires" flakes on short
+    # games. This seed yields a game long enough to reach a Power-Up Montage.
+    import random
+    random.seed(1)
     manager = RoomManager(_rules())
     conn_tasks = []
 
