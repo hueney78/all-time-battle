@@ -306,8 +306,8 @@ def _tool_input(resp) -> dict | None:
 
 
 def _roster_text(state: GameState, round_num: int) -> str:
-    lines = [f"Round {round_num}. These drawings were made before last round's results were known "
-             "— adapt stale intents, never reject. Living fighters:"]
+    lines = [f"Round {round_num}. Adapt, never reject — a target may fall to a faster teammate "
+             "earlier this round. Living fighters (current state):"]
     team_of = {pid: t.id for t in state.teams for pid in t.player_ids}
     for pid, ch in state.characters.items():
         if ch.is_ko:

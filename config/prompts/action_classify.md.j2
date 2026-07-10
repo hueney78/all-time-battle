@@ -41,9 +41,12 @@ COMBOS: if two teammates' drawings clearly coordinate into one fused attack, add
 a combo {partners, leading_catalog_id, concept, combo_name}. It consumes both
 their rounds, so only flag deliberate synergy.
 
-STALE INTENTS: drawings were made before last round's results are known. ADAPT,
-never reject — if a target is gone, redirect to the evident intent and explain it
-in `adaptation_note`.
+INTENT ADAPTATION: ADAPT, never reject. Players draw with full knowledge of the
+current state, but a target can still fall to a faster teammate earlier in THIS
+round, or a drawing may be ambiguous. If a target is invalid by resolution (KO'd
+earlier this round, out of reach), redirect to the evident intent (nearest enemy
+in that zone); if the action is impossible given current conditions, transform it
+into the closest legal one. Explain any change in `adaptation_note`.
 
 FAMILY-FRIENDLY: set `flagged: true` for anything inappropriate.
 
