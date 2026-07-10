@@ -122,7 +122,8 @@ class AIProvider(Protocol):
     ) -> list[MontageResult]: ...
 
     def narrate_round(
-        self, events: list[Event], characters: dict[str, Character]
+        self, events: list[Event], characters: dict[str, Character],
+        gallery_names: list[str] | None = None,
     ) -> Narration: ...
 
     def generate_awards(self, summary: MatchSummary) -> list[Award]: ...
@@ -231,7 +232,8 @@ class MockAI:
         return out
 
     def narrate_round(
-        self, events: list[Event], characters: dict[str, Character]
+        self, events: list[Event], characters: dict[str, Character],
+        gallery_names: list[str] | None = None,
     ) -> Narration:
         beats: list[Beat] = []
         for ev in events:

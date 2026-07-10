@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -46,6 +47,7 @@ from server.config import GameRules
 from server.engine.dice import Dice
 from server.engine.models import Character, ClassifiedAction, Event, GameState, Phase
 from server.engine.resolver import resolve_round
+from server.gallery import GalleryStore
 from server.protocol import S2C
 from server.snapshots import SnapshotWriter
 
@@ -130,6 +132,7 @@ class GameStateMachine:
         ai: AIProvider,
         timers: Timers | None = None,
         snapshots: SnapshotWriter | None = None,
+        gallery: GalleryStore | None = None,
     ):
         self.room = room
         self.rules = rules
@@ -141,6 +144,10 @@ class GameStateMachine:
         self.snapshots = snapshots or SnapshotWriter(
             rules.settings.snapshots.dir, room.code, rules.settings.snapshots.enabled
         )
+        # The Doodle Crowd (§15): persisted at game over; a snapshot of its names
+        # is cached at character generation for the narrator's cameos.
+        self.gallery = gallery or GalleryStore.from_rules(rules)
+        self._gallery_names: list[str] = []
         self.seed = room.seed
 
         # `state` is the last REVEALED state; `_resolve_state` is the engine's
@@ -416,6 +423,8 @@ class GameStateMachine:
             characters=chars, teams=self.room.teams,
         )
         self._resolve_state = self.state  # seed the engine-truth chain
+        if self.gallery.enabled:
+            self._gallery_names = await asyncio.to_thread(self.gallery.all_names)
         await self._send_all_player_states()
         await self._send_canvas_inits()
         await self._broadcast_arena()
@@ -455,8 +464,9 @@ class GameStateMachine:
         await self._check_degraded()
         self.snapshots.write_round(drawn.round_num, result.new_state, result.events)
         self.snapshots.append_wildcards(drawn.round_num, actions)
+        cameos = self._sample_cameos(result.new_state)
         narration = await asyncio.to_thread(
-            self.ai.narrate_round, result.events, result.new_state.characters
+            self.ai.narrate_round, result.events, result.new_state.characters, cameos
         )
         self._accumulate_match(actions, result.events, narration)
         return _Processed(
@@ -722,6 +732,36 @@ class GameStateMachine:
             best_line=self._best_line,
         )
 
+    # -- the Doodle Crowd (gallery, GAME_DESIGN §15) ----------------------
+    def _sample_cameos(self, state: GameState) -> list[str]:
+        """A few gallery names for the narrator to cameo — never the fighters
+        currently in the ring."""
+        if not self._gallery_names or self.gallery.cameo_count <= 0:
+            return []
+        current = {ch.name for ch in state.characters.values()}
+        pool = [n for n in self._gallery_names if n not in current]
+        k = min(self.gallery.cameo_count, len(pool))
+        return random.sample(pool, k) if k > 0 else []
+
+    def _gallery_entries(self) -> list[dict]:
+        """This match's characters, shaped for gallery persistence."""
+        if self.state is None:
+            return []
+        entries = []
+        for pid, ch in self.state.characters.items():
+            team = next((t for t in self.state.teams if pid in t.player_ids), None)
+            entries.append({
+                "name": ch.name,
+                "stats": {"power": ch.stats.power, "speed": ch.stats.speed,
+                          "weird": ch.stats.weird},
+                "team_id": team.id if team else None,
+                "team_name": team.name if team else None,
+                "won": bool(team and team.id == self.state.winner_team_id),
+                "room": self.room.code,
+                "png": ch.character_png_b64,
+            })
+        return entries
+
     def _meters(self) -> dict:
         """Both knot positions as team_b's fraction in [0,1] — the knot is pulled
         toward whichever team leads (0.5 = tie). Computed server-side."""
@@ -756,6 +796,9 @@ class GameStateMachine:
         winner = self.state.winner_team_id if self.state else None
         awards: list = []
         poster_path: str | None = None
+        # Every character drawn joins the Doodle Crowd (§15), win or lose.
+        if self.state is not None and self.gallery.enabled:
+            await asyncio.to_thread(self.gallery.save_match, self._gallery_entries())
         # Only a real victory earns the ceremony (a crashed loop leaves winner unset).
         if winner and self.state is not None:
             summary = self._build_match_summary()

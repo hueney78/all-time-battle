@@ -13,6 +13,7 @@ import time
 from server.ai.provider import MockAI
 from server.config import load_game_rules
 from server.engine.models import Character, ClassifiedAction, GameState, Stats
+from server.gallery import GalleryStore
 from server.protocol import C2S, Envelope, SubmitDrawingMsg, decode, encode, parse_payload
 from server.room import Room, RoomManager, SocketDisconnect
 from server.state_machine import GameStateMachine, Timers
@@ -65,6 +66,7 @@ class FakeSocket:
 def _rules(snapshots: bool = False):
     rules = load_game_rules()
     rules.settings.snapshots.enabled = snapshots
+    rules.settings.gallery.enabled = False   # no disk writes in driven-game tests
     return rules
 
 
@@ -495,9 +497,9 @@ class _SlowAI:
     def generate_awards(self, summary):
         return self._inner.generate_awards(summary)
 
-    def narrate_round(self, events, characters):
+    def narrate_round(self, events, characters, gallery_names=None):
         time.sleep(self._delay)
-        return self._inner.narrate_round(events, characters)
+        return self._inner.narrate_round(events, characters, gallery_names)
 
 
 async def test_pipeline_overlaps_and_orders_under_slow_ai():
@@ -805,3 +807,85 @@ async def test_game_over_without_winner_skips_ceremony():
     assert env.type == "game_over"
     assert env.payload["winner_team_id"] is None
     assert env.payload["awards"] == [] and env.payload["poster_path"] is None
+
+
+# ---------------------------------------------------------------------------
+# The Doodle Crowd: gallery persistence + narrator cameos + host roster (S4)
+# ---------------------------------------------------------------------------
+class _CameoSpyAI(MockAI):
+    """Records the gallery_names handed to narrate_round."""
+
+    def __init__(self) -> None:
+        self.seen_cameos = None
+
+    def narrate_round(self, events, characters, gallery_names=None):
+        self.seen_cameos = gallery_names
+        return super().narrate_round(events, characters, gallery_names)
+
+
+async def test_gallery_names_are_sampled_into_narration():
+    """Cameo names come from the gallery, capped, and never a current fighter."""
+    from server.state_machine import _Drawn
+
+    rules = _rules()
+    room = Room("CAM", rules)
+    a = room.add_player("A", "player", FakeSocket(), None)
+    b = room.add_player("B", "player", FakeSocket(), None)
+    spy = _CameoSpyAI()
+    machine = GameStateMachine(room, rules, ai=spy, timers=Timers(1, 1, 0.01))
+    ca = Character(player_id=a.id, name="Stabby", stats=Stats(power=2, speed=2, weird=2),
+                   hp=24, max_hp=24, ac=13, zone_id="glitter_back")
+    cb = Character(player_id=b.id, name="Blob", stats=Stats(power=2, speed=2, weird=2),
+                   hp=24, max_hp=24, ac=13, zone_id="thunder_back")
+    state = GameState(room_id="CAM", characters={a.id: ca, b.id: cb}, teams=room.teams)
+    machine.state = machine._resolve_state = state
+    machine._gallery_names = ["Old Timer", "Grandpa Doodle", "Stabby"]   # Stabby also in ring
+
+    drawn = _Drawn(round_num=1, action_pngs={a.id: "x", b.id: "x"},
+                   fighters=[a.id, b.id], gremlins=[])
+    await machine._process_round(drawn)
+
+    assert spy.seen_cameos is not None
+    assert len(spy.seen_cameos) <= rules.settings.gallery.cameo_count
+    assert "Stabby" not in spy.seen_cameos                        # current fighter excluded
+    assert set(spy.seen_cameos) <= {"Old Timer", "Grandpa Doodle"}
+
+
+async def test_game_over_persists_characters_to_gallery(tmp_path):
+    """Every character joins the Doodle Crowd at game over, win or lose (§15)."""
+    rules = _rules()
+    rules.settings.gallery.enabled = True
+    rules.settings.gallery.dir = str(tmp_path)
+    room = Room("GAL", rules)
+    a = room.add_player("A", "player", FakeSocket(), None)
+    b = room.add_player("B", "player", FakeSocket(), None)
+    gallery = GalleryStore.from_rules(rules)
+    machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01),
+                               gallery=gallery)
+    ca = Character(player_id=a.id, name="Winner", stats=Stats(power=2, speed=2, weird=2),
+                   hp=20, max_hp=20, ac=13, zone_id="glitter_back")
+    cb = Character(player_id=b.id, name="Loser", stats=Stats(power=2, speed=2, weird=2),
+                   hp=0, max_hp=20, ac=13, zone_id="thunder_back", is_ko=True)
+    machine.state = GameState(room_id="GAL", characters={a.id: ca, b.id: cb},
+                              teams=room.teams, winner_team_id="team_a")
+
+    await machine._game_over()
+
+    assert set(gallery.all_names()) == {"Winner", "Loser"}
+
+
+async def test_host_join_receives_gallery_roster(tmp_path):
+    """A host's bootstrap includes the Doodle Crowd roster for the stands (S4)."""
+    rules = _rules()
+    rules.settings.gallery.enabled = True
+    rules.settings.gallery.dir = str(tmp_path)
+    GalleryStore.from_rules(rules).save_match([
+        {"name": "Ghost of Stabby", "png": "", "team_id": "team_a", "won": True, "room": "OLD"}])
+
+    manager = RoomManager(rules)
+    host, ht = await _connect(manager, {"role": "host"})
+    env = await host.expect("gallery_roster")
+    assert "Ghost of Stabby" in [s["name"] for s in env.payload["spectators"]]
+
+    host.client_disconnect()
+    await asyncio.wait_for(asyncio.gather(ht, return_exceptions=True), timeout=5.0)

@@ -16,6 +16,7 @@ htmlcov/
 
 # Runtime game output
 snapshots/
+gallery/
 
 # OS
 .DS_Store

@@ -60,6 +60,15 @@ def test_settings_montage():
     assert s.timers.montage_seconds == 20
 
 
+def test_settings_gallery():
+    """The Doodle Crowd persistence knobs (GAME_DESIGN §15)."""
+    s = load_settings()
+    assert s.gallery.enabled is True
+    assert s.gallery.dir == "gallery"
+    assert s.gallery.cap == 60
+    assert s.gallery.cameo_count == 3
+
+
 def test_settings_ui_tokens():
     """Presentation knobs shipped to the browser (canvas/floor color, prefill
     scale, reveal zoom, float timing, audience window)."""

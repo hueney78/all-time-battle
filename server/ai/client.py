@@ -190,9 +190,10 @@ class LiveAI:
         return V.build_montage(parsed, drawn)
 
     def narrate_round(
-        self, events: list[Event], characters: dict[str, Character]
+        self, events: list[Event], characters: dict[str, Character],
+        gallery_names: list[str] | None = None,
     ) -> Narration:
-        content = [{"type": "text", "text": _narration_text(events, characters)}]
+        content = [{"type": "text", "text": _narration_text(events, characters, gallery_names)}]
         parsed = self._call_tool(
             self._sys_narrate, content, S.NarrateResponse,
             "submit_narration", self.ai.narrate_model,
@@ -317,7 +318,8 @@ def _roster_text(state: GameState, round_num: int) -> str:
     return "\n".join(lines)
 
 
-def _narration_text(events: list[Event], characters: dict[str, Character]) -> str:
+def _narration_text(events: list[Event], characters: dict[str, Character],
+                    gallery_names: list[str] | None = None) -> str:
     def nm(pid):
         return characters[pid].name if pid and pid in characters else "someone"
     who = "; ".join(f"{c.name}: {c.personality}" for c in characters.values() if c.personality)
@@ -328,6 +330,9 @@ def _narration_text(events: list[Event], characters: dict[str, Character]) -> st
             "event_id": e.id, "type": e.type.value,
             "actor": nm(e.player_id), "target": nm(e.target_id), "data": e.data,
         }))
+    if gallery_names:
+        lines += ["", "Spectators in the stands (past fighters — you MAY cameo one): "
+                  + ", ".join(gallery_names)]
     return "\n".join(lines)
 
 

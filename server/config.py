@@ -73,6 +73,15 @@ class SnapshotConfig(BaseModel):
     dir: str = "snapshots"
 
 
+class GalleryConfig(BaseModel):
+    """The Doodle Crowd (GAME_DESIGN §15) — persistent past characters."""
+
+    enabled: bool = True
+    dir: str = "gallery"
+    cap: int = 60          # max characters kept as spectators (oldest pruned)
+    cameo_count: int = 3   # gallery names injected into the narrate prompt each round
+
+
 class InstantReplayConfig(BaseModel):
     enabled: bool = True
     triggers: list[str] = ["crit", "ko"]
@@ -121,6 +130,7 @@ class Settings(BaseModel):
     timers: TimerConfig
     ai: AIConfig
     snapshots: SnapshotConfig
+    gallery: GalleryConfig = GalleryConfig()
     ui: UIConfig = UIConfig()
 
 

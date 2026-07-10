@@ -55,3 +55,11 @@ ui:
 snapshots:
   enabled: true
   dir: "snapshots"
+
+# The Doodle Crowd (GAME_DESIGN §15): every character ever drawn persists here as
+# a spectator in the stands across game nights. Delete files to prune the crowd.
+gallery:
+  enabled: true
+  dir: "gallery"
+  cap: 60            # max past characters kept (oldest pruned beyond this)
+  cameo_count: 3     # gallery names dropped into the narrate prompt each round

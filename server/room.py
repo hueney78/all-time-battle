@@ -8,6 +8,7 @@ started — the running GameStateMachine. Reconnection is by persistent
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import random
 import string
@@ -16,6 +17,7 @@ from typing import Protocol
 
 from server.config import GameRules
 from server.engine.models import Team
+from server.gallery import GalleryStore
 from server.protocol import (
     C2S,
     S2C,
@@ -159,6 +161,8 @@ class RoomManager:
     def __init__(self, rules: GameRules):
         self.rules = rules
         self.rooms: dict[str, Room] = {}
+        # One shared Doodle Crowd across all rooms — the family scrapbook (§15).
+        self.gallery = GalleryStore.from_rules(rules)
 
     def create_room(self, seed: int = 42) -> Room:
         code = _new_code(self.rooms)
@@ -222,6 +226,10 @@ class RoomManager:
             "role": player.role, "team_id": player.team_id,
         })
         await room.broadcast(S2C.LOBBY_STATE, room.lobby_state())
+        # Host bootstrap: the Doodle Crowd roster for the colosseum stands (S4).
+        if player.role == "host" and self.gallery.enabled:
+            roster = await asyncio.to_thread(self.gallery.roster)
+            await room.send(player.id, S2C.GALLERY, {"spectators": roster})
         # Reconnect mid-game: resync this participant to the current phase.
         if room.machine is not None:
             await room.machine.resync(player.id)
@@ -240,7 +248,8 @@ class RoomManager:
             if player.role == "host" and room.can_start:
                 from server.ai.provider import make_ai
 
-                room.machine = GameStateMachine(room, self.rules, ai=make_ai(self.rules))
+                room.machine = GameStateMachine(room, self.rules, ai=make_ai(self.rules),
+                                                gallery=self.gallery)
                 room.machine.start()
         elif msg_type == C2S.SUBMIT_HINT:
             parsed = parse_payload(C2S.SUBMIT_HINT, payload)

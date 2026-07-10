@@ -178,6 +178,21 @@ def test_mock_awards_cover_every_player():
     assert all(a.title for a in awards)
 
 
+def test_narration_text_includes_gallery_cameos():
+    """Gallery names are injected into the narrate prompt as spectators (S4)."""
+    from server.ai.client import _narration_text
+    txt = _narration_text(_events(), _two_player_state().characters,
+                          ["Old Stabby", "Grandpa Doodle"])
+    assert "Old Stabby" in txt and "Grandpa Doodle" in txt and "Spectators" in txt
+
+
+def test_narrate_accepts_gallery_names():
+    script = [{"beats": [{"event_id": "e1", "text": "zap", "speaker": "pbp"}], "round_title": "T"}]
+    ai = LiveAI(RULES, client=FakeAnthropic(script))
+    n = ai.narrate_round(_events(), _two_player_state().characters, ["Ghosty"])
+    assert n.beats                        # cameo names go into the prompt; response still parses
+
+
 def test_mock_narration_uses_both_announcers():
     """MockAI splits beats across pbp/color so Track B can build speaker chips
     against AI_MODE=mock (the S1 mock fixtures)."""
