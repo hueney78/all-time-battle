@@ -21,7 +21,6 @@ from server.config import (
     load_zones,
 )
 
-
 # ---------------------------------------------------------------------------
 # settings.yaml
 # ---------------------------------------------------------------------------
@@ -65,6 +64,16 @@ def test_settings_ui_tokens():
     assert s.ui.float_number_seconds == 1.5
     assert s.ui.audience_recent_rounds == 3
     assert s.ui.arena_background == ""
+
+
+def test_settings_ui_replay_and_splash_knobs():
+    """Round-loop presentation knobs: COMBO! splash hold time and the
+    instant-replay block (enabled, trigger events, slow-mo factor)."""
+    s = load_settings()
+    assert s.ui.combo_splash_seconds == 2.0
+    assert s.ui.instant_replay.enabled is True
+    assert s.ui.instant_replay.triggers == ["crit", "ko"]
+    assert s.ui.instant_replay.slowmo_factor == 2.0
 
 
 def test_settings_ui_defaults_when_block_missing(tmp_path: Path, monkeypatch):

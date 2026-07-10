@@ -111,11 +111,12 @@
       this._setImg(s, dataUrl);
     }
     // Zoom the acting fighter up (scale/duration from config) then settle back.
-    actUp(pid) {
+    // mult > 1 = slow-mo (instant replay) — every duration stretches by it.
+    actUp(pid, mult) {
       const s = this.sprites[pid]; if (!s) return;
       s.el.classList.add('acting');
       clearTimeout(s._zoomT);
-      const secs = (CFG.reveal_action_zoom_seconds || 2.5) * 1000;
+      const secs = (CFG.reveal_action_zoom_seconds || 2.5) * 1000 * (mult || 1);
       s._zoomT = setTimeout(() => s.el.classList.remove('acting'), secs);
     }
     settle(pid) {
@@ -126,25 +127,32 @@
     settleAll() { for (const pid of Object.keys(this.sprites)) this.settle(pid); }
 
     // Impact border: red + shake (hurt) or light-blue + pop (helped).
-    impact(pid, kind) {
+    // mult > 1 slows the shake/pop for instant replay.
+    impact(pid, kind, mult) {
       const s = this.sprites[pid]; if (!s) return;
+      const m = mult || 1;
       const cls = kind === 'helped' ? 'helped' : 'hit';
       s.el.classList.remove('hit', 'helped');
       void s.el.offsetWidth;                    // restart the animation if re-hit
+      s.pic.style.animationDuration = m > 1 ? ((kind === 'helped' ? 1.2 : 0.5) * m + 's') : '';
       s.el.classList.add(cls);
       clearTimeout(s._impT);
-      s._impT = setTimeout(() => s.el.classList.remove(cls), 1200);
+      s._impT = setTimeout(() => {
+        s.el.classList.remove(cls);
+        s.pic.style.animationDuration = '';
+      }, 1200 * m);
     }
 
     // Floating combat number: red damage / green heal, crit oversized.
-    floatNumber(pid, amount, kind, crit) {
+    floatNumber(pid, amount, kind, crit, mult) {
       const s = this.sprites[pid]; if (!s) return;
+      const ms = FLOAT_MS * (mult || 1);
       const n = document.createElement('span');
       n.className = 'floatnum' + (kind === 'heal' ? ' heal' : '') + (crit ? ' crit' : '');
       n.textContent = (kind === 'heal' ? '+' : '−') + amount + (crit ? '!' : '');
-      n.style.animationDuration = (FLOAT_MS / 1000) + 's';
+      n.style.animationDuration = (ms / 1000) + 's';
       s.el.appendChild(n);
-      setTimeout(() => n.remove(), FLOAT_MS);
+      setTimeout(() => n.remove(), ms);
     }
   }
 

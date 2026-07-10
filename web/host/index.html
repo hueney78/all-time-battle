@@ -7,8 +7,7 @@
   <link rel="stylesheet" href="/static/shared/common.css">
   <link href="https://fonts.googleapis.com/css2?family=Titan+One&family=Nunito:wght@600;800;900&display=swap" rel="stylesheet">
   <style>
-    /* Host (TV) page — faithful port of design/mockup_host_screen.html.
-       Rail + tug-of-war meters land in the following commit. */
+    /* Host (TV) page — faithful port of design/mockup_host_screen.html. */
     :root{
       --ink:#2B2338; --sand:#E8D5A8; --stone:#C9B282;
       --glitter:#E24FA0; --thunder:#2F6FE0; --gold:#F2B233;
@@ -122,6 +121,21 @@
     .floatnum.crit{font-size:38px}
     @keyframes floatup{0%{opacity:0; translate:0 14px}15%{opacity:1}100%{opacity:0; translate:0 -40px}}
 
+    /* COMBO! splash + REPLAY banner [round-loop presentation] */
+    .splash{position:absolute; inset:0; display:grid; place-items:center; z-index:20;
+      pointer-events:none; visibility:hidden}
+    .splash.show{visibility:visible}
+    .splash .combotext{font-family:'Titan One'; font-size:42px; color:var(--gold);
+      -webkit-text-stroke:2px var(--ink); background:#FFF9ECdd; border:4px solid var(--ink);
+      border-radius:20px; padding:10px 26px; transform:rotate(-4deg) scale(0)}
+    .splash.show .combotext{animation:comboin .45s cubic-bezier(.5,1.8,.4,1) forwards}
+    @keyframes comboin{to{transform:rotate(-4deg) scale(1)}}
+    .replaybanner{background:var(--gold); border:3px solid var(--ink); border-radius:12px;
+      padding:4px 12px; font-family:'Titan One'; font-size:14px; transform:rotate(2deg);
+      display:none; animation:replaypulse 1s infinite}
+    .replaybanner.show{display:inline-block}
+    @keyframes replaypulse{50%{transform:rotate(-2deg) scale(1.06)}}
+
     /* narration beats */
     .beatcard{background:var(--card); border:4px solid var(--ink); border-radius:18px;
       padding:12px 18px; font-size:18px; font-weight:800; display:flex; align-items:center;
@@ -178,9 +192,12 @@
       <div class="topbar">
         <h1 id="roundHead">Doodle Brawl</h1>
         <span class="roundtitle" id="roundTitle"></span>
+        <span class="replaybanner" id="replayBanner">🔁 REPLAY!</span>
         <span id="status"></span>
       </div>
-      <section class="arena" id="arena"></section>
+      <section class="arena" id="arena">
+        <div class="splash" id="comboSplash"><span class="combotext"></span></div>
+      </section>
       <section class="beatcard">
         <span id="capText" class="muted">Get ready…</span>
         <button id="nextBtn" class="hidden">Next ▶</button>
@@ -209,6 +226,9 @@
     const CFG = window.DOODLE_CONFIG || {};
     const $ = (id) => document.getElementById(id);
     const BEAT_MS = 3200;          // client-side reveal pacing (host "next" overrides)
+    const REPLAY_CFG = CFG.instant_replay || {};
+    const SPLASH_MS = (CFG.combo_splash_seconds || 2) * 1000;
+    const SCHEMING = ['Fighters scheming…', 'Pencils sharpening…', 'The crowd holds its breath…'];
 
     document.documentElement.style.setProperty('--sand', CFG.canvas_background_color || '#E8D5A8');
     document.documentElement.style.setProperty('--zoom', CFG.reveal_action_zoom_scale || 1.8);
@@ -329,29 +349,59 @@
         arena.setConditions(c.player_id, c.conditions);
         if (c.is_ko) arena.ko(c.player_id);
       }
+      // The beat's visual effects — shared by the live pass and the slow-mo
+      // replay (mult > 1 stretches every animation by the slowmo factor).
+      function playEffects(b, mult) {
+        if (b.player_id && pngs[b.player_id]) {
+          // The acting drawing becomes the sprite and zooms up; it PERSISTS after.
+          arena.swapSprite(b.player_id, pngs[b.player_id]);
+          arena.actUp(b.player_id, mult);
+        }
+        (b.floats || []).forEach(f => arena.floatNumber(f.player_id, f.amount, f.kind, f.crit, mult));
+        if (b.hurt) arena.impact(b.hurt, 'hit', mult);
+        if (b.helped) arena.impact(b.helped, 'helped', mult);
+      }
+      function wantsReplay(b) {
+        if (!REPLAY_CFG.enabled) return false;
+        const trig = REPLAY_CFG.triggers || [];
+        return (trig.includes('crit') && (b.floats || []).some(f => f.crit))
+            || (trig.includes('ko') && b.type === 'ko');
+      }
+      function comboSplash(name) {
+        const sp = $('comboSplash');
+        sp.querySelector('.combotext').textContent = '💥 COMBO! ' + name;
+        sp.classList.remove('show'); void sp.offsetWidth; sp.classList.add('show');
+        clearTimeout(sp._h); sp._h = setTimeout(() => sp.classList.remove('show'), SPLASH_MS);
+      }
       function playNext() {
+        $('replayBanner').classList.remove('show');
         if (i >= beats.length) return finish();
         const b = beats[i++];
         typewrite($('capText'), b.text);
-        // The acting drawing becomes the sprite and zooms up; it PERSISTS after.
-        if (b.player_id && pngs[b.player_id]) {
-          arena.swapSprite(b.player_id, pngs[b.player_id]);
-          arena.actUp(b.player_id);
-        }
+        if (b.combo_name) comboSplash(b.combo_name);
+        playEffects(b, 1);
         [b.player_id, b.target_id, b.hurt, b.helped].forEach(p => { if (p) applyFinal(p); });
-        (b.floats || []).forEach(f => arena.floatNumber(f.player_id, f.amount, f.kind, f.crit));
-        if (b.hurt) arena.impact(b.hurt, 'hit');
-        if (b.helped) arena.impact(b.helped, 'helped');
-        clearTimeout(timer); timer = setTimeout(playNext, BEAT_MS);
+        clearTimeout(timer);
+        timer = setTimeout(wantsReplay(b) ? () => playReplay(b) : playNext, BEAT_MS);
+      }
+      // Crit/KO beats replay once in slow-mo with the REPLAY banner (config
+      // instant_replay) — pure presentation over the same beat data.
+      function playReplay(b) {
+        const mult = REPLAY_CFG.slowmo_factor || 2;
+        $('replayBanner').classList.add('show');
+        playEffects(b, mult);
+        clearTimeout(timer);
+        timer = setTimeout(playNext, BEAT_MS);
       }
       function finish() {
         clearTimeout(timer); arena.settleAll();
+        $('replayBanner').classList.remove('show');
         arena.render(payload.characters || []);   // settle to final state
         (payload.characters || []).forEach(upsert);
         renderRail(speedOrder());          // drop anyone KO'd during the round
         $('nextBtn').classList.add('hidden');
         $('capText').classList.add('muted');
-        $('capText').textContent = 'Fighters scheming…';
+        $('capText').textContent = SCHEMING[Math.floor(Math.random() * SCHEMING.length)];
         sock.send('next_beat');
       }
       seq = { advance: () => { clearTimeout(timer); playNext(); }, stop: () => clearTimeout(timer) };
