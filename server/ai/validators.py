@@ -5,8 +5,8 @@ The Anthropic client forces tool-use, so responses already parse into the
 schema can't express:
   - normalize AI stats to the fixed stat budget (no drawing is stronger);
   - coerce an unknown catalog_id to `wildcard`; clamp cost to the move's range;
-  - drop unknown conditions and dead/unknown targets (the resolver then adapts
-    stale intents, GAME_DESIGN.md §9);
+  - drop unknown conditions and dead/unknown targets (the resolver then adapts —
+    intent adaptation, GAME_DESIGN.md §9);
   - enforce move_to adjacency so a misread direction costs at most one zone;
   - carry flagged through; guarantee every living player yields an action and
     every game a narration.
@@ -179,7 +179,7 @@ def build_gremlin_hazards(
 ) -> list[ClassifiedAction]:
     """Turn gremlin hazard classifications into resolver actions. An unknown
     hazard_id falls back to the palette's first entry (never rejected, like
-    stale intents); a gremlin with no classification drops no hazard this round.
+    intent adaptation); a gremlin with no classification drops no hazard this round.
     The catalog_id carries the hazard id — the resolver's gremlin pass reads it
     against the hazard registry."""
     haz_reg = HazardRegistry(rules.hazards)

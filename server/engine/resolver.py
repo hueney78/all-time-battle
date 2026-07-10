@@ -748,8 +748,8 @@ def _resolve_no_roll(
         )
 
     # aid: grant_roll_bonus is handled by giving a transient bonus
-    # (stored for this round; Phase 6 full pipeline will wire it to the
-    # target's next action roll — tracked via suggested_conditions approach)
+    # (stored for this round; a future pass could wire it to the target's next
+    # action roll — tracked via the suggested_conditions approach)
 
 
 # ---------------------------------------------------------------------------

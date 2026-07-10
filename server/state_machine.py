@@ -1,28 +1,23 @@
-"""Game phase state machine + pipeline orchestration (asyncio).
+"""Game phase state machine + round orchestration (asyncio).
 
-Phases: LOBBY → DRAW_CHARACTERS → ROUND_LOOP(draw ‖ process ‖ reveal) → GAME_OVER
+Phases: LOBBY → DRAW_CHARACTERS → ROUND_LOOP(draw → deliberate → reveal) → GAME_OVER
 
-The round loop runs the three-track prediction pipeline from ARCHITECTURE.md
-§4.2 / GAME_DESIGN.md §2: on every tick players draw round *r+1* while the
-AI+engine process round *r* and the TV reveals round *r−1*, all concurrently via
-`asyncio.gather`. Two 1-deep buffers connect the stages (drawings awaiting
-processing; a processed round awaiting reveal). Because the AI provider is a
-blocking client, its calls run in `asyncio.to_thread` so a slow API never
-freezes drawing or reveal — the pipeline keeps flowing.
+The round loop is strictly SEQUENTIAL (ARCHITECTURE.md §4.2 / GAME_DESIGN.md §2):
+each round is drawn, then the deliberation interlude shows every submitted drawing
+side by side while the round is classified/resolved/narrated, then the reveal
+plays before the next draw — players see their move immediately after drawing it.
+The interlude, not concurrency, is the latency mask; AI calls run in
+`asyncio.to_thread` so a slow API keeps the interlude live (never a spinner), and
+the 20s timeout + fallback bounds the worst case. A single live `self.state` is
+updated as each round is revealed.
 
-State versioning: `self.state` is the last *revealed* state (what phones, the
-arena, and reconnecting clients see), so players draw their intents without
-peeking at results that haven't been shown yet. A separate `_resolve_state`
-chains the engine's forward truth as rounds are processed ahead of the reveal.
+The one deliberate overlap that survives, invisible to players: character
+generation runs while players draw Round 1 (the first move needs no prior info),
+and the character-intro reveal then masks Round 1's processing.
 
-Special cases (the pipeline's warm-up, GAME_DESIGN.md §2):
-  T2 — character *generation* is the first process stage, running concurrently
-       with Round 1 drawing; the TV shows warm-up filler.
-  T3 — the character-intro reveal fills the Round 2 drawing gap.
-
-Each drawing phase ends as soon as every living player submits, or when the
-timer fires (missing canvases auto-submit blank → the classifier reads that as a
-`stumble`).
+Each drawing phase ends as soon as every living player submits (processing starts
+that instant), or when the timer fires (missing canvases auto-submit blank → the
+classifier reads that as a `stumble`).
 """
 
 from __future__ import annotations
