@@ -37,6 +37,18 @@ ui:
     enabled: true
     triggers: [crit, ko]               # which beat events earn a replay
     slowmo_factor: 2.0                 # replay plays this many times slower
+  audio:                               # host-page Web Audio manager (audio.js)
+    enabled: true
+    volume: 0.8                        # master volume 0..1 (host UI can override)
+    pitch_variation: 0.10              # ±10% random playback rate so repeats vary
+    sfx_dir: "/static/host/assets/sfx" # clips referenced by moves.yaml sfx keys
+    events_sfx:                        # engine event type → stinger clip
+      crit: crowd_roar
+      fumble: sad_trombone
+      ko: ko_bell
+      combo: air_horn
+      sudden_death: drumroll
+      replay: replay                   # plays when the instant replay starts
 
 snapshots:
   enabled: true

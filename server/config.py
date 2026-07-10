@@ -77,6 +77,24 @@ class InstantReplayConfig(BaseModel):
     slowmo_factor: float = 2.0
 
 
+class AudioConfig(BaseModel):
+    """Host-page Web Audio manager knobs. `events_sfx` maps engine event types
+    to stinger clips; per-move clips are the `sfx` keys in moves.yaml."""
+
+    enabled: bool = True
+    volume: float = 0.8
+    pitch_variation: float = 0.10
+    sfx_dir: str = "/static/host/assets/sfx"
+    events_sfx: dict[str, str] = {
+        "crit": "crowd_roar",
+        "fumble": "sad_trombone",
+        "ko": "ko_bell",
+        "combo": "air_horn",
+        "sudden_death": "drumroll",
+        "replay": "replay",
+    }
+
+
 class UIConfig(BaseModel):
     """Presentation knobs handed to the browser as window.DOODLE_CONFIG.
 
@@ -92,6 +110,7 @@ class UIConfig(BaseModel):
     audience_recent_rounds: int = 3
     combo_splash_seconds: float = 2.0
     instant_replay: InstantReplayConfig = InstantReplayConfig()
+    audio: AudioConfig = AudioConfig()
 
 
 class Settings(BaseModel):
@@ -268,6 +287,7 @@ class MoveDef(BaseModel):
     target: str = "single_enemy"
     damage: str | None = None
     desc: str = ""
+    sfx: str = ""           # host sound clip name (web/host/assets/sfx/<sfx>.wav)
     min_cost: int = 1
     includes_move: bool = False
     friendly_fire: bool = False
