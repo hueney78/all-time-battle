@@ -48,7 +48,17 @@
     loadImage(dataUrl, { markClean = true, scale = 1, side = 'center' } = {}) {
       this.bgScale = scale;
       this.bgSide = side;
-      if (!dataUrl) { this.bg = null; this.redraw(); return; }
+      // Even with no image yet (prefill fires before canvas_init delivers the
+      // png), start from a clean slate: drop any leftover strokes from the
+      // previous phase and clear the dirty flag so the character prefill isn't
+      // blocked by a stale `dirty` when canvas_init arrives.
+      if (!dataUrl) {
+        this.bg = null;
+        this.strokes = [];
+        if (markClean) this._dirty = false;
+        this.redraw();
+        return;
+      }
       const img = new Image();
       img.onload = () => {
         this.bg = img;
