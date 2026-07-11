@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from server.engine.conditions import ConditionRegistry
-from server.engine.resolver import _apply_condition, _tick_conditions
-from server.engine.models import Character, Event, Stats
 from server.config import load_balance
+from server.engine.conditions import ConditionRegistry
+from server.engine.models import Character, Event, Stats
+from server.engine.resolver import _apply_condition, _tick_conditions
 
 CFG = load_balance()
 
@@ -22,8 +22,8 @@ def _ch(player_id: str, hp: int = 20, conds: dict | None = None) -> Character:
 def test_registry_loads_all_conditions():
     reg = ConditionRegistry()
     for name in ["burning", "soggy", "sticky", "prone", "frightened",
-                 "embarrassed", "enraged", "sparkly", "hidden",
-                 "off_balance", "pumped", "confused"]:
+                 "embarrassed", "enraged", "sparkly", "pumped", "confused",
+                 "shielded", "dodging"]:
         assert name in reg, f"Missing condition: {name}"
 
 
@@ -62,9 +62,8 @@ def test_soggy_immunity_blocks_burning():
     """Soggy has burning in immunities — burning must not be applied."""
     reg = ConditionRegistry()
     ch = _ch("p1", conds={"soggy": 2})
-    chars = {"p1": ch}
     events: list[Event] = []
-    _apply_condition("burning", "p1", ch, chars, events, 1, reg)
+    _apply_condition("burning", "p1", ch, events, 1, reg)
     assert "burning" not in ch.conditions, "soggy should block burning"
     # No condition_applied event emitted
     applied = [e for e in events if e.type.value == "condition_applied"]
@@ -74,9 +73,8 @@ def test_soggy_immunity_blocks_burning():
 def test_apply_condition_sets_duration():
     reg = ConditionRegistry()
     ch = _ch("p1")
-    chars = {"p1": ch}
     events: list[Event] = []
-    _apply_condition("frightened", "p1", ch, chars, events, 1, reg)
+    _apply_condition("frightened", "p1", ch, events, 1, reg)
     assert ch.conditions.get("frightened") == reg.get("frightened").duration
     applied = [e for e in events if e.type.value == "condition_applied"]
     assert applied
@@ -85,9 +83,8 @@ def test_apply_condition_sets_duration():
 def test_apply_condition_emits_event():
     reg = ConditionRegistry()
     ch = _ch("p1")
-    chars = {"p1": ch}
     events: list[Event] = []
-    _apply_condition("burning", "p1", ch, chars, events, 3, reg)
+    _apply_condition("burning", "p1", ch, events, 3, reg)
     ev = next(e for e in events if e.type.value == "condition_applied")
     assert ev.player_id == "p1"
     assert ev.data["condition"] == "burning"
@@ -115,6 +112,7 @@ def test_conditions_have_emoji():
 def test_novel_condition_added_to_yaml(tmp_path, monkeypatch):
     """A condition added only to conditions.yaml loads and resolves."""
     import yaml
+
     import server.config as cfg_mod
 
     data = yaml.safe_load(open("config/conditions.yaml", encoding="utf-8"))

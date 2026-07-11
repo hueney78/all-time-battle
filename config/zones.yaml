@@ -39,7 +39,6 @@ zones:
     modifiers: {}
 
 rules:
-  melee_requires_same_zone: true
+  melee_requires_same_zone: true    # SMASH; auto_step closes 1 zone toward the target
   ranged_any_zone: true
-  move_cost_per_step: 1
-  free_steps_from_speed: {threshold: 3, steps: 1}   # Speed 3+ = 1 free step/round
+  move_buttons: [move_l, move_r]    # movement is tapped, absolute, edge-disabled

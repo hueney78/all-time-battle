@@ -58,18 +58,6 @@ conditions:
     debuff: true
     emoji: "✨"
 
-  hidden:
-    duration: 1
-    untargetable_melee: true
-    ac_bonus_vs_ranged: 2
-    emoji: "👻"
-
-  off_balance:
-    duration: 1
-    ac_penalty_vs_feinter_team: 2
-    debuff: true
-    emoji: "😵"
-
   pumped:
     duration: 2
     modifiers: {attack: 1}
@@ -88,14 +76,18 @@ conditions:
     debuff: true
     emoji: "🐝"
 
+  # SHIELD (COMBAT V2): big protection — and strong blocks reflect. An attack
+  # that misses a shielded target by reflect_miss_margin+ deals reflect_damage
+  # back to the attacker.
   shielded:
     duration: 1
-    modifiers: {ac: 2}
+    modifiers: {ac: 5}
+    reflect_miss_margin: 3
+    reflect_damage: "1d6"
     emoji: "🛡"
 
-  # Marker for an active Wild Shape. The stat change is applied directly on the
-  # character (with clamping) and reverted when this condition expires, so the
-  # duration here owns how long a transform lasts.
-  transformed:
-    duration: 2
-    emoji: "🦋"
+  # Movement's dodge (COMBAT V2): ◀/▶ grant +1 AC that round.
+  dodging:
+    duration: 1
+    modifiers: {ac: 1}
+    emoji: "💨"

@@ -1,298 +1,95 @@
-# moves.yaml — the move catalog.
-# Every drawing is classified to exactly one catalog move (or a combo).
-# The catalog owns all math; the AI owns flavor, cost rating, and creativity.
-# damage dice are BASE dice; cost scaling from balance.yaml applies on top.
-# `desc` is injected into the classifier prompt — write descriptions visually.
+# moves.yaml — COMBAT V2. The catalog owns all math; the phone renders each
+# character's live numbers from these formulas ("SMASH — 4d4+2" on the brick's
+# phone). Moves are TAPPED, never classified from the drawing — the drawing
+# supplies creativity, flavor, TRICK's condition, WILD CARD's interpretation,
+# and combos only (GAME_DESIGN §4).
+#
+# damage/heal formulas may reference POW / SPD / WRD plus ceil()/floor(),
+# e.g. "(1 + ceil(POW/2))d4 + 2" — evaluated per character by engine/dice.py.
+# `stat` is added to the 2d6 attack roll ("none" = no attack roll).
+# Self-buffs (SHIELD's +5 AC & reflect, movement's +1 dodge AC) live as
+# conditions in conditions.yaml so duration/expiry/emoji come for free.
 # `sfx` names the clip (web/host/assets/sfx/<name>.wav) the host plays when
 # the move resolves; event stingers live in settings.yaml ui.audio.events_sfx.
-# 30 moves is the ceiling (classifier accuracy degrades beyond that).
-# To add an archetype: add a YAML block here — zero Python changes required.
-# Mine wildcards.jsonl after playtests to find recurring unplaced shapes.
+#
+# No-repeat rule: a combat move (anything without `move`) can't be picked two
+# rounds in a row; ◀/▶ movement is exempt. Enforced server-side at submit time.
 
 moves:
-  # --- core attacks ---
-  strike:
-    pf2e: "Strike"
-    roll: power
+  smash:
+    stat: power
     range: same_zone
     target: single_enemy
-    damage: d8
-    desc: "hitting, slashing, or bonking a nearby enemy with body or weapon"
+    damage: "(1 + ceil(POW/2))d4 + 2"     # POW 0: 1d4+2 … POW 6: 4d4+2
+    auto_step: true    # no enemy in your zone → step toward target and swing
+    button: "SMASH"
+    desc: "Huge single hit. Get in their face."
     sfx: punch
 
-  charge:
-    pf2e: "Sudden Charge"
-    roll: power
-    range: any
-    target: single_enemy
-    damage: d8
-    includes_move: true
-    min_cost: 2
-    desc: "rushing across the arena to smash into an enemy (motion lines toward target)"
-    sfx: whoosh
-
-  ray:
-    pf2e: "Scorching Ray"
-    roll: weird
-    range: any
-    target: single_enemy
-    damage: d6
-    desc: "a single beam/projectile/blast aimed at one enemy (eye lasers, fireballs, arrows)"
-    sfx: zap
-
-  burst:
-    pf2e: "Fireball"
-    roll: weird
+  blast:
+    stat: weird
     range: any
     target: zone_all
-    damage: d6
-    min_cost: 2
     friendly_fire: true
-    desc: "an explosion or effect radiating in ALL directions, hitting everyone in a zone"
+    damage: "(1 + floor(WRD/3))d4 + 3"    # one shared roll hits the whole zone
+    button: "BLAST"
+    desc: "Hits EVERYONE in a zone. Yes, everyone."
     sfx: boom
 
-  line:
-    pf2e: "Lightning Bolt"
-    roll: weird
+  trick:
+    stat: weird
     range: any
-    target: line_all_zones
-    damage: d6
-    min_cost: 2
-    desc: "a beam/bolt crossing the whole arena in a line, hitting one enemy in every zone it passes"
+    target: single_enemy
+    damage: "1d6 + WRD"
+    on_hit_condition: from_drawing   # AI picks from conditions.yaml by flavor
+    button: "TRICK"
+    desc: "Damage plus something nasty from your drawing."
+    sfx: poof
+
+  shield:
+    stat: none
+    range: any
+    target: ally_or_self
+    applies_condition: shielded      # +5 AC; misses by 3+ reflect 1d6 (conditions.yaml)
+    button: "SHIELD"
+    desc: "Big protection. Strong blocks reflect."
+    sfx: shield
+
+  rally:
+    stat: none
+    range: any
+    target: ally_or_self
+    heal: "1d6 + 2"
+    cleanse: all                     # strips every debuff
+    pumped_if_creativity: 2          # the buff is earned by a great drawing
+    button: "RALLY"
+    desc: "Heal, cleanse, and hype a teammate."
+    sfx: sparkle
+
+  wild:
+    stat: weird
+    range: any
+    target: single_enemy
+    damage: "2d8 + floor(WRD/2)"
+    fumble_on_roll_lte: 3            # widest fumble band: natural 2d6 ≤ 3
+    button: "WILD CARD"
+    desc: "The AI decides what your drawing does. Gamble."
     sfx: zap
 
-  dot:
-    pf2e: "Acid Arrow"
-    roll: weird
-    range: any
-    target: single_enemy
-    damage: d4
-    on_hit_condition: burning
-    desc: "goo, acid, bees, or anything that clearly KEEPS hurting after it lands"
-    sfx: splat
-
-  drain:
-    pf2e: "Vampiric Touch"
-    roll: weird
-    range: same_zone
-    target: single_enemy
-    damage: d6
-    heal_self_ratio: 0.5
-    desc: "sucking life/energy from an enemy into yourself (fangs, straws, glowing transfer)"
-    sfx: slurp
-
-  summon:
-    pf2e: "Summon Animal"
-    roll: weird
-    range: any
-    target: single_enemy
-    damage: d8
-    min_cost: 2
-    desc: "a drawn creature/ally attacking for you; it strikes once then vanishes"
-    sfx: growl
-
-  # --- physical control ---
-  grapple:
-    pf2e: "Grapple"
-    roll: power
-    range: same_zone
-    target: single_enemy
-    damage: d4
-    on_hit_condition: sticky
-    desc: "grabbing, holding, wrapping, or swallowing an enemy"
-    sfx: grab
-
-  shove:
-    pf2e: "Shove"
-    roll: power
-    range: same_zone
-    target: single_enemy
-    damage: d4
-    on_hit_push_zones: 1
-    desc: "pushing/launching an enemy into another zone"
-    sfx: punch
-
-  trip:
-    pf2e: "Trip"
-    roll: power
-    range: same_zone
-    target: single_enemy
-    on_hit_condition: prone
-    desc: "knocking an enemy off their feet (sweeps, banana peels aimed at someone)"
-    sfx: whoosh
-
-  steal:
-    pf2e: "Disarm"
-    roll: power
-    range: same_zone
-    target: single_enemy
-    on_hit_steal_banked: true
-    desc: "grabbing something FROM an enemy — steals their banked actions for yourself"
-    sfx: sneaky
-
-  # --- mental control & debuffs ---
-  demoralize:
-    pf2e: "Demoralize"
-    roll: weird
-    range: any
-    target: single_enemy
-    on_hit_condition: frightened
-    desc: "scaring or intimidating an enemy (roars, scary faces, looming)"
-    sfx: growl
-
-  feint:
-    pf2e: "Feint"
-    roll: weird
-    range: same_zone
-    target: single_enemy
-    on_hit_condition: off_balance
-    desc: "tricking or misdirecting an enemy (fake-outs, decoys, distractions)"
-    sfx: sneaky
-
-  confuse:
-    pf2e: "Confusion"
-    roll: weird
-    range: any
-    target: single_enemy
-    on_hit_condition: confused
-    desc: "hypnosis, spirals, dizzying effects — the victim's next action targets someone RANDOM"
-    sfx: poof
-
-  trap:
-    pf2e: "Snare"
-    roll: "none"
-    range: any
-    target: zone
-    creates_hazard: true
-    hidden_hazard: true
-    min_cost: 2
-    desc: "placing a hidden trap in a zone (pits, nets, tripwires) that springs on entry"
-    sfx: sneaky
-
-  wall:
-    pf2e: "Wall of Fire"
-    roll: weird
-    range: any
-    target: zone
-    damage: d4
-    creates_hazard: true
-    min_cost: 2
-    desc: "a visible persistent hazard filling a zone (fire wall, spike field, tornado that stays)"
-    sfx: boom
-
-  # --- defense & protection ---
-  defend:
-    pf2e: "Raise a Shield"
-    roll: "none"
+  move_l:
+    stat: none
     target: self
-    applies_condition: shielded
-    desc: "shields, walls, armor, or bracing drawn on/around YOURSELF"
-    sfx: shield
-
-  counter:
-    pf2e: "Shield (spell)"
-    roll: "none"
-    target: self
-    counters_next_attack: true
-    min_cost: 2
-    desc: "a readied mirror/parry/reversal — negates and reflects the next attack against you this round"
-    sfx: shield
-
-  hide:
-    pf2e: "Hide"
-    roll: "none"
-    target: self
-    applies_condition: hidden
-    desc: "vanishing, hiding, camouflage, or the character erased from the canvas"
-    sfx: poof
-
-  protect:
-    pf2e: "Champion react"
-    roll: "none"
-    range: any
-    target: ally
-    redirect_attacks_to_self: true
-    desc: "bodyguarding a teammate — attacks aimed at them hit YOU instead this round"
-    sfx: shield
-
-  sanctuary:
-    pf2e: "Bless"
-    roll: "none"
-    range: any
-    target: zone
-    zone_modifier: {ally_ac_bonus: 1}
-    min_cost: 2
-    desc: "a protective bubble/aura over an area — teammates in that zone get +1 AC this round"
-    sfx: sparkle
-
-  # --- support & self-modification ---
-  heal:
-    pf2e: "Heal"
-    roll: "none"
-    range: any
-    target: ally_or_self
-    heal: d6
-    desc: "restoring a teammate's (or your own) health (hearts, bandages, potions)"
-    sfx: sparkle
-
-  cleanse:
-    pf2e: "Restoration"
-    roll: "none"
-    range: any
-    target: ally_or_self
-    removes_conditions: 2
-    desc: "removing bad conditions (fire extinguishers, washing off goo, un-scaring)"
-    sfx: sparkle
-
-  buff:
-    pf2e: "Inspire Courage"
-    roll: "none"
-    range: any
-    target: ally
-    applies_condition: pumped
-    desc: "powering up a teammate (energy beams TO an ally, cheering, power-up auras)"
-    sfx: sparkle
-
-  aid:
-    pf2e: "Aid"
-    roll: "none"
-    range: any
-    target: ally
-    grants_roll_bonus: 2
-    desc: "helping a teammate's own move succeed (holding the ladder, setting the pick)"
-    sfx: sparkle
-
-  transform:
-    pf2e: "Wild Shape"
-    roll: "none"
-    target: self
-    stat_swap: 2
-    duration: 2
-    desc: "the character redrawn AS something else — shift 2 stat points (e.g. +2 Power/−2 Speed) for 2 rounds"
-    sfx: poof
-
-  # --- movement & fallbacks ---
-  move:
-    pf2e: "Stride"
-    roll: "none"
-    target: self
-    move_zones_per_cost: 1
-    desc: "repositioning to another zone (arrows, motion lines, running pose)"
+    move: -1                         # absolute: one zone left, matches the TV
+    applies_condition: dodging       # +1 AC this round (conditions.yaml)
+    button: "◀ MOVE"
+    desc: "Step one zone left, dodging as you go (+1 AC)."
     sfx: steps
 
-  stumble:
-    pf2e: "Delay"
-    roll: "none"
+  move_r:
+    stat: none
     target: self
-    fixed_cost: 0
-    desc: "blank/unmodified canvas or pure indecision — a dramatic pause"
-    sfx: honk
-
-  wildcard:
-    pf2e: "(improvised)"
-    roll: weird
-    range: any
-    target: single_enemy
-    damage: d6
-    desc: "ONLY if nothing above fits — describe what you see in adaptation_note"
-    sfx: zap
+    move: 1
+    applies_condition: dodging
+    button: "MOVE ▶"
+    desc: "Step one zone right, dodging as you go (+1 AC)."
+    sfx: steps

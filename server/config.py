@@ -8,7 +8,6 @@ Hot-reload per room: call load_game_rules() at room creation time.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import yaml
 from pydantic import BaseModel, ValidationError
@@ -147,47 +146,32 @@ def load_settings(config_dir: Path | None = None) -> Settings:
 # ---------------------------------------------------------------------------
 
 
-class CostScalingEntry(BaseModel):
-    damage_mult: float
-    bank: int
-    hit_bonus: int
-
-
 class Balance(BaseModel):
     # HP formula: HP = hp_base + hp_per_power * Power
-    hp_base: int = 18
+    hp_base: int = 20
     hp_per_power: int = 2
     # AC formula: AC = ac_base + Speed
-    ac_base: int = 11
+    ac_base: int = 10
     # Stat budget — AI distributes stats summing to this
-    stat_budget: int = 8
-    stat_min: int = 1
-    stat_max: int = 4
-    # Action cost scaling (keys 1/2/3)
-    cost_scaling: dict[int, CostScalingEntry]
-    # Banked action economy
-    banked_ac_per_action: int = 1
-    banked_free_step_threshold: int = 2
-    # Degrees of success
-    crit_margin: int = 10
-    fumble_margin: int = 10
+    stat_budget: int = 9
+    stat_min: int = 0
+    stat_max: int = 6
+    # Degrees of success (2d6): crit on natural 12 or beating AC by crit_margin;
+    # fumble on natural 2 (a move's fumble_on_roll_lte can widen the band).
+    crit_margin: int = 5
     crit_damage_mult: float = 2.0
-    # Creativity bonuses (added to attack roll)
+    fumble_self_damage: int = 3
+    # Creativity bonuses (added to the 2d6 roll)
     creativity_tier_0: int = 0
     creativity_tier_1: int = 1
     creativity_tier_2: int = 2
     creativity_tier_3: int = 4
-    # Stale move penalty
-    stale_penalty: int = -2
-    # Combo rules
-    combo_bonus: int = 3
-    combo_creativity_escalate: int = 1
+    # Combo rules — both partners gain this on their own rolls (no fusion)
+    combo_bonus: int = 2
     # Rubber-banding
     underdog_enabled: bool = True
     underdog_hp_share_threshold: int = 2
     underdog_attack_bonus: int = 1
-    # Fumble self-damage (flat HP; embarrassed condition is separately auto-applied)
-    fumble_self_damage: int = 2
     # Sudden death
     max_rounds: int = 12
     sudden_death_attack_bonus: int = 2
@@ -224,16 +208,11 @@ class ZoneDef(BaseModel):
     modifiers: ZoneModifiers = ZoneModifiers()
 
 
-class FreeStepsRule(BaseModel):
-    threshold: int = 3
-    steps: int = 1
-
-
 class ZoneRules(BaseModel):
     melee_requires_same_zone: bool = True
     ranged_any_zone: bool = True
-    move_cost_per_step: int = 1
-    free_steps_from_speed: FreeStepsRule = FreeStepsRule()
+    # Movement is tapped, absolute (◀/▶ match the TV), edge-disabled.
+    move_buttons: list[str] = ["move_l", "move_r"]
 
 
 class ZonesConfig(BaseModel):
@@ -270,11 +249,12 @@ class ConditionDef(BaseModel):
     stand_cost: int = 0
     trigger: str | None = None
     emoji: str = ""
-    untargetable_melee: bool = False
-    ac_bonus_vs_ranged: int = 0
-    ac_penalty_vs_feinter_team: int = 0
     incoming_attack_bonus: int = 0
     randomize_targets: bool = False
+    # SHIELD reflect: attacks missing a carrier by reflect_miss_margin+ deal
+    # reflect_damage back to the attacker (0/"" disables).
+    reflect_miss_margin: int = 0
+    reflect_damage: str = ""
     # Negative status? Only debuffs can be stripped by `cleanse`; buffs and
     # markers (pumped, shielded, transformed, …) are left alone.
     debuff: bool = False
@@ -295,35 +275,30 @@ def load_conditions(config_dir: Path | None = None) -> ConditionsConfig:
 
 
 class MoveDef(BaseModel):
+    """One COMBAT V2 move (GAME_DESIGN §4.1). The catalog owns all math;
+    formulas may reference POW/SPD/WRD (see engine/dice.py)."""
+
     model_config = {"extra": "allow"}
-    pf2e: str = ""
-    roll: str = "none"      # "power" | "weird" | "none"
-    range: str = "same_zone"
-    target: str = "single_enemy"
-    damage: str | None = None
-    desc: str = ""
-    sfx: str = ""           # host sound clip name (web/host/assets/sfx/<sfx>.wav)
-    min_cost: int = 1
-    includes_move: bool = False
+    stat: str = "none"       # attack-roll stat: "power" | "speed" | "weird" | "none"
+    range: str = "same_zone"  # "same_zone" | "any"
+    target: str = "single_enemy"  # "single_enemy" | "zone_all" | "ally_or_self" | "self"
+    damage: str | None = None     # formula, e.g. "(1 + ceil(POW/2))d4 + 2"
+    heal: str | None = None       # formula, e.g. "1d6 + 2"
+    cleanse: str | None = None    # "all" strips every debuff
+    on_hit_condition: str | None = None   # condition id, or "from_drawing" (TRICK)
+    applies_condition: str | None = None  # applied to the target on resolution
     friendly_fire: bool = False
-    on_hit_condition: str | None = None
-    on_hit_push_zones: int = 0
-    on_hit_steal_banked: bool = False
-    heal: str | None = None
-    heal_self_ratio: float = 0.0
-    creates_hazard: bool = False
-    hidden_hazard: bool = False
-    counters_next_attack: bool = False
-    redirect_attacks_to_self: bool = False
-    zone_modifier: dict[str, Any] = {}
-    removes_conditions: int = 0
-    grants_roll_bonus: int = 0
-    applies_condition: str | None = None
-    stat_swap: int = 0
-    duration: int | None = None
-    move_zones_per_cost: int = 0
-    fixed_cost: int | None = None
-    ac_bonus: int = 0
+    auto_step: bool = False       # SMASH: no enemy in zone → step toward target
+    pumped_if_creativity: int | None = None   # RALLY: buff earned at this tier+
+    fumble_on_roll_lte: int | None = None     # WILD: natural 2d6 <= this fumbles
+    move: int = 0                 # absolute zone steps (◀ = -1, ▶ = +1)
+    button: str = ""              # phone button label
+    desc: str = ""
+    sfx: str = ""                 # host sound clip (web/host/assets/sfx/<sfx>.wav)
+
+    @property
+    def is_movement(self) -> bool:
+        return self.move != 0
 
 
 class MovesConfig(BaseModel):

@@ -1,6 +1,7 @@
 """Move catalog registry — loads moves.yaml, provides lookup API.
 
-Phase 2 will add resolution helpers (damage die, targeting, rider application).
+COMBAT V2: eight tapped moves — six combat moves (subject to the no-repeat
+rule) plus ◀/▶ movement (exempt, edge-checked).
 """
 
 from __future__ import annotations
@@ -28,3 +29,13 @@ class MoveRegistry:
     @property
     def all_ids(self) -> list[str]:
         return sorted(self._moves.keys())
+
+    @property
+    def ordered_ids(self) -> list[str]:
+        """Catalog order as authored in moves.yaml — the phone's button order."""
+        return list(self._moves.keys())
+
+    @property
+    def combat_ids(self) -> list[str]:
+        """Moves subject to the no-repeat rule (everything but movement)."""
+        return [mid for mid, m in self._moves.items() if not m.is_movement]

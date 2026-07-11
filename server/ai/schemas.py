@@ -38,27 +38,43 @@ class GenerateCharactersResponse(BaseModel):
 # ---------------------------------------------------------------------------
 class AIComboSpec(BaseModel):
     partners: list[str] = Field(description="player_ids of the two coordinating teammates")
-    leading_catalog_id: str = Field(description="the base catalog move the fusion behaves like")
     concept: str = Field(default="", description="what the two drawings do together")
-    combo_name: str = Field(default="", description="a hype fused-move name, e.g. GLITTERNADO")
+    combo_name: str = Field(default="", description="a hype combined-move name, e.g. GLITTERNADO")
+
+
+class AIWildInterpretation(BaseModel):
+    """WILD CARD only: the AI's free read of the drawing — big flat damage by
+    default, plus an optional condition rider if the drawing demands it."""
+
+    condition: str | None = Field(
+        default=None, description="optional rider from the allowed condition list"
+    )
+    description: str = Field(default="", description="what the drawing does, for the narrator")
 
 
 class AIAction(BaseModel):
+    """COMBAT V2: the move and target are TAPPED on the phone (ground truth,
+    echoed in the request) — judge only the DRAWING: creativity, staleness,
+    flavor, TRICK's condition, WILD CARD's interpretation."""
+
     player_id: str
-    catalog_id: str = Field(description="exactly one id from the move catalog")
-    action_cost: int = Field(default=2, description="1 jab, 2 solid, 3 haymaker")
-    targets: list[str] = Field(
-        default_factory=list, description="target player_ids (enemies to attack, allies to support)"
-    )
-    move_to: str | None = Field(default=None, description="zone id if the action moves, else null")
     creativity_tier: int = Field(default=0, description="0 plain..3 wild; judge the IDEA not art")
     creativity_reason: str = Field(default="")
-    similar_to_previous: bool = Field(default=False, description="true if repeating last concept")
-    suggested_conditions: list[str] = Field(
-        default_factory=list, description="only extra riders clearly drawn; from the allowed list"
+    similar_to_previous: bool = Field(
+        default=False, description="true if repeating last round's drawing concept"
+    )
+    flavor_summary: str = Field(
+        default="", description="a short vivid read of the drawing, feeds the narrator"
+    )
+    trick_condition: str | None = Field(
+        default=None,
+        description="TRICK only: the on-hit condition the drawing implies, from the allowed list",
+    )
+    wild_interpretation: AIWildInterpretation | None = Field(
+        default=None, description="WILD CARD only: your free read of the drawing"
     )
     adaptation_note: str | None = Field(
-        default=None, description="explain any stale-intent adaptation or wildcard read"
+        default=None, description="explain any adaptation (e.g. blank canvas, odd drawing)"
     )
     flagged: bool = Field(default=False)
 

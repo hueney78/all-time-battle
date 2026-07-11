@@ -218,8 +218,8 @@ async def test_reveal_step_carries_initiative_meters_and_floats():
                               teams=room.teams)
     # team_a drew the creative move this round; team_b was bland.
     machine._accumulate_audience([
-        ClassifiedAction(player_id=a.id, catalog_id="ray", action_cost=2, creativity_tier=3),
-        ClassifiedAction(player_id=b.id, catalog_id="ray", action_cost=2, creativity_tier=0),
+        ClassifiedAction(player_id=a.id, move_id="blast", creativity_tier=3),
+        ClassifiedAction(player_id=b.id, move_id="blast", creativity_tier=0),
     ])
 
     crit = Event(id="e1", type=EventType.ATTACK_RESOLVED, round=1, player_id=a.id,
@@ -254,7 +254,7 @@ async def test_reveal_step_carries_initiative_meters_and_floats():
 
 async def test_reveal_beats_carry_sfx_and_result():
     """Each beat ships its move's sound clip (moves.yaml sfx key, looked up
-    from the event's catalog_id) and the attack result, so the host's audio
+    from the event's move_id) and the attack result, so the host's audio
     manager can play move sounds and fire the fumble stinger from engine data."""
     from server.ai.provider import Beat, Narration
     from server.engine.models import Event, EventType
@@ -270,7 +270,7 @@ async def test_reveal_beats_carry_sfx_and_result():
     machine.state = GameState(room_id="TEST", characters={p.id: ch}, teams=room.teams)
 
     zap = Event(id="e1", type=EventType.ATTACK_RESOLVED, round=1, player_id=p.id,
-                target_id=p.id, data={"result": "fumble", "catalog_id": "ray"})
+                target_id=p.id, data={"result": "fumble", "move_id": "wild"})
     ko = Event(id="e2", type=EventType.KO, round=1, player_id=p.id, data={})
     narration = Narration(beats=[Beat(event_id="e1", text="zap!"),
                                  Beat(event_id="e2", text="down!")])
@@ -285,7 +285,7 @@ async def test_reveal_beats_carry_sfx_and_result():
             break
     assert reveal is not None
     beats = {bt["event_id"]: bt for bt in reveal.payload["beats"]}
-    assert beats["e1"]["sfx"] == rules.moves.moves["ray"].sfx  # "zap"
+    assert beats["e1"]["sfx"] == rules.moves.moves["wild"].sfx  # "zap"
     assert beats["e1"]["result"] == "fumble"
     assert beats["e2"]["sfx"] is None        # KO has no catalog move — stinger only
     assert beats["e2"]["result"] is None
@@ -424,9 +424,10 @@ async def test_full_4player_mock_game_reaches_victory_over_websockets():
     await asyncio.wait_for(asyncio.gather(*conn_tasks, return_exceptions=True), timeout=5.0)
 
 
-def test_mock_maps_blank_to_stumble_and_drawing_to_attack():
-    """Auto-submit semantics: a blank canvas classifies as `stumble`; a real
-    drawing becomes an attack aimed at a living enemy."""
+def test_mock_respects_taps_and_blank_canvas_scores_zero():
+    """COMBAT V2 auto-submit semantics: the tapped move always resolves — a
+    blank canvas just scores creativity 0; missing taps (headless mock games)
+    get a deterministic any-range attack on a living enemy."""
     from server.ai.provider import ActionSubmission
     from server.engine.models import Team
 
@@ -438,11 +439,13 @@ def test_mock_maps_blank_to_stumble_and_drawing_to_attack():
         Team(id="team_a", name="A", color="#f0f", player_ids=["a"]),
         Team(id="team_b", name="B", color="#0ff", player_ids=["b"]),
     ])
-    subs = {"a": ActionSubmission("a", "doodle"), "b": ActionSubmission("b", "")}
+    subs = {"a": ActionSubmission("a", "doodle", move_id="smash", target_id="b"),
+            "b": ActionSubmission("b", "")}   # blank canvas, no tap
     actions = {act.player_id: act for act in MockAI().classify_actions(state, subs, 1)}
 
-    assert actions["a"].catalog_id == "ray" and actions["a"].targets == ["b"]
-    assert actions["b"].catalog_id == "stumble"  # blank canvas → hesitates
+    assert actions["a"].move_id == "smash" and actions["a"].target_id == "b"
+    assert actions["b"].move_id in ("blast", "trick")   # headless fallback pick
+    assert actions["b"].creativity_tier == 0            # blank canvas → tier 0
 
 
 async def test_websocket_endpoint_accepts_host_and_creates_room():

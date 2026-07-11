@@ -28,12 +28,16 @@ def test_response_models_emit_object_json_schemas():
 
 
 def test_classify_schema_exposes_action_fields():
+    """COMBAT V2: the judge fills drawing-judgment fields only — the move and
+    target are tapped on the phone and never appear in the response schema."""
     schema = ClassifyActionsResponse.model_json_schema()
-    # actions[] is required and its items carry the fields the referee must fill.
     assert "actions" in schema["properties"]
     action = schema["$defs"]["AIAction"]["properties"]
-    for field in ("catalog_id", "action_cost", "targets", "creativity_tier", "flagged"):
+    for field in ("creativity_tier", "similar_to_previous", "flavor_summary",
+                  "trick_condition", "wild_interpretation", "flagged"):
         assert field in action
+    for gone in ("catalog_id", "action_cost", "targets", "move_to"):
+        assert gone not in action
 
 
 def test_narrate_schema_exposes_speaker():
@@ -78,8 +82,8 @@ def test_prompts_render_with_live_config():
         conditions=sorted(rules.conditions.conditions),
         zones=rules.zones.zones,
     )
-    assert "strike:" in classify and "wildcard:" in classify   # catalog injected
-    assert "frontline" in classify                              # zones injected
+    assert "smash" in classify and "wild" in classify   # catalog injected
+    assert "frontline" in classify                       # zones injected
 
     narrate = env.get_template("narrate.md.j2").render()
     assert "COMEDY MANDATE" in narrate

@@ -69,42 +69,66 @@ def _teams():
             Team(id="team_b", name="B", color="#0ff", player_ids=["p2"])]
 
 
-def test_classify_repairs_catalog_conditions_targets_and_move_to():
+def test_classify_merges_judgment_onto_taps_and_repairs_conditions():
+    """COMBAT V2: the AI decorates the tapped move; unknown TRICK conditions
+    are dropped; a skipped player still resolves their tap at creativity 0."""
     state = _state({"p1": "glitter_back", "p2": "thunder_back"}, _teams())
+    taps = {"p1": ("trick", "p2"), "p2": ("smash", "p1")}
     resp = S.ClassifyActionsResponse(actions=[
-        S.AIAction(player_id="p1", catalog_id="NONSENSE", action_cost=9,
-                   targets=["p2", "ghost"], move_to="thunder_back",         # not adjacent
-                   suggested_conditions=["burning", "made_up"]),
+        S.AIAction(player_id="p1", creativity_tier=9,           # clamped to 3
+                   trick_condition="made_up",                    # unknown → dropped
+                   flavor_summary="a suspicious maneuver"),
     ])
-    actions = {a.player_id: a for a in build_classified_actions(resp, state, ["p1", "p2"], RULES)}
+    actions = {a.player_id: a for a in build_classified_actions(resp, state, taps, RULES)}
     a = actions["p1"]
-    assert a.catalog_id == "wildcard"                 # unknown id coerced
-    assert 1 <= a.action_cost <= 3                     # clamped
-    assert a.targets == ["p2"]                         # dead/unknown target dropped
-    assert a.suggested_conditions == ["burning"]       # unknown condition dropped
-    assert a.move_to is None                            # illegal (non-adjacent) drop
-    assert actions["p2"].catalog_id == "stumble"       # AI omitted p2 → stumble
+    assert a.move_id == "trick" and a.target_id == "p2"   # taps are ground truth
+    assert a.creativity_tier == 3                          # clamped
+    assert a.trick_condition is None                       # unknown condition dropped
+    assert a.flavor_summary == "a suspicious maneuver"
+    b = actions["p2"]                                      # AI omitted p2
+    assert b.move_id == "smash" and b.creativity_tier == 0
 
 
-def test_classify_keeps_adjacent_move_and_attaches_combo():
+def test_classify_validates_wild_interpretation_and_attaches_combo():
     state = _state({"p1": "glitter_back", "p2": "glitter_back", "e": "thunder_back"},
                    [Team(id="team_a", name="A", color="#f0f", player_ids=["p1", "p2"]),
                     Team(id="team_b", name="B", color="#0ff", player_ids=["e"])])
+    taps = {"p1": ("wild", "e"), "p2": ("blast", "e"), "e": ("smash", "p1")}
     resp = S.ClassifyActionsResponse(
-        combos=[S.AIComboSpec(partners=["p1", "p2"], leading_catalog_id="burst",
-                              combo_name="GLITTERNADO")],
+        combos=[S.AIComboSpec(partners=["p1", "p2"], combo_name="GLITTERNADO")],
         actions=[
-            S.AIAction(player_id="p1", catalog_id="ray", targets=["e"], move_to="frontline"),
-            S.AIAction(player_id="p2", catalog_id="ray", targets=["e"]),
-            S.AIAction(player_id="e", catalog_id="strike", targets=["p1"]),
+            S.AIAction(player_id="p1",
+                       wild_interpretation=S.AIWildInterpretation(
+                           condition="sticky", description="a glue tornado")),
+            S.AIAction(player_id="p2"),
+            S.AIAction(player_id="e"),
         ],
     )
-    built = build_classified_actions(resp, state, ["p1", "p2", "e"], RULES)
+    built = build_classified_actions(resp, state, taps, RULES)
     actions = {a.player_id: a for a in built}
-    assert actions["p1"].move_to == "frontline"        # adjacent → kept
-    assert actions["p1"].combo_partners == ["p2"]      # leader carries the combo
+    assert actions["p1"].wild_interpretation.condition == "sticky"
+    # Both partners carry the combo — each gets the roll bonus in the engine.
+    assert actions["p1"].combo_partners == ["p2"]
+    assert actions["p2"].combo_partners == ["p1"]
     assert actions["p1"].combo_name == "GLITTERNADO"
-    assert actions["p2"].combo_partners == []          # non-leader stays plain
+    assert actions["e"].combo_partners == []
+
+
+def test_classify_drops_cross_team_combos_and_wild_on_non_wild_moves():
+    state = _state({"p1": "glitter_back", "e": "thunder_back"},
+                   [Team(id="team_a", name="A", color="#f0f", player_ids=["p1"]),
+                    Team(id="team_b", name="B", color="#0ff", player_ids=["e"])])
+    taps = {"p1": ("smash", "e"), "e": ("smash", "p1")}
+    resp = S.ClassifyActionsResponse(
+        combos=[S.AIComboSpec(partners=["p1", "e"], combo_name="IMPOSSIBLE")],
+        actions=[
+            S.AIAction(player_id="p1",
+                       wild_interpretation=S.AIWildInterpretation(condition="sticky")),
+        ],
+    )
+    actions = {a.player_id: a for a in build_classified_actions(resp, state, taps, RULES)}
+    assert actions["p1"].combo_partners == []             # enemies can't combo
+    assert actions["p1"].wild_interpretation is None      # only WILD carries a read
 
 
 # ---------------------------------------------------------------------------
@@ -138,10 +162,9 @@ def test_build_gremlin_hazards_maps_validates_and_skips():
     ])
     out = {a.player_id: a for a in build_gremlin_hazards(resp, ["g1", "g2", "g3"], RULES)}
 
-    assert out["g1"].catalog_id == "sprinkler"                  # valid → kept
-    assert out["g2"].catalog_id in RULES.hazards.hazards        # unknown → palette fallback
-    assert "g3" not in out                                      # unclassified → no hazard
-    assert all(a.action_cost == 1 for a in out.values())
+    assert out["g1"].move_id == "sprinkler"                  # valid → kept
+    assert out["g2"].move_id in RULES.hazards.hazards        # unknown → palette fallback
+    assert "g3" not in out                                   # unclassified → no hazard
 
 
 # ---------------------------------------------------------------------------

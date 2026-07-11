@@ -4,10 +4,10 @@ The Anthropic client forces tool-use, so responses already parse into the
 `schemas.py` pydantic models. These functions do the *semantic* repair the
 schema can't express:
   - normalize AI stats to the fixed stat budget (no drawing is stronger);
-  - coerce an unknown catalog_id to `wildcard`; clamp cost to the move's range;
-  - drop unknown conditions and dead/unknown targets (the resolver then adapts —
-    intent adaptation, GAME_DESIGN.md §9);
-  - enforce move_to adjacency so a misread direction costs at most one zone;
+  - clamp creativity tiers; drop unknown TRICK/WILD conditions and combo
+    partners who aren't living teammates;
+  - merge the AI's drawing judgment onto the TAPPED move + target (ground
+    truth from the phone — the AI never chooses either, COMBAT V2 §11.1);
   - carry flagged through; guarantee every living player yields an action and
     every game a narration.
 
@@ -29,9 +29,12 @@ from server.ai.provider import (
 from server.config import Balance, GameRules
 from server.engine.conditions import ConditionRegistry
 from server.engine.hazards import HazardRegistry
-from server.engine.models import ClassifiedAction, GameState, Stats
-from server.engine.moves import MoveRegistry
-from server.engine.zones import ZoneRegistry
+from server.engine.models import (
+    ClassifiedAction,
+    GameState,
+    Stats,
+    WildInterpretation,
+)
 
 _STATS = ("power", "speed", "weird")
 
@@ -107,66 +110,75 @@ def build_generated_characters(
 def build_classified_actions(
     resp: S.ClassifyActionsResponse,
     state: GameState,
-    living: list[str],
+    taps: dict[str, tuple[str, str | None]],
     rules: GameRules,
 ) -> list[ClassifiedAction]:
-    move_reg = MoveRegistry(rules.moves)
-    zone_reg = ZoneRegistry(rules.zones)
-    cond_reg = ConditionRegistry(rules.conditions)
-    living_set = set(living)
+    """Merge the AI's drawing judgment onto the tapped moves.
 
-    # combo → leader is the first living partner; only the leader carries the
-    # combo fields (the resolver reads combo_partners off the leader's action).
-    combo_leader: dict[str, S.AIComboSpec] = {}
-    combo_members: set[str] = set()
+    `taps` maps each living player to their (move_id, target_id) from the
+    phone — the server owns both; the AI response may only decorate them.
+    Combo partners must be living teammates; both partners carry each other so
+    the resolver grants the roll bonus to each (no fusion in v2).
+    """
+    cond_reg = ConditionRegistry(rules.conditions)
+
+    # combo → both partners carry the group (each gets the roll bonus).
+    combo_of: dict[str, S.AIComboSpec] = {}
     for combo in resp.combos:
-        parts = [p for p in combo.partners if p in living_set]
-        if len(parts) >= 2:
-            combo_leader[parts[0]] = combo
-            combo_members.update(parts)
+        parts = [p for p in combo.partners if p in taps]
+        if len(parts) >= 2 and _same_team_all(parts, state):
+            for p in parts:
+                combo_of.setdefault(p, combo)
 
     by_pid = {a.player_id: a for a in resp.actions}
     out: list[ClassifiedAction] = []
-    for pid in living:
+    for pid, (move_id, target_id) in taps.items():
         a = by_pid.get(pid)
+        move = rules.moves.moves.get(move_id)
         if a is None:
-            out.append(ClassifiedAction(player_id=pid, catalog_id="stumble", action_cost=1))
+            # AI skipped this player → the tapped move still resolves at
+            # creativity 0 (the fallback contract, §11.1).
+            out.append(ClassifiedAction(player_id=pid, move_id=move_id,
+                                        target_id=target_id))
             continue
 
-        catalog_id = a.catalog_id if a.catalog_id in move_reg else "wildcard"
-        move = move_reg.get(catalog_id)
-        cost = max(1, min(3, int(a.action_cost)))
-        if move.min_cost:
-            cost = min(3, max(cost, move.min_cost))
+        trick_condition = None
+        if move is not None and move.on_hit_condition == "from_drawing":
+            if a.trick_condition and a.trick_condition in cond_reg:
+                trick_condition = a.trick_condition
 
-        move_to = None
-        if a.move_to and a.move_to in zone_reg:
-            cur = state.characters[pid].zone_id if pid in state.characters else None
-            if a.move_to == cur or (cur and a.move_to in zone_reg.adjacent(cur)):
-                move_to = a.move_to
+        wild = None
+        if move is not None and move.fumble_on_roll_lte is not None and a.wild_interpretation:
+            w = a.wild_interpretation
+            wild = WildInterpretation(
+                condition=w.condition if (w.condition and w.condition in cond_reg) else None,
+                description=w.description or "",
+            )
 
         ca = ClassifiedAction(
             player_id=pid,
-            catalog_id=catalog_id,
-            action_cost=cost,
-            targets=[t for t in a.targets if t in living_set],
-            move_to=move_to,
+            move_id=move_id,
+            target_id=target_id,
             creativity_tier=max(0, min(3, int(a.creativity_tier))),
             creativity_reason=a.creativity_reason or "",
             similar_to_previous=bool(a.similar_to_previous),
-            suggested_conditions=[c for c in a.suggested_conditions if c in cond_reg],
+            flavor_summary=a.flavor_summary or "",
+            trick_condition=trick_condition,
+            wild_interpretation=wild,
             adaptation_note=a.adaptation_note,
             flagged=bool(a.flagged),
         )
-        combo = combo_leader.get(pid)
+        combo = combo_of.get(pid)
         if combo:
-            ca.combo_partners = [p for p in combo.partners if p in living_set and p != pid]
+            ca.combo_partners = [p for p in combo.partners if p in taps and p != pid]
             ca.combo_name = combo.combo_name
-            ca.leading_catalog_id = (
-                combo.leading_catalog_id if combo.leading_catalog_id in move_reg else catalog_id
-            )
         out.append(ca)
     return out
+
+
+def _same_team_all(pids: list[str], state: GameState) -> bool:
+    teams = [next((t.id for t in state.teams if p in t.player_ids), None) for p in pids]
+    return len(set(teams)) == 1 and teams[0] is not None
 
 
 # ---------------------------------------------------------------------------
@@ -196,8 +208,7 @@ def build_gremlin_hazards(
         hazard_id = h.hazard_id if h.hazard_id in haz_reg else default
         out.append(ClassifiedAction(
             player_id=pid,
-            catalog_id=hazard_id,
-            action_cost=1,
+            move_id=hazard_id,
             adaptation_note=h.adaptation_note,
             flagged=bool(h.flagged),
         ))

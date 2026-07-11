@@ -108,29 +108,44 @@ class LiveAI:
     def classify_actions(
         self, state: GameState, submissions: dict[str, ActionSubmission], round_num: int
     ) -> list[ClassifiedAction]:
-        living = [pid for pid, ch in state.characters.items() if not ch.is_ko]
+        # The tapped move + target are ground truth from the phone (COMBAT V2):
+        # they're echoed to the AI for context but never chosen by it.
+        taps: dict[str, tuple[str, str | None]] = {}
         content: list[dict] = [{"type": "text", "text": _roster_text(state, round_num)}]
-        for pid in living:
-            ch = state.characters[pid]
-            action_png = submissions[pid].png_base64 if pid in submissions else ""
-            action_img = _image_block(action_png)
-            if action_img is None:
-                continue                          # no drawing → validator makes it a stumble
-            content.append({"type": "text", "text": f"=== {ch.name} ({pid}) ==="})
+        for pid, ch in state.characters.items():
+            if ch.is_ko:
+                continue
+            sub = submissions.get(pid)
+            if sub is None or not sub.move_id:
+                continue
+            taps[pid] = (sub.move_id, sub.target_id)
+            move = self.rules.moves.moves.get(sub.move_id)
+            target_name = ""
+            if sub.target_id and sub.target_id in state.characters:
+                target_name = f" targeting {state.characters[sub.target_id].name} ({sub.target_id})"
+            content.append({"type": "text", "text":
+                            f"=== {ch.name} ({pid}) — tapped move: "
+                            f"{(move.button if move else sub.move_id)}{target_name} ==="})
             orig = _image_block(ch.character_png_b64)
             if orig:
-                content.append({"type": "text", "text": "ORIGINAL CHARACTER:"})
+                content.append({"type": "text", "text": f"{pid} ORIGINAL CHARACTER:"})
                 content.append(orig)
-            content.append({"type": "text", "text": "ACTION THIS ROUND:"})
-            content.append(action_img)
+            action_img = _image_block(sub.png_base64)
+            content.append({"type": "text", "text": f"{pid} ACTION THIS ROUND:"})
+            content.append(action_img if action_img
+                           else {"type": "text", "text": "(blank canvas — creativity 0)"})
 
+        if not taps:
+            return []
         parsed = self._call_tool(
             self._sys_classify, content, S.ClassifyActionsResponse,
             "submit_actions", self.ai.classify_model,
         )
         if parsed is None:
-            parsed = S.ClassifyActionsResponse(actions=[])         # → all stumble
-        return V.build_classified_actions(parsed, state, living, self.rules)
+            # Total AI failure: the tapped moves still resolve at creativity 0 —
+            # the server, not the AI, owns the move (§11.1).
+            parsed = S.ClassifyActionsResponse(actions=[])
+        return V.build_classified_actions(parsed, state, taps, self.rules)
 
     def classify_gremlin(
         self, state: GameState, submissions: dict[str, ActionSubmission], round_num: int

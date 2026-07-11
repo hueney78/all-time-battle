@@ -1,7 +1,7 @@
-"""Engine demo — Phase 2 checkpoint.
+"""Engine demo — scripted COMBAT V2 rounds.
 
-Runs 3 scripted rounds of a 4-player game using the golden-test fixture
-and prints a play-by-play of events so a human can sanity-check the math.
+Runs 3 scripted rounds of the GAME_DESIGN §12 2v2 fixture and prints a
+play-by-play of events so a human can sanity-check the math.
 
 Run with: python -m server.engine.demo
 """
@@ -16,56 +16,60 @@ from server.engine.resolver import resolve_round
 _CFG = load_balance()
 
 
-def _char(pid: str, name: str, power: int, speed: int, weird: int, hp: int, zone: str,
+def _char(pid: str, name: str, power: int, speed: int, weird: int, zone: str,
           conds: dict | None = None) -> Character:
+    hp = _CFG.hp_base + _CFG.hp_per_power * power
     return Character(
         player_id=pid, name=name,
         stats=Stats(power=power, speed=speed, weird=weird),
-        hp=hp, max_hp=_CFG.hp_base + _CFG.hp_per_power * power,
+        hp=hp, max_hp=hp,
         ac=_CFG.ac_base + speed, zone_id=zone,
         conditions=conds or {},
     )
 
 
 _TEAMS = [
-    Team(id="team_a", name="Glitter Crew", color="pink", player_ids=["p1", "p4"]),
-    Team(id="team_b", name="Thunder Squad", color="blue", player_ids=["p2", "p3"]),
+    Team(id="team_a", name="Team A", color="pink", player_ids=["p1", "p4"]),
+    Team(id="team_b", name="Team B", color="blue", player_ids=["p2", "p3"]),
 ]
 
 _SCRIPTS: list[list[ClassifiedAction]] = [
-    # ---- Round 1 ----
+    # ---- Round 1 (the §12 worked round) ----
     [
-        # Stabby ray vs Lawnmower
-        ClassifiedAction(player_id="p1", catalog_id="ray",   action_cost=2, targets=["p3"]),
-        # Blob grapple Stabby
-        ClassifiedAction(player_id="p2", catalog_id="grapple", action_cost=3, targets=["p1"],
-                         adaptation_note="devour attempt"),
-        # Lawnmower strike Stabby
-        ClassifiedAction(player_id="p3", catalog_id="strike", action_cost=2, targets=["p1"]),
-        # Gerald heal himself (cost 1)
-        ClassifiedAction(player_id="p4", catalog_id="heal",   action_cost=1, targets=["p4"]),
+        # Stabby TRICK on Blob — glitter hypnosis, creativity 2
+        ClassifiedAction(player_id="p1", move_id="trick", target_id="p2",
+                         creativity_tier=2, trick_condition="confused",
+                         flavor_summary="glitter hypnosis"),
+        # Blob BLAST on the front zone (creativity 1)
+        ClassifiedAction(player_id="p2", move_id="blast", target_id="p1",
+                         creativity_tier=1),
+        # Lawnmower SMASH on Gerald (auto-step, creativity 0)
+        ClassifiedAction(player_id="p3", move_id="smash", target_id="p4"),
+        # Gerald SHIELDs himself — one round too late
+        ClassifiedAction(player_id="p4", move_id="shield", target_id="p4"),
     ],
-    # ---- Round 2 (golden fixture round) ----
+    # ---- Round 2 ----
     [
-        ClassifiedAction(player_id="p3", catalog_id="demoralize", action_cost=2, targets=["p1"]),
-        ClassifiedAction(player_id="p1", catalog_id="ray",         action_cost=2, targets=["p2"]),
-        ClassifiedAction(player_id="p2", catalog_id="ray",         action_cost=3, targets=["p1"],
-                         suggested_conditions=["sticky"],
-                         adaptation_note="The Blob envelops Stabby in a blob-ray"),
-        ClassifiedAction(player_id="p4", catalog_id="ray",         action_cost=2, targets=["p3"],
-                         creativity_tier=2, adaptation_note="Precision water throw"),
+        # Stabby can't repeat TRICK — WILD CARD gamble on Lawnmower
+        ClassifiedAction(player_id="p1", move_id="wild", target_id="p3",
+                         creativity_tier=1),
+        # Blob TRICKs Stabby
+        ClassifiedAction(player_id="p2", move_id="trick", target_id="p1",
+                         trick_condition="sticky"),
+        # Lawnmower steps back toward its backline, dodging
+        ClassifiedAction(player_id="p3", move_id="move_r"),
+        # Gerald RALLIES himself with a table-losing-it drawing
+        ClassifiedAction(player_id="p4", move_id="rally", target_id="p4",
+                         creativity_tier=3),
     ],
     # ---- Round 3 ----
     [
-        # Blob charges Stabby (if alive)
-        ClassifiedAction(player_id="p2", catalog_id="ray",    action_cost=2, targets=["p1"]),
-        # Stabby defends
-        ClassifiedAction(player_id="p1", catalog_id="defend", action_cost=2),
-        # Lawnmower charge Gerald
-        ClassifiedAction(player_id="p3", catalog_id="ray",    action_cost=3, targets=["p4"]),
-        # Gerald ray Lawnmower creativity 3
-        ClassifiedAction(player_id="p4", catalog_id="ray",    action_cost=2, targets=["p3"],
-                         creativity_tier=3, adaptation_note="table-losing-it water tornado"),
+        ClassifiedAction(player_id="p1", move_id="smash", target_id="p3"),
+        ClassifiedAction(player_id="p2", move_id="blast", target_id="p4",
+                         creativity_tier=2),
+        ClassifiedAction(player_id="p3", move_id="blast", target_id="p1"),
+        ClassifiedAction(player_id="p4", move_id="trick", target_id="p2",
+                         trick_condition="burning", creativity_tier=1),
     ],
 ]
 
@@ -78,14 +82,24 @@ def _print_event(ev: Event) -> None:
     if t == "attack_resolved":
         result = d.get("result", "?")
         if result in ("hit", "crit"):
-            print(f"  [{pid}->{tid}] {d.get('catalog_id','')} {result.upper()}"
-                  f"  d20={d.get('d20')}  dmg={d.get('damage')}  ac={d.get('ac')}")
+            print(f"  [{pid}->{tid}] {d.get('move_id','')} {result.upper()}"
+                  f"  2d6={d.get('natural')}  total={d.get('total_atk')}"
+                  f"  vs AC {d.get('ac')}  dmg={d.get('damage')}")
         elif result == "fumble":
-            print(f"  [{pid}] FUMBLE d20=1  self_dmg={d.get('self_damage')}")
+            print(f"  [{pid}] FUMBLE 2d6={d.get('natural')}  self_dmg={d.get('self_damage')}")
         elif result == "miss":
-            print(f"  [{pid}->{tid}] MISS  d20={d.get('d20')}  total={d.get('total_atk')}  ac={d.get('ac')}")
+            print(f"  [{pid}->{tid}] MISS  2d6={d.get('natural')}"
+                  f"  total={d.get('total_atk')}  vs AC {d.get('ac')}")
+        elif result == "reflect":
+            print(f"  [{pid}] SHIELD REFLECT -> {tid} for {d.get('damage')}")
+        elif result == "out_of_reach":
+            print(f"  [{pid}] can't reach {tid} — the swing hits air")
         elif result == "no_target":
-            print(f"  [{pid}] no valid target for {d.get('catalog_id')}")
+            print(f"  [{pid}] no valid target for {d.get('move_id')}")
+    elif t == "moved":
+        print(f"  [{pid}] moves {d.get('from')} -> {d.get('to')}")
+    elif t == "combo":
+        print(f"  ** COMBO! {d.get('combo_name')} ({', '.join(d.get('partners', []))}) **")
     elif t == "condition_applied":
         print(f"  [{pid}] + {d.get('condition')} ({d.get('duration')} rounds)")
     elif t == "condition_expired":
@@ -93,12 +107,9 @@ def _print_event(ev: Event) -> None:
     elif t == "condition_ticked":
         print(f"  [{pid}] {d.get('condition')} tick -{d.get('damage', 0)} HP")
     elif t == "healed":
-        src = d.get("source", "heal")
-        print(f"  [{pid}] healed +{d.get('amount')}  ({src})")
+        print(f"  [{pid}] heals {tid or pid} +{d.get('amount')}")
     elif t == "ko":
         print(f"  *** {pid} IS KO'd -> becomes Arena Gremlin! ***")
-    elif t == "banked":
-        pass  # quiet
     elif t == "stumble":
         print(f"  [{pid}] stumbles dramatically")
     elif t == "victory":
@@ -109,21 +120,20 @@ def _print_event(ev: Event) -> None:
 
 def main() -> None:
     rules = load_game_rules()
-    print("=== Doodle Brawl — Engine Demo (Phase 2) ===\n")
+    print("=== Doodle Brawl — Engine Demo (COMBAT V2) ===\n")
     print(f"Zones:      {[z.id for z in rules.zones.zones]}")
     print(f"Conditions: {sorted(rules.conditions.conditions)}")
-    print(f"Moves:      {len(rules.moves.moves)} catalog entries")
+    print(f"Moves:      {list(rules.moves.moves)}")
     print(f"HP formula: {rules.balance.hp_base} + {rules.balance.hp_per_power} x Power")
     print(f"AC formula: {rules.balance.ac_base} + Speed")
     print()
 
-    # Build starting state from golden fixture
+    # GAME_DESIGN §12 fixture: 2v2, seed 42.
     chars = [
-        _char("p1", "Princess Stabby", power=3, speed=2, weird=3, hp=10,  zone="frontline"),
-        _char("p2", "The Blob",        power=2, speed=2, weird=4, hp=22,  zone="frontline",
-              conds={"sticky": 2}),
-        _char("p3", "Sir Lawnmower",   power=4, speed=3, weird=1, hp=26,  zone="frontline"),
-        _char("p4", "Gerald",          power=3, speed=1, weird=4, hp=24,  zone="glitter_back"),
+        _char("p1", "Princess Stabby", power=1, speed=5, weird=3, zone="frontline"),
+        _char("p2", "The Blob",        power=0, speed=3, weird=6, zone="thunder_back"),
+        _char("p3", "Sir Lawnmower",   power=6, speed=2, weird=1, zone="frontline"),
+        _char("p4", "Gerald",          power=3, speed=1, weird=5, zone="glitter_back"),
     ]
 
     print("Starting lineup:")
@@ -161,7 +171,7 @@ def main() -> None:
             ch = state.characters[pid]
             status = " [KO->GREMLIN]" if ch.is_ko else ""
             conds = f"  {ch.conditions}" if ch.conditions else ""
-            print(f"  {ch.name:20s}  HP={ch.hp}/{ch.max_hp}{status}{conds}")
+            print(f"  {ch.name:20s}  HP={ch.hp}/{ch.max_hp}  zone={ch.zone_id}{status}{conds}")
 
         if result.new_state.winner_team_id:
             break

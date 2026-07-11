@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from server.config import ZoneDef, ZoneModifiers, ZonesConfig, ZoneRules, load_zones
+from server.config import ZoneDef, ZoneRules, ZonesConfig, load_zones
 
 
 class ZoneRegistry:
@@ -15,6 +15,9 @@ class ZoneRegistry:
         if cfg is None:
             cfg = load_zones(config_dir)
         self._zones: dict[str, ZoneDef] = {z.id: z for z in cfg.zones}
+        # zones.yaml list order is the arena's left→right order on the TV —
+        # ◀/▶ movement steps along it (absolute, no AI direction-guessing).
+        self.ordered_ids: list[str] = [z.id for z in cfg.zones]
         self.rules: ZoneRules = cfg.rules
 
     def get(self, zone_id: str) -> ZoneDef:
@@ -29,6 +32,18 @@ class ZoneRegistry:
     def modifier(self, zone_id: str, key: str, default: int = 0) -> int:
         zone = self.get(zone_id)
         return getattr(zone.modifiers, key, default) or default
+
+    def step(self, zone_id: str, delta: int) -> str | None:
+        """The zone `delta` steps left(-)/right(+) of zone_id, or None past an
+        arena edge — edge-illegal movement renders disabled on the phone."""
+        idx = self.ordered_ids.index(zone_id) + delta
+        if 0 <= idx < len(self.ordered_ids):
+            return self.ordered_ids[idx]
+        return None
+
+    def steps_between(self, a: str, b: str) -> int:
+        """Signed left/right distance from zone a to zone b."""
+        return self.ordered_ids.index(b) - self.ordered_ids.index(a)
 
     def __contains__(self, zone_id: str) -> bool:
         return zone_id in self._zones

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 import yaml
 
@@ -68,8 +66,7 @@ def test_high_ground_modifiers(tmp_path, monkeypatch):
         "rules": {
             "melee_requires_same_zone": True,
             "ranged_any_zone": True,
-            "move_cost_per_step": 1,
-            "free_steps_from_speed": {"threshold": 3, "steps": 1},
+            "move_buttons": ["move_l", "move_r"],
         },
     }
     (tmp_path / "zones.yaml").write_text(yaml.dump(zones_data))
@@ -94,5 +91,20 @@ def test_rules_loaded():
     reg = ZoneRegistry()
     assert reg.rules.melee_requires_same_zone is True
     assert reg.rules.ranged_any_zone is True
-    assert reg.rules.move_cost_per_step == 1
-    assert reg.rules.free_steps_from_speed.threshold == 3
+    assert reg.rules.move_buttons == ["move_l", "move_r"]
+
+
+def test_ordered_ids_follow_yaml_order():
+    """zones.yaml list order = the TV's left→right order — ◀/▶ step along it."""
+    reg = ZoneRegistry()
+    assert reg.ordered_ids == ["glitter_back", "frontline", "thunder_back"]
+
+
+def test_step_moves_along_order_and_stops_at_edges():
+    reg = ZoneRegistry()
+    assert reg.step("frontline", -1) == "glitter_back"
+    assert reg.step("frontline", 1) == "thunder_back"
+    assert reg.step("glitter_back", -1) is None    # arena edge
+    assert reg.step("thunder_back", 1) is None
+    assert reg.steps_between("glitter_back", "thunder_back") == 2
+    assert reg.steps_between("thunder_back", "frontline") == -1

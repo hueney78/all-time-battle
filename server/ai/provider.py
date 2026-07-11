@@ -43,6 +43,10 @@ class GeneratedCharacter:
 class ActionSubmission:
     player_id: str
     png_base64: str = ""
+    # COMBAT V2: the tapped move + target from the phone (ground truth — the AI
+    # judges the drawing, never the move). Empty for gremlin/montage drawings.
+    move_id: str = ""
+    target_id: str | None = None
 
 
 @dataclass
@@ -177,23 +181,23 @@ class MockAI:
             if ch.is_ko:
                 continue
             sub = submissions.get(pid)
-            png = (sub.png_base64 if sub else "").strip()
             enemy = _lowest_hp_enemy(pid, state)
-            if not png or enemy is None:
-                # Blank canvas (auto-submit / timeout) or no valid enemy → the
-                # fighter hesitates dramatically (a 0-impact stumble).
-                actions.append(ClassifiedAction(player_id=pid, catalog_id="stumble",
-                                                action_cost=1))
+            if enemy is None:
                 continue
-            # `ray` is any-range so it works regardless of zones — keeps the mock
-            # game progressing to a decisive result. A small deterministic
-            # creativity tier (stable per player) gives the audience meter
-            # something to move on in offline/mock play.
-            creativity = random.Random(f"crea:{pid}").randint(0, 2)
+            # The tapped move/target are ground truth when present; headless
+            # mock games (no phone taps) alternate two any-range attacks so the
+            # no-repeat rule holds and the game reaches a decisive result.
+            move_id = (sub.move_id if sub else "") or ("blast" if round_num % 2 else "trick")
+            target_id = (sub.target_id if sub else None) or enemy
+            png = (sub.png_base64 if sub else "").strip()
+            # A blank canvas (auto-submit) still resolves the tapped move — at
+            # creativity 0, narrated as maximum-confidence minimum-effort (§9).
+            creativity = random.Random(f"crea:{pid}").randint(0, 2) if png else 0
             actions.append(ClassifiedAction(
-                player_id=pid, catalog_id="ray", action_cost=2, targets=[enemy],
+                player_id=pid, move_id=move_id, target_id=target_id,
                 creativity_tier=creativity,
-                adaptation_note="a no-frills energy bolt",
+                trick_condition="sticky" if move_id == "trick" else None,
+                flavor_summary="a no-frills energy bolt",
             ))
         return actions
 
@@ -210,7 +214,7 @@ class MockAI:
                 continue
             hid = haz_ids[random.Random(f"grem:{pid}").randrange(len(haz_ids))]
             out.append(ClassifiedAction(
-                player_id=pid, catalog_id=hid, action_cost=1,
+                player_id=pid, move_id=hid,
                 adaptation_note="a menacing little doodle",
             ))
         return out
@@ -332,6 +336,10 @@ def _beat_text(ev: Event, characters: dict[str, Character]) -> str:
             return f"{who} swings at {whom} and whiffs."
         if res == "fumble":
             return f"{who} fumbles catastrophically and hurts themselves."
+        if res == "reflect":
+            return f"{who}'s shield flings the blow back at {whom} for {d.get('damage', 0)}!"
+        if res == "out_of_reach":
+            return f"{who} charges at {whom} but can't close the gap."
         return ""
     if t == "ko":
         return f"{who} is knocked out and becomes an Arena Gremlin!"

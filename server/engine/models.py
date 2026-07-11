@@ -19,9 +19,9 @@ class Phase(str, Enum):
 
 
 class Stats(BaseModel):
-    power: int  # 1–4
-    speed: int  # 1–4
-    weird: int  # 1–4
+    power: int  # 0–6 (budget 9, clamped by config)
+    speed: int  # 0–6
+    weird: int  # 0–6
 
 
 class Character(BaseModel):
@@ -36,9 +36,9 @@ class Character(BaseModel):
     zone_id: str
     # condition_id → rounds remaining
     conditions: dict[str, int] = {}
-    banked_actions: int = 0
-    # Original stats saved while `transformed` is active; restored on expiry.
-    pre_transform_stats: Stats | None = None
+    # Last tapped combat move — the no-repeat rule greys it out next round
+    # (movement is exempt). Server-owned, validated at submit time.
+    last_move_id: str | None = None
     is_ko: bool = False
     is_gremlin: bool = False
     flagged: bool = False
@@ -53,22 +53,34 @@ class Team(BaseModel):
     player_ids: list[str]
 
 
+class WildInterpretation(BaseModel):
+    """WILD CARD: the AI's free read of the drawing, bounded by schema — big
+    flat damage by default; optionally a registry condition rider."""
+
+    condition: str | None = None   # from conditions.yaml, validated
+    description: str = ""          # what the AI saw — feeds the narrator
+
+
 class ClassifiedAction(BaseModel):
+    """One player's action for a round: the TAPPED move + target (ground truth
+    from the phone, server-validated) plus the AI's judgment of the drawing
+    (creativity, flavor, TRICK condition, WILD read, combos). Arena Gremlins
+    reuse this shape with move_id carrying a hazard id."""
+
     player_id: str
-    catalog_id: str          # must be a key in moves.yaml
-    action_cost: int         # 1–3 (clamped to the move's min_cost)
-    targets: list[str] = []
-    move_to: str | None = None
-    creativity_tier: int = 0  # 0–3
+    move_id: str                  # a key in moves.yaml (or hazards.yaml for gremlins)
+    target_id: str | None = None  # tapped target (enemy or ally, move-dependent)
+    creativity_tier: int = 0      # 0–3, from the drawing
     creativity_reason: str = ""
-    similar_to_previous: bool = False
-    suggested_conditions: list[str] = []
+    similar_to_previous: bool = False   # stale drawing → scores creativity 0
+    flavor_summary: str = ""            # feeds the narrator
+    trick_condition: str | None = None  # TRICK only: from conditions.yaml
+    wild_interpretation: WildInterpretation | None = None  # WILD CARD only
     adaptation_note: str | None = None
     flagged: bool = False
-    combo_partners: list[str] = []
+    combo_partners: list[str] = []      # both partners gain the combo roll bonus
     combo_name: str = ""
-    leading_catalog_id: str = ""  # for combos — the "base" move
-    action_png_b64: str = ""      # the player's drawing this round
+    action_png_b64: str = ""            # the player's drawing this round
 
 
 class EventType(str, Enum):
@@ -81,7 +93,6 @@ class EventType(str, Enum):
     KO = "ko"
     GREMLIN_HAZARD = "gremlin_hazard"
     COMBO = "combo"
-    BANKED = "banked"
     VICTORY = "victory"
     SUDDEN_DEATH = "sudden_death"
     STUMBLE = "stumble"

@@ -67,8 +67,11 @@ def _two_player_state():
     return GameState(room_id="T", characters={"p1": a, "p2": b}, teams=teams)
 
 
-_SUBS = {"p1": ActionSubmission("p1", "data:image/png;base64,QUJD"),
-         "p2": ActionSubmission("p2", "")}   # p2 blank → validator stumble
+# COMBAT V2: taps (move + target) arrive from the phone with each submission;
+# p2's canvas is blank — the tapped move still resolves at creativity 0.
+_SUBS = {"p1": ActionSubmission("p1", "data:image/png;base64,QUJD",
+                                move_id="trick", target_id="p2"),
+         "p2": ActionSubmission("p2", "", move_id="smash", target_id="p1")}
 
 
 # ---------------------------------------------------------------------------
@@ -76,11 +79,16 @@ _SUBS = {"p1": ActionSubmission("p1", "data:image/png;base64,QUJD"),
 # ---------------------------------------------------------------------------
 def test_classify_parses_forced_tool_use():
     script = [{"round": 1, "combos": [], "actions": [
-        {"player_id": "p1", "catalog_id": "ray", "action_cost": 2, "targets": ["p2"]}]}]
+        {"player_id": "p1", "creativity_tier": 2, "flavor_summary": "glitter hypnosis",
+         "trick_condition": "confused"}]}]
     ai = LiveAI(RULES, client=FakeAnthropic(script))
     actions = {a.player_id: a for a in ai.classify_actions(_two_player_state(), _SUBS, 1)}
-    assert actions["p1"].catalog_id == "ray" and actions["p1"].targets == ["p2"]
-    assert actions["p2"].catalog_id == "stumble"   # blank canvas
+    # The AI decorated p1's tapped TRICK; the tap itself is untouched.
+    assert actions["p1"].move_id == "trick" and actions["p1"].target_id == "p2"
+    assert actions["p1"].creativity_tier == 2
+    assert actions["p1"].trick_condition == "confused"
+    # p2 was skipped by the AI → tapped move resolves at creativity 0.
+    assert actions["p2"].move_id == "smash" and actions["p2"].creativity_tier == 0
     assert ai.degraded is False
     assert ai.client.messages.calls == 1
 
@@ -88,18 +96,21 @@ def test_classify_parses_forced_tool_use():
 def test_classify_repairs_once_on_invalid_then_succeeds():
     bad = {"round": 1}   # missing required 'actions' → ValidationError
     good = {"round": 1, "actions": [
-        {"player_id": "p1", "catalog_id": "strike", "action_cost": 1, "targets": ["p2"]}]}
+        {"player_id": "p1", "creativity_tier": 1}]}
     ai = LiveAI(RULES, client=FakeAnthropic([bad, good]))
     actions = {a.player_id: a for a in ai.classify_actions(_two_player_state(), _SUBS, 1)}
     assert ai.client.messages.calls == 2           # one repair retry
-    assert actions["p1"].catalog_id == "strike"
+    assert actions["p1"].creativity_tier == 1
     assert ai.degraded is False
 
 
-def test_classify_falls_back_to_stumble_when_api_errors():
+def test_classify_falls_back_to_tapped_moves_when_api_errors():
+    """Total AI failure never blocks the round: every tapped move resolves at
+    creativity 0 (the server owns the move, §11.1)."""
     ai = LiveAI(RULES, client=FakeAnthropic([RuntimeError("api down")]))
-    actions = ai.classify_actions(_two_player_state(), _SUBS, 1)
-    assert actions and all(a.catalog_id == "stumble" for a in actions)
+    actions = {a.player_id: a for a in ai.classify_actions(_two_player_state(), _SUBS, 1)}
+    assert actions["p1"].move_id == "trick" and actions["p2"].move_id == "smash"
+    assert all(a.creativity_tier == 0 for a in actions.values())
     assert ai.degraded is True                      # host banner trigger
     assert ai.client.messages.calls == RULES.settings.ai.max_retries + 1
 
@@ -250,7 +261,7 @@ def test_classify_gremlin_parses_hazard():
         {"player_id": "p1", "hazard_id": "bees", "adaptation_note": "an angry swarm"}]}]
     ai = LiveAI(RULES, client=FakeAnthropic(script))
     out = ai.classify_gremlin(_gremlin_state(), {"p1": ActionSubmission("p1", _PNG)}, 2)
-    assert len(out) == 1 and out[0].player_id == "p1" and out[0].catalog_id == "bees"
+    assert len(out) == 1 and out[0].player_id == "p1" and out[0].move_id == "bees"
     assert ai.degraded is False and ai.client.messages.calls == 1
 
 

@@ -355,7 +355,8 @@ class GameStateMachine:
             ch = state.characters.get(r.player_id)
             if ch is None or ch.is_ko:
                 continue
-            setattr(ch.stats, r.stat, getattr(ch.stats, r.stat) + 1)
+            new_val = min(self.balance.stat_max, getattr(ch.stats, r.stat) + 1)
+            setattr(ch.stats, r.stat, new_val)
             if r.stat == "power":
                 gain = self.balance.hp_per_power
                 ch.max_hp += gain
@@ -549,7 +550,7 @@ class GameStateMachine:
         """The sound clip for this beat's move (moves.yaml sfx key), or None
         when the event has no catalog move (KOs, victory, combos — those are
         covered by the client-side event stingers)."""
-        move = self.rules.moves.moves.get(ev.data.get("catalog_id", ""))
+        move = self.rules.moves.moves.get(ev.data.get("move_id", ""))
         return (move.sfx or None) if move else None
 
     def _hurt_target(self, ev) -> str | None:
@@ -558,7 +559,7 @@ class GameStateMachine:
         t = ev.type.value
         d = ev.data
         if t == "attack_resolved":
-            if d.get("result") in ("hit", "crit"):
+            if d.get("result") in ("hit", "crit", "reflect"):
                 return ev.target_id
             if d.get("result") == "fumble":
                 return ev.player_id      # hurt themselves
@@ -589,7 +590,7 @@ class GameStateMachine:
         d = ev.data
         if t == "attack_resolved":
             res = d.get("result")
-            if res in ("hit", "crit") and d.get("damage"):
+            if res in ("hit", "crit", "reflect") and d.get("damage"):
                 return [{"player_id": ev.target_id, "amount": d["damage"],
                          "kind": "damage", "crit": res == "crit"}]
             if res == "fumble" and d.get("self_damage"):
@@ -843,7 +844,6 @@ def _char_payload(ch: Character, team_id: str | None) -> dict:
         # Stats are the rail's / phone status card's home (💪 Power / ⚡ Speed / 🌀 Weird).
         "stats": {"power": ch.stats.power, "speed": ch.stats.speed, "weird": ch.stats.weird},
         "conditions": ch.conditions,
-        "banked_actions": ch.banked_actions,
         "zone_id": ch.zone_id,
         "team_id": team_id,
         "is_ko": ch.is_ko,

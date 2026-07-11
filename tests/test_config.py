@@ -77,8 +77,9 @@ def test_settings_ui_tokens():
     assert s.ui.action_canvas_character_scale == 0.5
     assert s.ui.reveal_action_zoom_scale == 1.8
     assert s.ui.reveal_action_zoom_seconds == 2.5
-    assert s.ui.reveal_beat_seconds == 6.0   # per-beat visual pace (0 = host clicks Next ▶)
-    assert s.ui.float_number_seconds == 1.5
+    # Pacing knobs are hand-tuned at playtests — assert they ship, not their value.
+    assert s.ui.reveal_beat_seconds >= 0     # 0 = manual (host clicks Next ▶)
+    assert s.ui.float_number_seconds > 0
     assert s.ui.audience_recent_rounds == 3
     assert s.ui.arena_background == ""
     # Deliberation interlude + Power-Up Montage presentation knobs.
@@ -119,44 +120,33 @@ def test_settings_ui_defaults_when_block_missing(tmp_path: Path, monkeypatch):
 
 
 def test_balance_hp_formula():
+    """COMBAT V2: HP = 20 + 2×POW (20–32), AC = 10 + SPD (10–16)."""
     b = load_balance()
-    assert b.hp_base == 18
+    assert b.hp_base == 20
     assert b.hp_per_power == 2
-    assert b.ac_base == 11
+    assert b.ac_base == 10
 
 
 def test_balance_stat_budget():
+    """COMBAT V2: stats 0–6 on a budget of 9."""
     b = load_balance()
-    assert b.stat_budget == 8
-    assert b.stat_min == 1
-    assert b.stat_max == 4
-
-
-def test_balance_cost_scaling_keys():
-    b = load_balance()
-    assert set(b.cost_scaling.keys()) == {1, 2, 3}
-
-
-def test_balance_cost_scaling_values():
-    b = load_balance()
-    assert b.cost_scaling[1].damage_mult == 0.5
-    assert b.cost_scaling[1].bank == 2
-    assert b.cost_scaling[1].hit_bonus == 0
-
-    assert b.cost_scaling[2].damage_mult == 1.0
-    assert b.cost_scaling[2].bank == 1
-    assert b.cost_scaling[2].hit_bonus == 0
-
-    assert b.cost_scaling[3].damage_mult == 1.5
-    assert b.cost_scaling[3].bank == 0
-    assert b.cost_scaling[3].hit_bonus == 1
+    assert b.stat_budget == 9
+    assert b.stat_min == 0
+    assert b.stat_max == 6
 
 
 def test_balance_degrees_of_success():
+    """2d6 resolution: crit at +5/nat-12, fumble at nat-2 (+3 self-damage)."""
     b = load_balance()
-    assert b.crit_margin == 10
-    assert b.fumble_margin == 10
+    assert b.crit_margin == 5
     assert b.crit_damage_mult == 2.0
+    assert b.fumble_self_damage == 3
+
+
+def test_balance_combo_bonus():
+    """Combos no longer fuse — both partners gain a flat roll bonus."""
+    b = load_balance()
+    assert b.combo_bonus == 2
 
 
 def test_balance_creativity_tiers():
@@ -202,9 +192,7 @@ def test_zones_rules():
     z = load_zones()
     assert z.rules.melee_requires_same_zone is True
     assert z.rules.ranged_any_zone is True
-    assert z.rules.move_cost_per_step == 1
-    assert z.rules.free_steps_from_speed.threshold == 3
-    assert z.rules.free_steps_from_speed.steps == 1
+    assert z.rules.move_buttons == ["move_l", "move_r"]
 
 
 # ---------------------------------------------------------------------------
@@ -254,8 +242,7 @@ def test_high_ground_zone_modifiers(tmp_path: Path, monkeypatch):
         "rules": {
             "melee_requires_same_zone": True,
             "ranged_any_zone": True,
-            "move_cost_per_step": 1,
-            "free_steps_from_speed": {"threshold": 3, "steps": 1},
+            "move_buttons": ["move_l", "move_r"],
         },
     }
 
@@ -310,11 +297,15 @@ def test_conditions_prone():
     assert prone.stand_cost == 1
 
 
-def test_conditions_hidden():
+def test_conditions_shielded_and_dodging():
+    """COMBAT V2: SHIELD's +5 AC/reflect and movement's +1 dodge AC live in
+    the condition registry (duration/emoji come for free)."""
     c = load_conditions()
-    hidden = c.conditions["hidden"]
-    assert hidden.untargetable_melee is True
-    assert hidden.ac_bonus_vs_ranged == 2
+    shielded = c.conditions["shielded"]
+    assert shielded.modifiers.ac == 5
+    assert shielded.reflect_miss_margin == 3
+    assert shielded.reflect_damage == "1d6"
+    assert c.conditions["dodging"].modifiers.ac == 1
 
 
 def test_conditions_confused():
@@ -334,63 +325,58 @@ def test_conditions_all_have_duration():
 # ---------------------------------------------------------------------------
 
 
-def test_moves_loads():
+def test_moves_loads_the_eight_v2_moves():
+    """COMBAT V2: exactly eight tapped moves — six combat + ◀/▶ movement."""
     m = load_moves()
-    assert len(m.moves) >= 29  # spec says ~30, wildcard is always present
-
-
-def test_moves_required_catalog_ids():
-    m = load_moves()
-    required = {
-        "strike", "charge", "ray", "burst", "line", "dot", "drain", "summon",
-        "grapple", "shove", "trip", "steal", "demoralize", "feint", "confuse",
-        "trap", "wall", "defend", "counter", "hide", "protect", "sanctuary",
-        "heal", "cleanse", "buff", "aid", "transform", "move", "stumble", "wildcard",
-    }
-    missing = required - set(m.moves.keys())
-    assert not missing, f"Missing catalog moves: {missing}"
+    assert set(m.moves) == {"smash", "blast", "trick", "shield", "rally", "wild",
+                            "move_l", "move_r"}
 
 
 def test_moves_roll_stats():
     m = load_moves()
-    assert m.moves["strike"].roll == "power"
-    assert m.moves["ray"].roll == "weird"
-    assert m.moves["burst"].roll == "weird"
-    assert m.moves["defend"].roll == "none"
-    assert m.moves["hide"].roll == "none"
+    assert m.moves["smash"].stat == "power"
+    assert m.moves["blast"].stat == "weird"
+    assert m.moves["trick"].stat == "weird"
+    assert m.moves["wild"].stat == "weird"
+    assert m.moves["shield"].stat == "none"
+    assert m.moves["rally"].stat == "none"
 
 
-def test_moves_burst_friendly_fire():
+def test_moves_v2_mechanics():
     m = load_moves()
-    assert m.moves["burst"].friendly_fire is True
-    assert m.moves["burst"].min_cost == 2
+    assert m.moves["smash"].range == "same_zone" and m.moves["smash"].auto_step is True
+    assert m.moves["blast"].friendly_fire is True and m.moves["blast"].target == "zone_all"
+    assert m.moves["trick"].on_hit_condition == "from_drawing"
+    assert m.moves["shield"].applies_condition == "shielded"
+    assert m.moves["rally"].heal == "1d6 + 2"
+    assert m.moves["rally"].cleanse == "all"
+    assert m.moves["rally"].pumped_if_creativity == 2
+    assert m.moves["wild"].fumble_on_roll_lte == 3
+    assert m.moves["move_l"].move == -1 and m.moves["move_r"].move == 1
+    assert m.moves["move_l"].is_movement and not m.moves["smash"].is_movement
 
 
-def test_moves_charge_includes_move():
-    m = load_moves()
-    assert m.moves["charge"].includes_move is True
-    assert m.moves["charge"].min_cost == 2
-
-
-def test_moves_min_cost_constraints():
-    m = load_moves()
-    for name, move in m.moves.items():
-        assert move.min_cost >= 1 or move.fixed_cost is not None, (
-            f"Move {name!r} has invalid min_cost {move.min_cost}"
-        )
-
-
-def test_moves_have_descriptions():
+def test_moves_have_buttons_and_descriptions():
+    """Every move ships a phone button label and a description."""
     m = load_moves()
     for name, move in m.moves.items():
         assert move.desc, f"Move {name!r} is missing a description"
+        assert move.button, f"Move {name!r} is missing a button label"
 
 
-def test_moves_wildcard_exists():
+def test_move_formulas_evaluate_for_every_stat_line():
+    """Every damage/heal formula evaluates across the whole 0–6 stat range —
+    the same rendering powers the phone's live button math."""
+    from server.engine.dice import describe_formula
+
     m = load_moves()
-    wc = m.moves["wildcard"]
-    assert wc.roll == "weird"
-    assert wc.damage == "d6"
+    for name, move in m.moves.items():
+        for spec in (move.damage, move.heal):
+            if not spec:
+                continue
+            for v in range(0, 7):
+                label = describe_formula(spec, {"POW": v, "SPD": v, "WRD": v})
+                assert label, f"{name}: formula {spec!r} failed at stat {v}"
 
 
 # ---------------------------------------------------------------------------
@@ -469,9 +455,9 @@ def test_novel_hazard_added_to_yaml(tmp_path: Path, monkeypatch):
 
 def test_load_game_rules_bundle():
     rules = load_game_rules()
-    assert rules.balance.hp_base == 18
+    assert rules.balance.hp_base == 20
     assert len(rules.zones.zones) == 3
-    assert "strike" in rules.moves.moves
+    assert "smash" in rules.moves.moves
     assert "burning" in rules.conditions.conditions
     assert "stung" in rules.conditions.conditions          # bees hazard's condition
     assert rules.hazards.hazards["bees"].applies_condition == "stung"
