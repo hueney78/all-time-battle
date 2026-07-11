@@ -40,8 +40,10 @@ class _Messages:
     def __init__(self, script):
         self.script = script
         self.calls = 0
+        self.last_kwargs: dict = {}
 
     def create(self, **_kw):
+        self.last_kwargs = _kw
         item = self.script[min(self.calls, len(self.script) - 1)]
         self.calls += 1
         if isinstance(item, Exception):
@@ -91,6 +93,24 @@ def test_classify_parses_forced_tool_use():
     assert actions["p2"].move_id == "smash" and actions["p2"].creativity_tier == 0
     assert ai.degraded is False
     assert ai.client.messages.calls == 1
+
+
+def test_classify_request_echoes_taps_and_labeled_image_pairs():
+    """The user message tells the judge each fighter's tapped move + target
+    (context, never a choice) and labels the ORIGINAL/ACTION image pair; a
+    blank canvas is labeled rather than dropped (§11.1)."""
+    script = [{"round": 1, "actions": []}]
+    ai = LiveAI(RULES, client=FakeAnthropic(script))
+    ai.classify_actions(_two_player_state(), _SUBS, 1)
+    content = ai.client.messages.last_kwargs["messages"][0]["content"]
+    texts = " | ".join(b["text"] for b in content if b.get("type") == "text")
+    assert "tapped move: TRICK" in texts and "targeting B (p2)" in texts
+    assert "p1 ORIGINAL CHARACTER" in texts and "p1 ACTION THIS ROUND" in texts
+    assert "blank canvas" in texts        # p2 drew nothing — still judged
+    # The system prompt is the v2 template, sent with prompt caching.
+    system = ai.client.messages.last_kwargs["system"]
+    assert system[0]["cache_control"] == {"type": "ephemeral"}
+    assert "TAPS" in system[0]["text"]
 
 
 def test_classify_repairs_once_on_invalid_then_succeeds():

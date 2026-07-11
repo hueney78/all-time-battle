@@ -82,8 +82,11 @@ def test_prompts_render_with_live_config():
         conditions=sorted(rules.conditions.conditions),
         zones=rules.zones.zones,
     )
-    assert "smash" in classify and "wild" in classify   # catalog injected
-    assert "frontline" in classify                       # zones injected
+    assert "SMASH" in classify and "WILD CARD" in classify   # catalog injected
+    assert "frontline" in classify                            # zones injected
+    assert "TAPS" in classify and "never choose" in classify  # v2: taps are ground truth
+    assert "burning" in classify                              # condition palette injected
+    assert "NEVER infer" in classify                          # no movement guessing
 
     narrate = env.get_template("narrate.md.j2").render()
     assert "COMEDY MANDATE" in narrate

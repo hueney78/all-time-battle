@@ -15,7 +15,14 @@ from typing import Protocol
 
 from server.config import Balance, GameRules
 from server.engine.hazards import HazardRegistry
-from server.engine.models import Character, ClassifiedAction, Event, GameState, Stats
+from server.engine.models import (
+    Character,
+    ClassifiedAction,
+    Event,
+    GameState,
+    Stats,
+    WildInterpretation,
+)
 
 log = logging.getLogger("doodle.ai")
 
@@ -197,6 +204,9 @@ class MockAI:
                 player_id=pid, move_id=move_id, target_id=target_id,
                 creativity_tier=creativity,
                 trick_condition="sticky" if move_id == "trick" else None,
+                wild_interpretation=WildInterpretation(
+                    condition="sparkly", description="pure doodle chaos, unleashed"
+                ) if move_id == "wild" else None,
                 flavor_summary="a no-frills energy bolt",
             ))
         return actions

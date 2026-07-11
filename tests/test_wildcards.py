@@ -57,3 +57,38 @@ def test_miner_skips_empty_and_malformed_lines(tmp_path):
 
 def test_missing_snapshots_dir_is_not_fatal(tmp_path):
     assert load_wildcards(tmp_path / "does_not_exist") == []
+
+
+def test_v2_rows_mine_wild_interpretation_description(tmp_path):
+    """COMBAT V2 rows carry the AI's wild_interpretation — its description is
+    the mineable text, with adaptation_note as the fallback."""
+    _write(tmp_path, "NEWW", [
+        {"round": 1, "player_id": "p1",
+         "wild_interpretation": {"condition": None,
+                                 "description": "a colossal sandwich falls from the sky"},
+         "adaptation_note": None},
+        {"round": 2, "player_id": "p2",
+         "wild_interpretation": {"condition": "sticky", "description": ""},
+         "adaptation_note": "a sandwich again, somehow"},
+    ])
+    result = mine(load_wildcards(tmp_path))
+    kw = dict(result["top_keywords"])
+    assert kw.get("sandwich") == 2     # description + fallback note both mined
+
+
+def test_wild_plays_are_logged_to_jsonl(tmp_path):
+    """Every resolved WILD CARD action lands in wildcards.jsonl (§14)."""
+    from server.engine.models import ClassifiedAction, WildInterpretation
+    from server.snapshots import SnapshotWriter
+
+    w = SnapshotWriter(tmp_path, "ROOM", enabled=True)
+    w.append_wildcards(3, [
+        ClassifiedAction(player_id="p1", move_id="wild",
+                         wild_interpretation=WildInterpretation(
+                             condition="sparkly", description="glitter vortex")),
+        ClassifiedAction(player_id="p2", move_id="smash", target_id="p1"),
+    ])
+    rows = load_wildcards(tmp_path)
+    assert len(rows) == 1
+    assert rows[0]["player_id"] == "p1"
+    assert rows[0]["wild_interpretation"]["description"] == "glitter vortex"

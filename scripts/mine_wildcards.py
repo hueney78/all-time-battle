@@ -1,12 +1,12 @@
 """Wildcard miner — mine snapshots/*/wildcards.jsonl for new moves.yaml archetypes.
 
-Every drawing the classifier couldn't place lands in a room's `wildcards.jsonl`
-as `{round, player_id, adaptation_note}` (see server/snapshots.py). After game
-nights, recurring adaptation notes are the signal for a new catalog archetype —
-"kids keep drawing themselves growing giant" → add a `grow` move (GAME_DESIGN
-§4.1 "wildcard feedback loop" / §14). This aggregates the notes: which shapes
-keep showing up, with example notes, so you can decide what to add — always a
-YAML-only change.
+Every WILD CARD play lands in a room's `wildcards.jsonl` as
+`{round, player_id, wild_interpretation, adaptation_note}` (see
+server/snapshots.py). After game nights, recurring interpretations are the
+signal for what the six moves might be missing — "kids keep drawing themselves
+growing giant" → add a `grow` move (GAME_DESIGN §4.1 / §14). This aggregates
+the AI's reads: which shapes keep showing up, with example notes, so you can
+decide what to add — always a YAML-only change.
 
     python scripts/mine_wildcards.py                    # scans ./snapshots
     python scripts/mine_wildcards.py path/to/snapshots  # scan elsewhere
@@ -68,10 +68,19 @@ def _keywords(note: str) -> set[str]:
     }
 
 
+def _row_note(row: dict) -> str:
+    """The mineable text of one row: the WILD interpretation's description
+    (COMBAT V2), falling back to the adaptation note."""
+    wi = row.get("wild_interpretation")
+    if isinstance(wi, dict) and (wi.get("description") or "").strip():
+        return wi["description"].strip()
+    return (row.get("adaptation_note") or "").strip()
+
+
 def mine(rows: list[dict], top: int = 15) -> dict:
     """Aggregate wildcard rows into archetype-candidate signals: how often each
     keyword recurs (with example notes) and the most-repeated exact notes."""
-    notes = [(r.get("adaptation_note") or "").strip() for r in rows]
+    notes = [_row_note(r) for r in rows]
     keyword_counts: Counter[str] = Counter()
     keyword_examples: dict[str, list[str]] = defaultdict(list)
     for note in notes:
