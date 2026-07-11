@@ -64,9 +64,8 @@ h1,h2,.display{font-family:'Titan One',cursive;letter-spacing:.5px}
 /* ---------- BATTLEFIELD [spec: colosseum bg + 3 left/right zones] ---------- */
 .arena{position:relative;border:4px solid var(--ink);border-radius:24px;overflow:hidden;
   background:
-    radial-gradient(circle at 50% 118%, #D9C08B 0 46%, transparent 46.5%),
     repeating-linear-gradient(90deg,var(--stone) 0 46px,#BBA476 46px 52px) 0 0/100% 88px no-repeat,
-    linear-gradient(#F3E3B5 88px, var(--sand) 89px);
+    linear-gradient(#F3E3B5 88px, var(--sand) 89px); /* floor = uniform canvas_background_color, no vignettes */
   height:340px;
 }
 /* stand-in colosseum arches — real arena_background image replaces all of this */
@@ -84,10 +83,14 @@ h1,h2,.display{font-family:'Titan One',cursive;letter-spacing:.5px}
   border-radius:10px;padding:1px 9px;white-space:nowrap}
 
 /* ---------- FIGHTER SPRITES [spec: persistent ACTION image is the sprite] ---------- */
-.fighter{position:relative;width:110px;text-align:center;transition:transform .3s}
-.fighter svg{width:100%;height:auto;filter:drop-shadow(2px 3px 0 #00000025)}
-.nametag{font-family:'Titan One';font-size:11.5px;background:#fff;border:2.5px solid var(--ink);
-  border-radius:9px;padding:1px 4px;display:inline-block;margin-top:-4px}
+.fighter{position:relative;width:110px;text-align:center;transition:transform .3s;
+  display:flex;flex-direction:column;align-items:center}
+/* no drop shadow / card behind the sprite: the drawing's own background is
+   canvas_background_color, so it must blend invisibly into the arena floor */
+.fighter svg{width:100%;height:auto}
+.nametag{order:-1;/* name bubble floats ABOVE the character image */
+  font-family:'Titan One';font-size:11.5px;background:#fff;border:2.5px solid var(--ink);
+  border-radius:9px;padding:1px 4px;display:inline-block;margin-bottom:3px;z-index:2}
 .hpbar{height:9px;border:2px solid var(--ink);border-radius:6px;background:#fff;margin-top:3px;overflow:hidden}
 .hpbar i{display:block;height:100%;background:var(--heal)}
 .hp-low i{background:var(--dmg)}
@@ -239,7 +242,7 @@ footer{grid-column:1/-1;font-size:11px;font-weight:700;opacity:.6;text-align:cen
 </main>
 
 <footer>
-  Mockup notes — configs demonstrated: arena_background · reveal_action_zoom_scale/seconds (Stabby) ·
+  Mockup notes — sprites have NO shadow/card (PNG bg blends into uniform sand floor); name bubbles sit ABOVE sprites. Configs demonstrated: arena_background · reveal_action_zoom_scale/seconds (Stabby) ·
   impact borders (Blob = red+shake, Gerald = blue+pop) · float_number_seconds (crit oversized) ·
   initiative rail w/ stat strips (Lawnmower 💪 pulsing = montage change) · persistent action sprites ·
   speaker-tagged beats · HP + audience meters. Knot positions come from reveal_step meter values.
