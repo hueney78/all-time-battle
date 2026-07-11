@@ -51,6 +51,11 @@ def decode(raw: str) -> Envelope | None:
 # ---------------------------------------------------------------------------
 class C2S:
     JOIN = "join"
+    # COMBAT V2: an action round submits the tapped move + target + drawing in
+    # one message. The server validates the tap (no-repeat, edge legality,
+    # living target) and answers with an `action_rejected` toast on failure.
+    SUBMIT_ACTION = "submit_action"
+    # Character/montage/gremlin drawings (no move tap).
     SUBMIT_DRAWING = "submit_drawing"
     SUBMIT_HINT = "submit_hint"
     START_GAME = "start_game"
@@ -93,6 +98,16 @@ class SubmitDrawingMsg(BaseModel):
     png_base64: str = ""
 
 
+class SubmitActionMsg(BaseModel):
+    """COMBAT V2 action submission: the tapped move + target are ground truth
+    from the phone; the drawing supplies creativity/flavor only."""
+
+    round: int = 0
+    png_base64: str = ""
+    move_id: str = ""             # a moves.yaml key; "" = no tap → stumble
+    target_id: str | None = None  # enemy or ally portrait tapped, move-dependent
+
+
 class SubmitHintMsg(BaseModel):
     hint: str = ""
 
@@ -100,6 +115,7 @@ class SubmitHintMsg(BaseModel):
 # Parsers keyed by incoming type. Returns a validated model or None.
 _C2S_MODELS: dict[str, type[BaseModel]] = {
     C2S.JOIN: JoinMsg,
+    C2S.SUBMIT_ACTION: SubmitActionMsg,
     C2S.SUBMIT_DRAWING: SubmitDrawingMsg,
     C2S.SUBMIT_HINT: SubmitHintMsg,
 }

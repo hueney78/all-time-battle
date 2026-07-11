@@ -381,17 +381,42 @@ async def test_full_4player_mock_game_reaches_victory_over_websockets():
         players.append(s)
 
     async def player_driver(sock: FakeSocket) -> Envelope:
+        # A dumb phone: remembers its latest button grid and taps the first
+        # legal attack each action round (exercising the submit_action path);
+        # once KO'd it draws hazards like a proper Gremlin.
+        moves: list[dict] = []
+        is_ko = False
         while True:
             env = await sock.client_recv()
             if env.type == "game_over":
                 return env
+            if env.type == "player_state":
+                moves = env.payload.get("moves") or moves
+                is_ko = bool(env.payload.get("is_ko"))
             if env.type == "phase_change" and env.payload.get("phase") in (
-                "draw_characters", "draw_action", "montage",
+                "draw_characters", "montage",
             ):
                 sock.client_send("submit_drawing", {
                     "phase": env.payload["phase"],
                     "round": env.payload["round"],
-                    "png_base64": "doodle",   # non-blank → the mock attacks / upgrades
+                    "png_base64": "doodle",   # non-blank → the mock upgrades
+                })
+            elif env.type == "phase_change" and env.payload.get("phase") == "draw_action":
+                if is_ko:   # Gremlins draw hazards, no move tap
+                    sock.client_send("submit_drawing", {
+                        "phase": "draw_action",
+                        "round": env.payload["round"],
+                        "png_base64": "doodle",
+                    })
+                    continue
+                pick = next((m for m in moves
+                             if not m["disabled"] and m["target"] in ("single_enemy",
+                                                                      "zone_all")), None)
+                sock.client_send("submit_action", {
+                    "round": env.payload["round"],
+                    "png_base64": "doodle",
+                    "move_id": pick["id"] if pick else "",
+                    "target_id": None,      # server redirects to the nearest enemy
                 })
 
     montages_seen: list[Envelope] = []
@@ -422,6 +447,133 @@ async def test_full_4player_mock_game_reaches_victory_over_websockets():
         s.client_disconnect()
     host.client_disconnect()
     await asyncio.wait_for(asyncio.gather(*conn_tasks, return_exceptions=True), timeout=5.0)
+
+
+async def test_submit_action_validates_no_repeat_edge_and_dead_target():
+    """The server owns the tap rules (COMBAT V2 §4): no combat-move repeats,
+    no movement off the arena edge, no dead targets. Rejections answer with an
+    action_rejected toast and leave the round unsubmitted."""
+    from server.protocol import SubmitActionMsg
+
+    rules = _rules()
+    room = Room("TEST", rules)
+    sock = FakeSocket()
+    p = room.add_player("Alice", "player", sock, None)
+    other_sock = FakeSocket()
+    o = room.add_player("Bob", "player", other_sock, None)
+    machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
+
+    ca = Character(player_id=p.id, name="Alice", stats=Stats(power=2, speed=2, weird=4),
+                   hp=20, max_hp=20, ac=13, zone_id="glitter_back", last_move_id="smash")
+    cb = Character(player_id=o.id, name="Bob", stats=Stats(power=2, speed=2, weird=4),
+                   hp=0, max_hp=20, ac=13, zone_id="thunder_back",
+                   is_ko=True, is_gremlin=True)
+    machine.state = GameState(room_id="TEST", characters={p.id: ca, o.id: cb},
+                              teams=room.teams)
+    machine._phase = "draw_action"
+    machine._expected = {p.id}
+    machine._collected = set()
+
+    async def rejected(move_id, target_id=None):
+        await machine.submit_action(
+            p.id, SubmitActionMsg(round=2, png_base64="x",
+                                  move_id=move_id, target_id=target_id))
+        env = await asyncio.wait_for(sock.client_recv(), 1.0)
+        assert env.type == "toast" and env.payload["kind"] == "action_rejected"
+        assert p.id not in machine._action_taps and p.id not in machine._collected
+
+    await rejected("smash")                    # no-repeat
+    await rejected("move_l")                   # arena edge (glitter_back is leftmost)
+    await rejected("blast", target_id=o.id)    # dead target
+    await rejected("nonsense")                 # unknown move
+
+    # A legal tap is recorded and counts as this player's submission.
+    await machine.submit_action(
+        p.id, SubmitActionMsg(round=2, png_base64="x", move_id="trick", target_id=None))
+    assert machine._action_taps[p.id] == ("trick", None)
+    assert p.id in machine._collected
+
+    # Gremlins can't tap moves at all.
+    machine._expected = {o.id}
+    machine._collected = set()
+    await machine.submit_action(
+        o.id, SubmitActionMsg(round=2, png_base64="x", move_id="trick"))
+    env = await asyncio.wait_for(other_sock.client_recv(), 1.0)
+    assert env.type == "toast" and "Gremlin" in env.payload["message"]
+
+    # An empty tap (timer auto-submit) is accepted — the fighter stumbles.
+    machine._expected = {p.id}
+    machine._collected = set()
+    machine._action_taps.clear()
+    await machine.submit_action(p.id, SubmitActionMsg(round=2, png_base64="x"))
+    assert p.id in machine._collected and p.id not in machine._action_taps
+
+
+async def test_player_state_ships_move_buttons_with_live_math():
+    """player_state carries the eight-button grid with this character's live
+    math and disabled states — the phone renders, the server decides."""
+    rules = _rules()
+    room = Room("TEST", rules)
+    sock = FakeSocket()
+    p = room.add_player("Alice", "player", sock, None)
+    machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
+
+    ch = Character(player_id=p.id, name="Alice", stats=Stats(power=6, speed=2, weird=1),
+                   hp=32, max_hp=32, ac=12, zone_id="glitter_back", last_move_id="smash")
+    machine.state = GameState(room_id="TEST", characters={p.id: ch}, teams=room.teams)
+
+    await machine._send_player_state(p.id)
+    env = await asyncio.wait_for(sock.client_recv(), 1.0)
+    assert env.type == "player_state"
+    assert env.payload["last_move_id"] == "smash"
+    moves = {m["id"]: m for m in env.payload["moves"]}
+    assert set(moves) == {"smash", "blast", "trick", "shield", "rally", "wild",
+                          "move_l", "move_r"}
+    assert moves["smash"]["math"] == "4d4+2"        # POW 6 → live math on the label
+    assert moves["trick"]["math"] == "1d6+1"        # WRD 1
+    assert moves["rally"]["math"].endswith("1d6+2")  # heal formula, ♥-prefixed
+    assert moves["smash"]["disabled"] and moves["smash"]["disabled_reason"] == "no_repeat"
+    assert moves["move_l"]["disabled"] and moves["move_l"]["disabled_reason"] == "edge"
+    assert not moves["move_r"]["disabled"]
+    assert not moves["blast"]["disabled"]
+
+
+async def test_taps_flow_through_to_classification():
+    """The tapped move + target recorded at submit time reach the AI provider
+    (and thus the resolver) untouched."""
+    from server.protocol import SubmitActionMsg
+
+    rules = _rules()
+    room = Room("TEST", rules)
+    a_sock, b_sock = FakeSocket(), FakeSocket()
+    a = room.add_player("A", "player", a_sock, None)
+    b = room.add_player("B", "player", b_sock, None)
+    machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.05))
+
+    ca = Character(player_id=a.id, name="A", stats=Stats(power=2, speed=3, weird=4),
+                   hp=24, max_hp=24, ac=13, zone_id="glitter_back")
+    cb = Character(player_id=b.id, name="B", stats=Stats(power=2, speed=1, weird=4),
+                   hp=24, max_hp=24, ac=11, zone_id="thunder_back")
+    machine.state = GameState(room_id="TEST", characters={a.id: ca, b.id: cb},
+                              teams=room.teams)
+
+    async def drive():
+        await asyncio.sleep(0)   # let _draw_stage arm the collector
+        await machine.submit_action(a.id, SubmitActionMsg(
+            round=2, png_base64="doodle", move_id="trick", target_id=b.id))
+        await machine.submit_action(b.id, SubmitActionMsg(
+            round=2, png_base64="doodle", move_id="shield", target_id=b.id))
+
+    (pngs, taps), _ = await asyncio.gather(
+        machine._draw_stage(2, [a.id, b.id]), drive())
+    assert taps == {a.id: ("trick", b.id), b.id: ("shield", b.id)}
+
+    from server.state_machine import _Drawn
+    processed = await machine._process_round(
+        _Drawn(2, pngs, [a.id, b.id], [], taps=taps))
+    by_pid = {act.player_id: act for act in processed.actions}
+    assert by_pid[a.id].move_id == "trick" and by_pid[a.id].target_id == b.id
+    assert by_pid[b.id].move_id == "shield"
 
 
 def test_mock_respects_taps_and_blank_canvas_scores_zero():

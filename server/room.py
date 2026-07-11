@@ -22,6 +22,7 @@ from server.protocol import (
     C2S,
     S2C,
     JoinMsg,
+    SubmitActionMsg,
     SubmitDrawingMsg,
     SubmitHintMsg,
     decode,
@@ -255,6 +256,10 @@ class RoomManager:
             parsed = parse_payload(C2S.SUBMIT_HINT, payload)
             if isinstance(parsed, SubmitHintMsg):
                 player.hint = parsed.hint
+        elif msg_type == C2S.SUBMIT_ACTION:
+            parsed = parse_payload(C2S.SUBMIT_ACTION, payload)
+            if isinstance(parsed, SubmitActionMsg) and room.machine is not None:
+                await room.machine.submit_action(player.id, parsed)
         elif msg_type == C2S.SUBMIT_DRAWING:
             parsed = parse_payload(C2S.SUBMIT_DRAWING, payload)
             if isinstance(parsed, SubmitDrawingMsg) and room.machine is not None:

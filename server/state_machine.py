@@ -39,11 +39,12 @@ from server.ai.provider import (
     Narration,
 )
 from server.config import GameRules
-from server.engine.dice import Dice
+from server.engine.dice import Dice, describe_formula
 from server.engine.models import Character, ClassifiedAction, Event, GameState, Phase
 from server.engine.resolver import resolve_round
+from server.engine.zones import ZoneRegistry
 from server.gallery import GalleryStore
-from server.protocol import S2C
+from server.protocol import S2C, SubmitActionMsg
 from server.snapshots import SnapshotWriter
 
 if TYPE_CHECKING:
@@ -77,12 +78,14 @@ _SAFETY_ROUND_CAP = 60  # guards against a pathological no-victory loop
 # ---------------------------------------------------------------------------
 @dataclass
 class _Drawn:
-    """Action drawings collected during a draw stage."""
+    """Action drawings + tapped moves collected during a draw stage."""
 
     round_num: int
     action_pngs: dict[str, str]
-    fighters: list[str]   # living fighters — drew a move this round
+    fighters: list[str]   # living fighters — tapped a move + drew this round
     gremlins: list[str]   # KO'd players — each drew one hazard this round
+    # COMBAT V2: pid → (move_id, target_id), server-validated at submit time.
+    taps: dict[str, tuple[str, str | None]] = field(default_factory=dict)
 
 
 @dataclass
@@ -112,6 +115,7 @@ class GameStateMachine:
         self.rules = rules
         self.balance = rules.balance
         self.ai = ai
+        self._zone_reg = ZoneRegistry(rules.zones)
         # Condition names tagged as negative — used to flag "hurt" reveal beats.
         self._debuffs = {n for n, c in rules.conditions.conditions.items() if c.debuff}
         self.timers = timers or Timers.from_settings(rules.settings.timers)
@@ -141,6 +145,8 @@ class GameStateMachine:
         # rounds keep their own snapshot, so this is only ever the round being
         # drawn right now (no cross-stage collision).
         self._action_pngs: dict[str, str] = {}
+        # COMBAT V2: the validated taps for the round being drawn right now.
+        self._action_taps: dict[str, tuple[str, str | None]] = {}
         # Separate live buffer for a Power-Up Montage sub-phase (never overlaps an
         # action draw — a player is in exactly one draw phase at a time).
         self._montage_pngs: dict[str, str] = {}
@@ -179,6 +185,48 @@ class GameStateMachine:
             await self._game_over()
 
     # -- inbound events (called from the connection dispatch) -------------
+    async def submit_action(self, player_id: str, msg: SubmitActionMsg) -> None:
+        """COMBAT V2 action submission: validate the tapped move + target
+        (no-repeat, edge legality, living target), then record it alongside
+        the drawing. An empty move_id (timer auto-submit with no tap) is
+        accepted — the fighter simply stumbles."""
+        if msg.move_id:
+            error = self.validate_tap(player_id, msg.move_id, msg.target_id)
+            if error is not None:
+                await self.room.send(player_id, S2C.TOAST,
+                                     {"message": error, "kind": "action_rejected"})
+                return
+            self._action_taps[player_id] = (msg.move_id, msg.target_id)
+        self._action_pngs[player_id] = msg.png_base64
+        self._note_submission(player_id)
+
+    def validate_tap(self, player_id: str, move_id: str,
+                     target_id: str | None) -> str | None:
+        """The server-side tap rules (§4): returns a player-facing error
+        message, or None when the tap is legal."""
+        move = self.rules.moves.moves.get(move_id)
+        if move is None:
+            return "That move doesn't exist."
+        if self.state is None or player_id not in self.state.characters:
+            # Round 1 is drawn while characters are still being generated —
+            # a first move needs no prior information (§2), so only the
+            # catalog check applies.
+            return None
+        ch = self.state.characters[player_id]
+        if ch.is_ko:
+            return "You can't fight right now — you're a Gremlin!"
+        if move.is_movement:
+            if self._zone_reg.step(ch.zone_id, move.move) is None:
+                return "You're at the arena edge — can't move that way."
+            return None
+        if move_id == ch.last_move_id:
+            return "No repeats! Pick a different move this round."
+        if target_id is not None:
+            target = self.state.characters.get(target_id)
+            if target is None or target.is_ko:
+                return "That target is already out of the fight."
+        return None
+
     def submit_drawing(self, player_id: str, msg) -> None:
         if self._phase == "draw_characters":
             p = self.room.participants.get(player_id)
@@ -236,12 +284,13 @@ class GameStateMachine:
         # no prior info), then the character intros play on the TV WHILE Round 1 is
         # processed — the intros mask Round 1's classify/resolve/narrate.
         r1_fighters, r1_gremlins = self._draw_roster()   # no chars yet → all players
-        intro_order, r1_pngs = await asyncio.gather(
+        intro_order, (r1_pngs, r1_taps) = await asyncio.gather(
             self._process_characters(),
             self._draw_stage(1, r1_fighters + r1_gremlins),
         )
         processed, _ = await asyncio.gather(
-            self._process_round(_Drawn(1, r1_pngs, r1_fighters, r1_gremlins)),
+            self._process_round(_Drawn(1, r1_pngs, r1_fighters, r1_gremlins,
+                                       taps=r1_taps)),
             self._reveal_intros(intro_order),
         )
         await self._reveal_round(processed)
@@ -254,10 +303,10 @@ class GameStateMachine:
         # process → reveal. Each move is on screen right after it's drawn.
         for round_num in range(2, _SAFETY_ROUND_CAP + 1):
             fighters, gremlins = self._draw_roster()
-            action_pngs = await self._draw_stage(round_num, fighters + gremlins)
+            action_pngs, taps = await self._draw_stage(round_num, fighters + gremlins)
             await self._deliberation_interlude(round_num, action_pngs)
             processed = await self._process_round(
-                _Drawn(round_num, action_pngs, fighters, gremlins)
+                _Drawn(round_num, action_pngs, fighters, gremlins, taps=taps)
             )
             await self._reveal_round(processed)
             if self._has_winner():
@@ -289,14 +338,17 @@ class GameStateMachine:
         gremlins = [pid for pid, ch in self.state.characters.items() if ch.is_gremlin]
         return fighters, gremlins
 
-    async def _draw_stage(self, round_num: int, living: list[str]) -> dict[str, str]:
+    async def _draw_stage(self, round_num: int,
+                          living: list[str]) -> tuple[dict[str, str],
+                                                      dict[str, tuple[str, str | None]]]:
         self._action_pngs = {}
+        self._action_taps = {}
         await self._enter_phase("draw_action", round_num=round_num,
                                 timeout=self.timers.draw_action)
         await self._send_canvas_inits()
         await self._broadcast_arena()
         await self._collect(living, self.timers.draw_action)
-        return dict(self._action_pngs)
+        return dict(self._action_pngs), dict(self._action_taps)
 
     # -- Power-Up Montage (GAME_DESIGN §10.1) -----------------------------
     async def _run_montage(self, round_num: int) -> None:
@@ -414,8 +466,14 @@ class GameStateMachine:
         assert self.state is not None
         state_for_round = self.state.model_copy(update={"round": drawn.round_num})
 
-        fighter_subs = {pid: ActionSubmission(pid, drawn.action_pngs.get(pid, ""))
-                        for pid in drawn.fighters}
+        fighter_subs = {
+            pid: ActionSubmission(
+                pid, drawn.action_pngs.get(pid, ""),
+                move_id=drawn.taps.get(pid, ("", None))[0],
+                target_id=drawn.taps.get(pid, ("", None))[1],
+            )
+            for pid in drawn.fighters
+        }
         actions = await asyncio.to_thread(
             self.ai.classify_actions, state_for_round, fighter_subs, drawn.round_num
         )
@@ -806,7 +864,39 @@ class GameStateMachine:
         if ch is None:
             return
         payload = _char_payload(ch, self.room.team_of(player_id))
+        # COMBAT V2: the phone's button grid — each move with this character's
+        # live math and its disabled state (no-repeat / arena edge).
+        payload["last_move_id"] = ch.last_move_id
+        payload["moves"] = self._moves_payload(ch)
         await self.room.send(player_id, S2C.PLAYER_STATE, payload)
+
+    def _moves_payload(self, ch: Character) -> list[dict]:
+        """The eight buttons for one character: label, live math ("4d4+2"),
+        targeting mode for the picker, and why a button is greyed out."""
+        env = {"POW": ch.stats.power, "SPD": ch.stats.speed, "WRD": ch.stats.weird}
+        out = []
+        for move_id, move in self.rules.moves.moves.items():
+            math = ""
+            if move.damage:
+                math = describe_formula(move.damage, env)
+            elif move.heal:
+                math = "♥ " + describe_formula(move.heal, env)
+            disabled_reason = None
+            if move.is_movement:
+                if self._zone_reg.step(ch.zone_id, move.move) is None:
+                    disabled_reason = "edge"
+            elif move_id == ch.last_move_id:
+                disabled_reason = "no_repeat"
+            out.append({
+                "id": move_id,
+                "button": move.button,
+                "desc": move.desc,
+                "math": math,
+                "target": move.target,
+                "disabled": disabled_reason is not None,
+                "disabled_reason": disabled_reason,
+            })
+        return out
 
     async def _broadcast_arena(self) -> None:
         await self.room.broadcast(S2C.ARENA_STATE, self._arena_payload())
