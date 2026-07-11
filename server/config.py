@@ -115,6 +115,8 @@ class UIConfig(BaseModel):
     canvas_background_color: str = "#E8D5A8"
     arena_background: str = ""
     action_canvas_character_scale: float = 0.5
+    montage_canvas_character_scale: float = 0.88
+    deliberation_filler_seconds: float = 3.5
     reveal_action_zoom_scale: float = 1.8
     reveal_action_zoom_seconds: float = 2.5
     float_number_seconds: float = 1.5

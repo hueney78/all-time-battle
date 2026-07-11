@@ -30,6 +30,8 @@ ui:
   canvas_background_color: "#E8D5A8"   # arena floor + drawing canvas + eraser fill
   arena_background: ""                 # optional custom arena image (empty = CSS colosseum)
   action_canvas_character_scale: 0.5   # prefill scale of the character on the action canvas
+  montage_canvas_character_scale: 0.88 # full-size prefill on the montage upgrade canvas
+  deliberation_filler_seconds: 3.5     # announcer filler line rotation during the interlude
   reveal_action_zoom_scale: 1.8        # how far the acting drawing zooms during its beat
   reveal_action_zoom_seconds: 2.5      # how long the zoom holds before settling
   float_number_seconds: 1.5            # floating damage/heal number lifetime
