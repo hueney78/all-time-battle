@@ -80,6 +80,9 @@ def test_settings_ui_tokens():
     assert s.ui.float_number_seconds == 1.5
     assert s.ui.audience_recent_rounds == 3
     assert s.ui.arena_background == ""
+    # Deliberation interlude + Power-Up Montage presentation knobs.
+    assert s.ui.montage_canvas_character_scale == 0.88
+    assert s.ui.deliberation_filler_seconds == 3.5
 
 
 def test_settings_ui_replay_and_splash_knobs():

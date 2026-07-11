@@ -73,6 +73,7 @@
         else if (this.bgSide === 'right') x = SIZE - w - margin;
         let y = SIZE - w - SIZE * 0.12;     // seat near the floor
         if (y < margin) y = margin;
+        if (y + w > SIZE) y = SIZE - w;     // a full-size character still fits
         ctx.drawImage(this.bg, x, y, w, w);
       }
       for (const s of this.strokes) this._paint(s);

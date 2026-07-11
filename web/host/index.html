@@ -121,6 +121,23 @@
     .floatnum.crit{font-size:38px}
     @keyframes floatup{0%{opacity:0; translate:0 14px}15%{opacity:1}100%{opacity:0; translate:0 -40px}}
 
+    /* deliberation interlude [the latency mask — every drawing side by side,
+       never a spinner; also fronts the montage's training interstitial] */
+    .delib{position:absolute; inset:0; z-index:15; display:none; flex-direction:column;
+      align-items:center; justify-content:center; gap:16px; background:#2B2338cc; padding:20px}
+    .delib.show{display:flex}
+    .delib .banner{font-family:'Titan One'; font-size:30px; color:var(--gold);
+      -webkit-text-stroke:1.5px var(--ink); background:var(--card); border:4px solid var(--ink);
+      border-radius:18px; padding:8px 26px; transform:rotate(-2deg)}
+    .delib .entries{display:flex; flex-wrap:wrap; gap:14px; justify-content:center; max-width:92%}
+    .delib .entry{background:var(--card); border:4px solid var(--ink); border-radius:16px;
+      padding:8px 8px 5px; text-align:center;
+      animation:entryin .4s cubic-bezier(.5,1.6,.4,1) backwards}
+    .delib .entry img{width:118px; height:118px; object-fit:contain; display:block;
+      background:var(--sand); border-radius:10px; border:2px solid var(--ink)}
+    @keyframes entryin{from{transform:scale(0) rotate(-6deg)}}
+    .delib .filler{font-weight:800; font-style:italic; color:#fff; font-size:17px; min-height:1.4em}
+
     /* COMBO! splash + REPLAY banner [round-loop presentation] */
     .splash{position:absolute; inset:0; display:grid; place-items:center; z-index:20;
       pointer-events:none; visibility:hidden}
@@ -213,6 +230,11 @@
       </div>
       <section class="arena" id="arena">
         <div class="splash" id="comboSplash"><span class="combotext"></span></div>
+        <div class="delib" id="delib">
+          <div class="banner" id="delibBanner"></div>
+          <div class="entries" id="delibEntries"></div>
+          <div class="filler" id="delibFiller"></div>
+        </div>
       </section>
       <section class="beatcard">
         <div id="beats"><span class="muted">Get ready…</span></div>
@@ -247,11 +269,31 @@
     const SPLASH_MS = (CFG.combo_splash_seconds || 2) * 1000;
     const STING = (CFG.audio || {}).events_sfx || {};   // event type → stinger clip
     const SCHEMING = ['Fighters scheming…', 'Pencils sharpening…', 'The crowd holds its breath…'];
+    const FILLER_MS = (CFG.deliberation_filler_seconds || 3.5) * 1000;
+    // Announcer filler during the deliberation interlude — the latency mask
+    // banter while the AI classifies/narrates (never a spinner).
+    const DELIB_FILLER = [
+      '“Bold strategy,” mutters the color commentator.',
+      'The judges squint at the doodles…',
+      'A judge turns one drawing upside down. It helps.',
+      'The crowd argues about brushwork.',
+      'Somewhere, a pencil is dramatically sharpened.',
+    ];
+    const MONTAGE_FILLER = [
+      '🎵 Doo doo doo… getting stronger… 🎵',
+      'Sweatbands have been located.',
+      'Inspirational guitar riff intensifies.',
+      'Someone is punching a side of beef.',
+    ];
+    const STAT_EMOJI = { power: '💪', speed: '⚡', weird: '🌀' };
 
     document.documentElement.style.setProperty('--sand', CFG.canvas_background_color || '#E8D5A8');
     document.documentElement.style.setProperty('--zoom', CFG.reveal_action_zoom_scale || 1.8);
 
     let sock, arena, audio, seq = null;
+    let fillerTimer = null;            // deliberation filler line rotation
+    let montageActive = false;         // suppress arena_state during the showcase
+    let montageHold = null;            //   …and apply the held payload after it
     let charById = {};                 // pid → latest character delta (merged)
     const railSlotEls = {};            // pid → rail slot element
     const prevStatsById = {};          // pid → last-seen stats (for change-pulse)
@@ -370,8 +412,47 @@
       typewrite(row.querySelector('.txt'), b.text);
     }
 
+    // ---- deliberation interlude ----
+    // The latency mask (GAME_DESIGN §2): the moment all drawings are in, show
+    // them side by side under the judges banner (or the montage's training
+    // interstitial) with rotating announcer filler — never a spinner. Ends when
+    // the reveal_step / montage_reveal lands.
+    function showDeliberation(p) {
+      if (seq) seq.stop();
+      const isMontage = p.kind === 'montage';
+      $('delibBanner').textContent = isMontage
+        ? '🎵 TRAINING MONTAGE 🎵' : '👩‍⚖️ The judges deliberate…';
+      const box = $('delibEntries');
+      box.innerHTML = '';
+      Object.entries(p.drawings || {}).forEach(([pid, png], idx) => {
+        const c = charById[pid] || {};
+        const e = document.createElement('div');
+        e.className = 'entry';
+        e.style.animationDelay = (idx * 0.12) + 's';   // drawings pop in one by one
+        e.innerHTML = '<img alt=""><span class="nametag"></span>';
+        e.querySelector('img').src = png;
+        e.querySelector('.nametag').textContent = shortName(c.name) || '???';
+        box.appendChild(e);
+      });
+      $('status').textContent = isMontage ? 'training…' : 'judging…';
+      setStatus(isMontage ? '🎵 The fighters hit the gym…' : 'The judges deliberate…');
+      const lines = isMontage ? MONTAGE_FILLER : DELIB_FILLER;
+      let i = Math.floor(Math.random() * lines.length);
+      const tick = () => { $('delibFiller').textContent = lines[i++ % lines.length]; };
+      clearInterval(fillerTimer);
+      tick();
+      fillerTimer = setInterval(tick, FILLER_MS);
+      $('delib').classList.add('show');
+    }
+    function hideDeliberation() {
+      clearInterval(fillerTimer);
+      fillerTimer = null;
+      $('delib').classList.remove('show');
+    }
+
     // ---- reveal sequencer ----
     function runReveal(payload) {
+      hideDeliberation();
       const beats = payload.beats || [];
       const pngs = payload.action_pngs || {};
       const finalById = {};
@@ -462,6 +543,57 @@
       playNext();
     }
 
+    // ---- Power-Up Montage reveal (S2) ----
+    // One showcase beat per upgrade: the upgraded drawing zooms up and becomes
+    // the character's sprite, the flavor line plays with a +1 stat tag, and the
+    // finale re-renders rail + arena so the stat strips pulse on the change.
+    function runMontage(payload) {
+      hideDeliberation();
+      const ups = payload.upgrades || [];
+      const finalChars = payload.characters || [];
+      $('roundHead').textContent = 'ROUND ' + payload.round;
+      $('roundTitle').textContent = '“Training Montage”';
+      $('status').textContent = 'montage';
+      $('nextBtn').classList.remove('hidden');
+      montageActive = true;
+      let i = 0, timer = null;
+      function playNext() {
+        if (i >= ups.length) return finish();
+        const u = ups[i++];
+        addBeat({ speaker: 'pbp',
+          text: (u.flavor || 'Upgraded!') + '  [+1 ' + (STAT_EMOJI[u.stat] || u.stat) + ']' });
+        if (u.png) arena.swapSprite(u.player_id, u.png);
+        arena.actUp(u.player_id, 1);
+        arena.impact(u.player_id, 'helped', 1);   // blue pop: this beat helped them
+        clearTimeout(timer);
+        timer = setTimeout(playNext, BEAT_MS);
+      }
+      function finish() {
+        clearTimeout(timer);
+        arena.settleAll();
+        montageActive = false;
+        finalChars.forEach(upsert);        // upgraded originals, +1 stats, HP deltas
+        applyArena(montageHold || { characters: finalChars });
+        montageHold = null;
+        $('nextBtn').classList.add('hidden');
+        setStatus('🎵 Stronger! Faster! Weirder!');
+        sock.send('next_beat');
+      }
+      seq = { advance: () => { clearTimeout(timer); playNext(); }, stop: () => clearTimeout(timer) };
+      playNext();
+    }
+
+    // Arena snapshots re-render the battlefield + rail; the montage showcase
+    // holds them back so the final state doesn't spoil the beat-by-beat play.
+    function applyArena(payload) {
+      const chars = payload.characters || [];
+      chars.forEach(upsert);
+      if (!arena.zoneIds.length) arena.setup(payload.zones || []);
+      if (chars.length) view('stage');
+      arena.render(chars);
+      renderRail(speedOrder());          // rail visible during drawing phases too
+    }
+
     // ---- messages ----
     function onMessage(m) {
       if (m.type === 'joined') {
@@ -482,21 +614,30 @@
           setStatus('Character creation');
         } else if (m.payload.phase === 'draw_action') {
           view('stage'); if (seq) seq.stop();
+          hideDeliberation();
           $('roundHead').textContent = 'ROUND ' + m.payload.round;
           $('status').textContent = 'drawing…';
           setStatus('Choose your move!');
           $('nextBtn').classList.add('hidden');
+        } else if (m.payload.phase === 'montage') {
+          view('stage'); if (seq) seq.stop();
+          hideDeliberation();
+          $('roundTitle').textContent = '';
+          $('status').textContent = 'montage drawing…';
+          setStatus('🎵 Upgrade your fighters! 🎵');
+          $('nextBtn').classList.add('hidden');
         }
       } else if (m.type === 'arena_state') {
-        const chars = m.payload.characters || [];
-        chars.forEach(upsert);
-        if (!arena.zoneIds.length) arena.setup(m.payload.zones || []);
-        if (chars.length) view('stage');
-        arena.render(chars);
-        renderRail(speedOrder());          // rail visible during drawing phases too
+        if (montageActive) { montageHold = m.payload; return; }
+        applyArena(m.payload);
+      } else if (m.type === 'deliberation') {
+        showDeliberation(m.payload);
+      } else if (m.type === 'montage_reveal') {
+        runMontage(m.payload);
       } else if (m.type === 'reveal_step') {
         runReveal(m.payload);
       } else if (m.type === 'game_over') {
+        hideDeliberation();
         view('over');
         const w = m.payload.winner_team_id;
         $('overTitle').textContent = w ? '🏆 ' + w + ' wins!' : 'Draw!';
