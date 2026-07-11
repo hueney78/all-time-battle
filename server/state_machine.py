@@ -533,8 +533,13 @@ class GameStateMachine:
 
     async def _pace_beats(self, n_beats: int) -> None:
         """Host paces beats client-side and signals completion; fall back to a
-        timeout so a missing/!clicking host never stalls the game."""
-        timeout = max(0.05, self.timers.reveal * max(1, n_beats))
+        timeout so a missing/!clicking host never stalls the game. Manual pacing
+        (ui.reveal_beat_seconds == 0 → host clicks every beat) gets a generous
+        per-beat grace so a host reading at their own pace is never cut off."""
+        per_beat = self.timers.reveal
+        if self.rules.settings.ui.reveal_beat_seconds <= 0:
+            per_beat = max(per_beat, 60.0)
+        timeout = max(0.05, per_beat * max(1, n_beats))
         try:
             await asyncio.wait_for(self._beat_done.wait(), timeout)
         except TimeoutError:

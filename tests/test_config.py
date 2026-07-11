@@ -77,6 +77,7 @@ def test_settings_ui_tokens():
     assert s.ui.action_canvas_character_scale == 0.5
     assert s.ui.reveal_action_zoom_scale == 1.8
     assert s.ui.reveal_action_zoom_seconds == 2.5
+    assert s.ui.reveal_beat_seconds == 6.0   # per-beat visual pace (0 = host clicks Next ▶)
     assert s.ui.float_number_seconds == 1.5
     assert s.ui.audience_recent_rounds == 3
     assert s.ui.arena_background == ""
@@ -109,6 +110,7 @@ def test_settings_ui_defaults_when_block_missing(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(cfg_mod, "CONFIG_DIR", tmp_path)
     s = cfg_mod.load_settings()
     assert s.ui.canvas_background_color == "#E8D5A8"  # default
+    assert s.ui.reveal_beat_seconds == 3.2            # UIConfig default
 
 
 # ---------------------------------------------------------------------------

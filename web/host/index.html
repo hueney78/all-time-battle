@@ -264,7 +264,9 @@
     const SERVER_LAN_IP = "__SERVER_LAN_IP__";
     const CFG = window.DOODLE_CONFIG || {};
     const $ = (id) => document.getElementById(id);
-    const BEAT_MS = 3200;          // client-side reveal pacing (host "next" overrides)
+    const REVEAL_SECS = CFG.reveal_beat_seconds ?? 3.2;   // per-beat visual pace (config ui.reveal_beat_seconds)
+    const MANUAL_BEATS = REVEAL_SECS <= 0;                // 0 → host clicks "Next ▶" for every beat
+    const BEAT_MS = REVEAL_SECS * 1000;                   // auto-advance delay (ignored when MANUAL_BEATS)
     const REPLAY_CFG = CFG.instant_replay || {};
     const SPLASH_MS = (CFG.combo_splash_seconds || 2) * 1000;
     const STING = (CFG.audio || {}).events_sfx || {};   // event type → stinger clip
@@ -457,7 +459,10 @@
       const pngs = payload.action_pngs || {};
       const finalById = {};
       (payload.characters || []).forEach(c => finalById[c.player_id] = c);
-      let i = 0, timer = null;
+      let i = 0, timer = null, pending = null;
+      // Queue the next step: auto-advance after BEAT_MS, or (manual mode) wait
+      // for the host to click "Next ▶". `pending` is what advance() runs.
+      function step(next) { clearTimeout(timer); pending = next; if (!MANUAL_BEATS) timer = setTimeout(next, BEAT_MS); }
       $('nextBtn').classList.remove('hidden');
       $('roundHead').textContent = 'ROUND ' + payload.round;
       $('roundTitle').textContent = payload.round_title ? ('“' + payload.round_title + '”') : '';
@@ -516,8 +521,7 @@
         playEffects(b, 1);
         beatSfx(b);
         [b.player_id, b.target_id, b.hurt, b.helped].forEach(p => { if (p) applyFinal(p); });
-        clearTimeout(timer);
-        timer = setTimeout(wantsReplay(b) ? () => playReplay(b) : playNext, BEAT_MS);
+        step(wantsReplay(b) ? () => playReplay(b) : playNext);
       }
       // Crit/KO beats replay once in slow-mo with the REPLAY banner (config
       // instant_replay) — pure presentation over the same beat data.
@@ -526,11 +530,10 @@
         $('replayBanner').classList.add('show');
         audio.play(STING.replay);
         playEffects(b, mult);
-        clearTimeout(timer);
-        timer = setTimeout(playNext, BEAT_MS);
+        step(playNext);
       }
       function finish() {
-        clearTimeout(timer); arena.settleAll();
+        clearTimeout(timer); pending = null; arena.settleAll();
         $('replayBanner').classList.remove('show');
         arena.render(payload.characters || []);   // settle to final state
         (payload.characters || []).forEach(upsert);
@@ -539,7 +542,7 @@
         setStatus(SCHEMING[Math.floor(Math.random() * SCHEMING.length)]);
         sock.send('next_beat');
       }
-      seq = { advance: () => { clearTimeout(timer); playNext(); }, stop: () => clearTimeout(timer) };
+      seq = { advance: () => { clearTimeout(timer); if (pending) pending(); }, stop: () => clearTimeout(timer) };
       playNext();
     }
 
@@ -556,7 +559,8 @@
       $('status').textContent = 'montage';
       $('nextBtn').classList.remove('hidden');
       montageActive = true;
-      let i = 0, timer = null;
+      let i = 0, timer = null, pending = null;
+      function step(next) { clearTimeout(timer); pending = next; if (!MANUAL_BEATS) timer = setTimeout(next, BEAT_MS); }
       function playNext() {
         if (i >= ups.length) return finish();
         const u = ups[i++];
@@ -565,11 +569,10 @@
         if (u.png) arena.swapSprite(u.player_id, u.png);
         arena.actUp(u.player_id, 1);
         arena.impact(u.player_id, 'helped', 1);   // blue pop: this beat helped them
-        clearTimeout(timer);
-        timer = setTimeout(playNext, BEAT_MS);
+        step(playNext);
       }
       function finish() {
-        clearTimeout(timer);
+        clearTimeout(timer); pending = null;
         arena.settleAll();
         montageActive = false;
         finalChars.forEach(upsert);        // upgraded originals, +1 stats, HP deltas
@@ -579,7 +582,7 @@
         setStatus('🎵 Stronger! Faster! Weirder!');
         sock.send('next_beat');
       }
-      seq = { advance: () => { clearTimeout(timer); playNext(); }, stop: () => clearTimeout(timer) };
+      seq = { advance: () => { clearTimeout(timer); if (pending) pending(); }, stop: () => clearTimeout(timer) };
       playNext();
     }
 
