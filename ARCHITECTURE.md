@@ -58,7 +58,7 @@ doodle-brawl/
 │   ├── main.py                # FastAPI app, routes, static file serving
 │   ├── room.py                # Room lifecycle, player registry, reconnection
 │   ├── protocol.py            # WebSocket message types (pydantic)
-│   ├── state_machine.py       # Game phases + pipeline orchestration (asyncio)
+│   ├── state_machine.py       # Game phases + sequential round loop (asyncio)
 │   ├── engine/
 │   │   ├── models.py          # GameState, Character, Team, ResolvedAction
 │   │   ├── dice.py            # Seeded RNG wrapper (injectable for tests)
@@ -99,26 +99,26 @@ Message catalog (subset):
 | C→S | `submit_hint` | character hint word/phrase (creation phase) |
 | S→C | `canvas_init` | your character PNG — preloaded onto the action canvas each round (also powers the "restore character" button client-side) |
 | S→C | `arena_state` | zone layout + each character's PNG and current zone (host renders this during drawing phases) |
-| S→C | `phase_change` | phase, round, deadline_ts |
+| S→C | `phase_change` | phase, round, deadline_ts, splash (per-role text; clients show it full-screen for `phase_splash_seconds` before the canvas; timer deadline excludes the splash) |
 | S→C | `reveal_step` | ordered narrative beats + state deltas + per-player **action PNGs** + the round's **initiative order** + **meter values** (team HP share, audience-favor score) — host paces these |
 | S→C | `player_state` | your character, HP, conditions, banked actions |
 | S→C | `error` / `toast` | message |
 
 ### 4.2 State Machine (`state_machine.py`)
-Phases: `LOBBY → DRAW_CHARACTERS → ROUND_LOOP(draw/process/reveal pipeline, with a MONTAGE sub-phase every N rounds) → GAME_OVER(finale → awards ceremony → match poster)`.
+Phases: `LOBBY → DRAW_CHARACTERS → ROUND_LOOP(draw → deliberate/process → reveal, with a MONTAGE sub-phase every N rounds) → GAME_OVER(finale → awards ceremony → match poster)`.
 
-The pipeline (from the design doc): players draw round *r+1* while the AI+engine process round *r* and the TV reveals round *r−1*. Concretely, three concurrent tracks per tick:
+Rounds are **strictly sequential** (design doc §2) — players see their move revealed immediately after drawing it:
 
 ```python
-# Pseudocode for one round tick
+# Pseudocode for one round
 async def round_tick(r):
-    draw_task    = collect_drawings(round=r+1, timeout=cfg.draw_seconds)
-    process_task = process_round(r)          # classify → resolve → narrate
-    reveal_task  = host_reveal(r - 1)        # plays buffered reveal on TV
-    await asyncio.gather(draw_task, process_task, reveal_task)
+    await collect_drawings(round=r, timeout=cfg.draw_seconds)  # resolves early when all submitted
+    host_show(DELIBERATION_INTERLUDE)     # TV: all submitted drawings side by side, announcer filler
+    result = await process_round(r)       # classify → resolve → narrate (starts the moment drawings are in)
+    await host_reveal(result)             # beats play; then next round's draw phase begins
 ```
 
-Special cases: round 1 is drawn during character processing; the character-intro reveal fills the round-2 drawing gap; teams are assigned at **lobby time** so collusion works from round 1. Timers auto-submit whatever is on the canvas (blank drawing = AI classifies as "hesitates dramatically," a 0-action stumble).
+The deliberation interlude, not concurrency, is the latency mask: processing typically takes a few seconds, the TV never shows a spinner, and the 20s AI timeout + fallback path bounds the worst case. One deliberate overlap remains, invisible to players: character generation runs while players draw Round 1 (the first move needs no prior information), and the character-intro reveal then masks Round 1's processing. Teams are assigned at **lobby time** so collusion works from round 1. Timers auto-submit whatever is on the canvas (unmodified prefill = AI classifies as "hesitates dramatically," a 0-action stumble).
 
 ### 4.3 Engine (`engine/`) — the maintainability core
 `resolver.py` exposes one pure function:
@@ -137,9 +137,9 @@ It handles: initiative, action-cost budgeting, combo bonuses, attack rolls with 
 Five call types, all with pydantic-validated JSON responses (via forced tool-use so output is guaranteed structured):
 
 1. **`generate_characters`** (Haiku, 1 call/game): all character PNGs as labeled image blocks → stats, personality, announcer intro per character.
-2. **`classify_actions`** (Haiku, 1 call/round): per player, a labeled **pair of images — the original character PNG and the action PNG** (the action canvas starts as the character, so the AI is told to interpret the *differences* as the action: added laser beams, erased limbs, a fully erased canvas = the character has vanished/is hiding). Plus compact game-state summary + drawing-round context ("players drew this before seeing round r−1") → per-player `ClassifiedAction` (**`catalog_id` from moves.yaml**, targets, action_cost 1–3, creativity_tier 0–3, condition suggestions from the allowed list, combo detection with leading move, stale-intent adaptation notes). The move catalog and its plain-language descriptions are injected into the prompt so the AI maps drawings — including spell-like ones (eye lasers → `ray`, radiating lines → `burst`) — onto known archetypes. Movement is expressed **relationally** (toward enemies / toward own backline / specific zone → concrete `move_to` id), never as absolute left/right; the validator enforces zone legality so a misread direction costs at most one zone step.
+2. **`classify_actions`** (Haiku, 1 call/round): per player, a labeled **pair of images — the original character PNG and the action PNG** (the action canvas starts as the character, so the AI is told to interpret the *differences* as the action: added laser beams, erased limbs, a fully erased canvas = the character has vanished/is hiding). Plus compact game-state summary → per-player `ClassifiedAction` (**`catalog_id` from moves.yaml**, targets, action_cost 1–3, creativity_tier 0–3, condition suggestions from the allowed list, combo detection with leading move, adaptation notes). The move catalog and its plain-language descriptions are injected into the prompt so the AI maps drawings — including spell-like ones (eye lasers → `ray`, radiating lines → `burst`) — onto known archetypes. Movement is expressed **relationally** (toward enemies / toward own backline / specific zone → concrete `move_to` id), never as absolute left/right; the validator enforces zone legality so a misread direction costs at most one zone step.
 3. **`narrate_round`** (Sonnet, 1 call/round, text-only): resolved `Event` list + personalities → comedic narrative broken into reveal beats aligned to event IDs, voiced as a two-announcer duo (optional `speaker` tag per beat for host styling and future TTS voices).
-4. **`classify_montage`** (Haiku, 1 call per montage, every `montage_every_rounds` rounds): per player, previous character image + updated montage image → which stat gets +1 and a flavor line; the updated image becomes the character's new original everywhere. Processed inside the next round's pipeline window.
+4. **`classify_montage`** (Haiku, 1 call per montage, every `montage_every_rounds` rounds): per player, previous character image + updated montage image → which stat gets +1 and a flavor line; the updated image becomes the character's new original everywhere. Masked by a “training montage” TV interstitial (same pattern as the deliberation interlude).
 5. **`generate_awards`** (Sonnet, 1 call/game, at victory): match summary (creativity data, fumbles, combos, best beats) → 5–7 awards `{title, player_id, blurb}`, every player receiving at least one.
 
 Reliability rules:
@@ -157,11 +157,11 @@ Reliability rules:
 
 ## 5. Data Flow — One Round, End to End
 
-1. Phones submit action PNGs (or timer fires) → server buffers by round. (Each canvas began as the player's character image, possibly modified or erased.)
+1. Phones submit action PNGs (or timer fires; processing starts the moment the last drawing arrives) → TV switches to the deliberation interlude showing all submitted drawings. (Each canvas began as the player's character image, possibly modified or erased.)
 2. `classify_actions` call with per-player character/action image pairs → validated `ClassifiedAction[]`.
 3. `resolve_round(state, actions, rng, cfg)` → `RoundResult{events, new_state}`.
 4. `narrate_round(events, personalities)` → beats keyed to event IDs.
-5. Result (beats + state deltas + the round's action PNGs for sprite-swapping) buffered; host plays it as the next reveal while phones draw the following round.
+5. Result (beats + state deltas + the round's action PNGs for sprite-swapping) sent to the host, which ends the deliberation interlude and plays the reveal immediately.
 6. State snapshot written to `snapshots/room-XXXX/round-N.json` (debug/replay).
 
 ## 6. Error Handling & Edge Cases
@@ -170,7 +170,7 @@ Reliability rules:
 |---|---|
 | Phone disconnects | player_id reconnect resumes seamlessly; if drawing missed, auto-submit blank |
 | Odd player counts | Teams balanced by count; 2-player = 1v1; config allows AI-controlled filler fighter (stretch) |
-| AI returns invalid target (dead/nonexistent) | Validator remaps per stale-intent rules (Design Doc §9) |
+| AI returns invalid target (dead/nonexistent) | Validator remaps per intent-adaptation rules (Design Doc §9) |
 | API down | Fallback classification + template narration; banner on host: "AI is napping — chaos mode" |
 | Host refresh | Host re-syncs full state on reconnect |
 | Inappropriate drawing/hint | AI classification includes `flagged` bool → server substitutes censored sprite and the AI generates a tame replacement name; family-friendly instructions in every prompt (players never type names — the AI names all characters) |

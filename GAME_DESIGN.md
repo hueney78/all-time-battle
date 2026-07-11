@@ -8,20 +8,17 @@ Doodle Brawl is a couch party game where your family's terrible drawings come to
 - **Session length target:** 15–25 minutes
 - **Tone:** family-friendly, chaotic, funny. The AI is a hype-man, never mean.
 
-## 2. Game Flow & the Prediction Pipeline
+## 2. Game Flow (sequential rounds)
 
-Players always draw one round ahead of what's being revealed. Drawings are **intents**, adapted by the AI to whatever reality looks like when they resolve. Predicting the battle *is* the strategy.
+Each round is strictly sequential and immediate — playtesting showed that people want their move on screen right after drawing it:
 
-| Tick | Players draw | System processes | TV reveals |
-|---|---|---|---|
-| T1 | Characters | — | Lobby / QR |
-| T2 | Round 1 | Character generation | "Warming up" filler |
-| T3 | Round 2 | Round 1 | **Character intros + teams recap** |
-| T4 | Round 3 | Round 2 | **Round 1** |
-| T5 | Round 4 | Round 3 | **Round 2** |
-| … | … | … | … |
+1. **Draw** — everyone sketches this round's action, with full knowledge of the current battle state.
+2. **Deliberation interlude** — the moment all drawings are in (often before the timer expires), the TV shows every submitted action drawing side by side under a "The judges deliberate…" banner while the AI classifies, the server resolves, and the narrator writes. Seeing everyone's drawings *is* the entertainment; the wait is typically a few seconds and never shows a spinner.
+3. **Reveal** — the round plays out beat by beat, then the next draw phase begins.
 
-Teams are assigned **in the lobby** (team colors on each phone) so teammates can scheme from the first drawing. Rounds 1–2 are drawn with limited info by design; from round 3 on you draw knowing results from two rounds back. When a team is defeated, remaining buffered reveals play out, then the finale.
+Two exceptions, both invisible to players: character generation runs while players draw Round 1 (their first move needs no prior information), so the character intros play immediately after Round 1 drawings are in — and Round 1's processing hides behind those intros. And each classify/narrate call starts the instant the last drawing arrives rather than waiting for the timer.
+
+Teams are assigned **in the lobby** (team colors on each phone) so teammates can scheme from the first drawing. When a team is defeated, the finale plays immediately.
 
 ## 3. Characters & Stats
 
@@ -256,14 +253,12 @@ Adding a condition = add a YAML block; the resolver applies `modifiers`/`tick_da
   - Combos are **not** `aid`: aid is the safe one-sided version (+2 to a teammate's roll while keeping your own small action and banking). Combo = all-in fusion; aid = supportive hedge. Both should see play.
 - **Rubber-banding (optional, on by default for kids):** losing team gets `underdog_bonus: +1` to attack rolls when down ≥ 2 characters' worth of HP share. Config flag.
 
-## 9. Stale Intents (the signature rule)
+## 9. Intent Adaptation (adapt, never reject)
 
-Drawings are made before the previous round's results are known. The AI must **adapt, never reject**:
-- Target dead or moved → redirect to the drawing's evident *intention* (nearest enemy in that zone, or narrate the whiff hilariously with a consolation `cost 1` effect).
-- Impossible action (you're Engulfed and drew a charge) → transform into the closest legal action ("charges... inside the blob. It tickles. 2 damage from within.")
+Drawings are ambiguous, targets sometimes fall to a faster teammate earlier in the same initiative order, and the classifier occasionally misreads. The rule stands regardless: the AI must **adapt, never reject**:
+- Target invalid by resolution time (KO'd earlier in the round, out of reach) → redirect to the drawing's evident *intention* (nearest enemy in that zone), or narrate the whiff hilariously with a consolation `cost 1` effect.
+- Impossible action given current conditions (you're Engulfed and drew a charge) → transform into the closest legal action ("charges... inside the blob. It tickles. 2 damage from within.")
 - The classification schema includes `adaptation_note` explaining any transformation — this feeds the narrator so the comedy lands.
-
-**Worked example (from the sample playthrough):** Zoe drew a horn-laser before knowing her unicorn would be swallowed. Classification kept `type: attack, subtype: weird`, validator confirmed target=Blob legal (she's inside it!), resolver rolled a crit with a point-blank tag, narrator: *"Princess Stabby fires the rainbow laser FROM INSIDE THE BLOB."* Stale drawing → best moment of the night.
 
 ## 10. KO & the Arena Gremlin
 
@@ -271,7 +266,7 @@ At 0 HP a character is KO'd (dramatic narrator send-off). The player immediately
 
 ### 10.1 The Power-Up Montage
 
-Every `montage_every_rounds: 3` rounds, after that round's reveal, surviving players get a `montage_seconds: 20` bonus phase: their canvas loads their **current original character at full size**, and they *add to it* — new armor, extra arms, a cape, flames. A montage AI call (piggybacked on the next round's processing window, so the pipeline absorbs it) classifies each addition and grants exactly **+1 to one stat**, chosen from what was drawn (spikes → Power, wings → Speed, a third eye → Weird). Everyone who adds anything gets exactly +1, so the montage is progression without imbalance; stat formula deltas apply (Power +1 → +2 max HP, healed). The updated drawing **becomes the character's new original everywhere** — action-canvas prefill, initiative rail, battlefield baseline — so characters visibly evolve across the match. A blank montage canvas grants nothing and earns narrator teasing. Montage response schema: `{player_id, stat: "power"|"speed"|"weird", flavor: "..."}` per player, validated like all AI output.
+Every `montage_every_rounds: 3` rounds, after that round's reveal, surviving players get a `montage_seconds: 20` bonus phase: their canvas loads their **current original character at full size**, and they *add to it* — new armor, extra arms, a cape, flames. A montage AI call (masked by a “🎵 training montage 🎵” TV interstitial, same pattern as the deliberation interlude) classifies each addition and grants exactly **+1 to one stat**, chosen from what was drawn (spikes → Power, wings → Speed, a third eye → Weird). Everyone who adds anything gets exactly +1, so the montage is progression without imbalance; stat formula deltas apply (Power +1 → +2 max HP, healed). The updated drawing **becomes the character's new original everywhere** — action-canvas prefill, initiative rail, battlefield baseline — so characters visibly evolve across the match. A blank montage canvas grants nothing and earns narrator teasing. Montage response schema: `{player_id, stat: "power"|"speed"|"weird", flavor: "..."}` per player, validated like all AI output.
 
 ### 10.2 Victory: Awards Ceremony & Match Poster
 
@@ -282,7 +277,7 @@ The server then composes a **match poster** (Pillow): arena background, final ch
 ## 11. AI Contract — Schemas
 
 ### 11.1 `classify_actions` (per round)
-Request contains, per living player, two labeled image blocks — `"p3 ORIGINAL CHARACTER"` and `"p3 ACTION THIS ROUND"` — plus compact state and pipeline context. The prompt instructs: *the action is what changed between the two images; the character is rendered at reduced scale on the action canvas; the canvas background is the arena floor color (`canvas_background_color`), not drawn content; erasures are meaningful; a background-only canvas means the character vanished.*
+Request contains, per living player, two labeled image blocks — `"p3 ORIGINAL CHARACTER"` and `"p3 ACTION THIS ROUND"` — plus compact game-state context. The prompt instructs: *the action is what changed between the two images; the character is rendered at reduced scale on the action canvas; the canvas background is the arena floor color (`canvas_background_color`), not drawn content; erasures are meaningful; a background-only canvas means the character vanished.*
 
 **Movement is relational, never absolute.** The prompt includes the zone layout, each character's current zone, and each team's side, and the AI never reasons in "left/right" — it interprets drawn movement as *toward enemies*, *toward own backline*, or *to a specific zone*, outputting a concrete `move_to` zone id. When direction is genuinely unreadable, defaults apply: aggressive-looking movement (speed lines, charging posture, drawn toward a target) → toward the nearest enemy; fleeing cues (sweat drops, looking backward, cowering) → toward own backline. The validator then enforces that `move_to` is a legal, adjacency-reachable zone — a misread direction can cost one zone of position, never a teleport, and the narrator plays confident wrong-way charges for laughs. Response:
 ```json
@@ -326,7 +321,7 @@ Request: ordered engine `events` (JSON), personalities, adaptation notes, tone g
 Every beat maps to event IDs so the host screen syncs text with HP-bar animations. Narration is **derived from resolved events** — it cannot change outcomes.
 
 ### 11.3 Prompt templates (Jinja2, in `config/prompts/`)
-Each template receives: rules summary, zone list, condition palette, compact state, and hard instructions: family-friendly; judge ideas not art skill; never invent conditions/targets; always adapt stale intents; return only the tool call. Rules text is stable → sent with prompt caching.
+Each template receives: rules summary, zone list, condition palette, compact state, and hard instructions: family-friendly; judge ideas not art skill; never invent conditions/targets; always adapt rather than reject (§9); return only the tool call. Rules text is stable → sent with prompt caching.
 
 **The comedy mandate (narrator prompt).** Plain play-by-play is banned: *"never write 'X attacks Y' when you could write how it went sideways."* Concretely, the narrator template instructs:
 - Every beat needs at least one comedic specific — a prop, a sound effect, a bystander reaction, a physics indignity ("the mower coughs. A pigeon judges him.")
@@ -347,6 +342,7 @@ Given seed `42`, Round 2 of the sample playthrough fixture (4 players, states as
 
 ## 13. UX Details
 
+- **Phase splash:** every drawing phase opens with a ~2s full-screen announcement on **all phones and the TV simultaneously** (config `phase_splash_seconds`, text map in settings.yaml): "Draw your Character!", "Round N — Draw your Move!", "🎵 Upgrade your Character! 🎵" (montage), and per-role text — KO'd players see "Draw a Hazard, Gremlin! 😈". Big display type, whoosh stinger, tap-to-skip on phones; the draw timer starts only after the splash ends.
 - Draw timer: 75s actions, 90s characters (config). 10s warning pulse. Auto-submit on expiry (whatever is on the canvas — which is at minimum the preloaded character, classified as a comedic idle).
 - Action canvas: **background color defaults to the arena floor color** (`canvas_background_color: "#E8D5A8"`, shared token with the host battlefield) so submitted drawings blend into the battlefield instead of floating as white rectangles; the classifier prompt states the canvas background color so it's never read as drawn content. Preloaded with the player's character at ~50% scale, positioned on their team's side, with an orientation ribbon ("your side ⟵ ⟶ enemies") matching the TV's layout; "restore character" button; pen (3 widths, 8 colors), erasers in multiple sizes, undo, clear. Erasers restore the canvas background color, not white. Character creation screen adds the hint text field ("a word or phrase to inspire the AI").
 - Phone status card always shows: your sprite, **your stats (💪 Power / ⚡ Speed / 🌀 Weird, icon + number)**, HP hearts, condition emojis, banked actions, team color, "you are drawing for Round N." Stat values pulse briefly when they change (montage, transform).

@@ -68,7 +68,7 @@ Acceptance: `pytest` green; coverage of `engine/` ≥ 90%.
 
 Tasks:
 - Room lifecycle with 4-letter codes; join/reconnect via localStorage `player_id`; roles player/host; message protocol per ARCHITECTURE.md §4.1 (typed pydantic, versioned envelope).
-- State machine skeleton: LOBBY → DRAW_CHARACTERS → round loop → GAME_OVER, with timers and auto-submit; pipeline orchestration via asyncio.gather per §4.2 (AI calls stubbed to instant mocks for now).
+- State machine skeleton: LOBBY → DRAW_CHARACTERS → round loop → GAME_OVER, with timers and auto-submit; sequential draw → deliberate/process → reveal loop per ARCHITECTURE.md §4.2 (AI calls stubbed to instant mocks for now).
 - Snapshot writer (JSON per round) + `AI_MODE=mock` fixtures.
 - Tests: state-machine transitions with fake clocks; reconnect mid-phase; two simulated websocket clients complete a full mock game.
 
@@ -100,7 +100,7 @@ Tasks:
 - Prompt templates per GAME_DESIGN.md §11.3, injecting zones/conditions/rules from config so YAML edits automatically reach the AI. Include the **comedy mandate** in the narrator template (no plain "A punches B" — every beat gets a comedic specific; misses/fumbles escalate; callbacks encouraged; mock situations, never drawing skill).
 - `generate_characters`: input is drawing + **player hint phrase**; output includes the **AI-generated funny name** (grand names for elaborate drawings, deadpan names like "Tim" for bland ones).
 - `classify_actions`: send per-player **character/action image pairs** with labels; inject the **move catalog with plain-language descriptions** so every drawing (including spell-like ones — eye lasers → `ray`, radiating lines → `burst`) maps to a `catalog_id`; prompt instructs the AI to classify the *difference* between the images (noting the character is rendered at reduced scale on the action canvas), treat erasures as meaningful, and interpret a fully erased character as `hide` or `stumble` — never reject a drawing. **Movement semantics are relational** (toward enemies / toward own backline / specific zone), never absolute left/right; include zone layout, current positions, and team sides in the prompt, with defaults: aggressive-looking movement → toward nearest enemy, fleeing cues → toward own backline. Validator enforces `move_to` adjacency-legality.
-- Validators: unknown targets/conditions remapped per stale-intent rules; `flagged` handling (censor sprite + AI-chosen tame name; covers both drawings and hint text).
+- Validators: unknown targets/conditions remapped per intent-adaptation rules; `flagged` handling (censor sprite + AI-chosen tame name; covers both drawings and hint text).
 - **Wildcard logging:** append every `wildcard` classification to `snapshots/<room>/wildcards.jsonl` (round, action PNG path, adaptation_note) so the human can mine playtests for new catalog archetypes.
 - Fallback path (neutral classification + template narration) with a visible host banner.
 - Tests: schema validation against recorded fixtures; repair-retry path; fallback path; a `scripts/ai_smoke.py` that sends one fixture drawing live and prints the parsed result + cost.
@@ -126,16 +126,16 @@ From here, remaining work (the old Phases 6–8) is organized as **two parallel 
 | S4 | Gallery data | `gallery/` persistence + roster in host bootstrap payload | stands spectators rendering |
 
 **Joint milestones** (both tracks merged, human checkpoint):
-- **M1 — "It's a real game":** full live 6-player game with no visible waits (slow-AI test green). Family playtest; tune balance.yaml.
+- **M1 — "It's a real game":** full live 6-player game where every wait is masked by the deliberation interlude (slow-AI test green). Family playtest; tune balance.yaml.
 - **M2 — "It's a show":** announcer duo, replay, montage, awards, poster, audio all live. Family playtest #2.
 - **M3 — "It has history":** gallery across two consecutive games (old Phase 8 acceptance). Watch whether kids notice their old characters. (They will.)
 
 ## 8. Track A — Server & AI
 
-1. **Pipeline wiring:** draw r+1 ‖ process r ‖ reveal r−1, including the T2/T3 special cases (characters process during Round 1 drawing; intros reveal during Round 2 drawing). Tests: pipeline ordering under slow-AI simulation (inject 15s delay — must not stall or reveal out of order).
+1. **Sequential round loop:** draw → deliberation interlude → reveal, with processing starting the moment the last drawing arrives; the one hidden overlap is character generation during Round 1 drawing, so intros mask Round 1 processing. Tests: slow-AI simulation (inject 15s delay — TV shows the interlude, never a spinner or stall; 20s timeout triggers the fallback path).
 2. **Round-loop server logic:** Arena Gremlin flow; combo fusion resolution; underdog rubber-banding; sudden death.
 3. **Announcer duo (→S1):** rewrite the narrate template as two bantering personas (play-by-play + deadpan color commentator); beats gain optional `speaker` field; update mock fixtures.
-4. **Power-up montage server side (→S2)** (GAME_DESIGN §10.1): MONTAGE sub-phase every `montage_every_rounds` rounds; `classify_montage` call processed in the next pipeline window; +1 stat with formula deltas; updated image becomes the new original everywhere server-side (canvas_init, rail data, sprite baseline). Test: montage insertion doesn't stall the pipeline.
+4. **Power-up montage server side (→S2)** (GAME_DESIGN §10.1): MONTAGE sub-phase every `montage_every_rounds` rounds; `classify_montage` call masked by the training-montage interstitial; +1 stat with formula deltas; updated image becomes the new original everywhere server-side (canvas_init, rail data, sprite baseline). Test: montage insertion doesn't stall the round loop.
 5. **Victory server side (→S3)** (GAME_DESIGN §10.2): `generate_awards` call (every player gets at least one award); Pillow-composed match poster saved to `snapshots/<room>/poster.png`; both in the game-over payload.
 6. **Gallery backend (→S4)** (GAME_DESIGN §15): persist characters to `gallery/` (PNG + JSON, config cap, `gallery_enabled`); inject 2–3 gallery names into narrate prompt for cameos; gallery roster in host bootstrap.
 7. **Ongoing:** port `balance_sim` to run against the real engine/configs; mine `wildcards.jsonl` after playtests for new `moves.yaml` archetypes.
@@ -143,7 +143,7 @@ From here, remaining work (the old Phases 6–8) is organized as **two parallel 
 ## 9. Track B — Presentation
 
 1. **Mockup reconciliation:** anything in `design/mockup_host_screen.html` / `design/mockup_player_screen.html` not yet matching the built pages (persistent action sprites, zoom, impact borders, floating numbers, initiative rail + stat strips, tug-of-war meters, canvas background color).
-2. **Round-loop presentation:** "COMBO!" splash with combo_name; latency-masking fillers ("fighters scheming…" — reveal never shows a spinner); **instant replay** (crit/KO beats replay in slow-mo with REPLAY banner; `instant_replay` config).
+2. **Round-loop presentation:** **phase splash** (“Draw your Move!” etc. on all phones + TV simultaneously from `phase_change.splash`; per-role Gremlin text; tap-to-skip; timer starts after); "COMBO!" splash with combo_name; the **deliberation interlude** (all submitted action drawings side by side, "The judges deliberate…" banner, announcer filler — never a spinner); **instant replay** (crit/KO beats replay in slow-mo with REPLAY banner; `instant_replay` config).
 3. **Speaker-styled beats (S1):** pbp/color chips and styling per the mockup.
 4. **Montage UI (S2):** full-size character canvas mode with montage timer; stat change-pulse on phone card and rail.
 5. **Victory screen (S3):** awards played one at a time with enlarged drawings; poster download link/QR; "joins the Hall of Doodles" flourish.
@@ -161,3 +161,4 @@ From here, remaining work (the old Phases 6–8) is organized as **two parallel 
 | State machine | Fake clock, simulated clients, full mock games |
 | AI layer | Fixture-based schema tests; repair & fallback paths; live smoke script |
 | End-to-end | Scripted mock game over real websockets in CI; human couch playtests at checkpoints |
+
