@@ -162,6 +162,8 @@
     const CFG = window.DOODLE_CONFIG || {};
     const SAND = CFG.canvas_background_color || '#E8D5A8';
     const ACTION_SCALE = CFG.action_canvas_character_scale || 0.5;
+    const MONTAGE_SCALE = CFG.montage_canvas_character_scale || 0.88;
+    const STAT_EMOJI = { power: '💪', speed: '⚡', weird: '🌀' };
     const COLORS = ['#2B2338','#E24FA0','#2F6FE0','#3FB65C','#F2B233','#8F5FD6','#FF8B4D','#ffffff'];
     const COND_EMOJI = {burning:'🔥',soggy:'💧',sticky:'🟢',prone:'🙃',frightened:'😱',
       embarrassed:'😳',enraged:'😡',sparkly:'✨',hidden:'👻',off_balance:'😵',
@@ -171,8 +173,8 @@
     const qs = new URLSearchParams(location.search);
     $('room').value = (qs.get('room') || '').toUpperCase();
 
-    let sock, pad, teamId = null, teamSide = 'left';
-    let phase = '', round = 0, characterPng = '';
+    let sock, pad, teamId = null, teamSide = 'left', myId = null;
+    let phase = '', round = 0, characterPng = '', isKo = false;
     let submitted = false, deadline = 0, timerHandle = null;
     let prevStats = null;
 
@@ -200,9 +202,15 @@
     function selColor(b){ document.querySelectorAll('.swatch').forEach(s=>s.classList.remove('sel')); if(b) b.classList.add('sel'); }
     function selTool(b){ document.querySelectorAll('[data-pen],[data-erase]').forEach(s=>s.classList.remove('sel')); if(b) b.classList.add('sel'); }
 
-    // Prefill the action canvas with the scaled character on the team's side.
+    // Prefill the canvas with the character: scaled onto the team's side for
+    // action rounds, full-size centered for the Power-Up Montage (§10.1).
     function loadCharacter(markClean) {
-      pad.loadImage(characterPng, { markClean: markClean, scale: ACTION_SCALE, side: teamSide });
+      const montage = phase === 'montage';
+      pad.loadImage(characterPng, {
+        markClean: markClean,
+        scale: montage ? MONTAGE_SCALE : ACTION_SCALE,
+        side: montage ? 'center' : teamSide,
+      });
     }
     function updateRibbon() {
       const home = '🏠 your side', foe = 'enemies 💥';
@@ -245,12 +253,15 @@
       submitted = false;
       show('draw');
       const isChar = kind === 'draw_characters';
+      const isMontage = kind === 'montage';
       $('hintWrap').classList.toggle('hidden', !isChar);
-      $('ribbon').classList.toggle('hidden', isChar);
+      $('ribbon').classList.toggle('hidden', isChar || isMontage);  // no sides in a montage
       $('restore').classList.toggle('hidden', isChar);
-      $('prompt').textContent = isChar ? 'Draw your fighter!' : 'Draw your move! (round ' + round + ')';
+      $('prompt').textContent = isChar ? 'Draw your fighter!'
+        : isMontage ? '🎵 Upgrade your fighter! Add armor, wings, flames… 🎵'
+        : 'Draw your move! (round ' + round + ')';
       if (isChar) { pad.bgSide = 'center'; pad.clear(); }
-      else { loadCharacter(true); }   // draw the move on top of the scaled character
+      else { loadCharacter(true); }   // draw the move/upgrade on top of the character
     }
 
     // ---- status card ----
@@ -287,6 +298,7 @@
         $('joinMsg').textContent = 'server: ' + (m.payload.message || '');
       } else if (m.type === 'joined') {
         localStorage.setItem('pid', m.payload.player_id);
+        myId = m.payload.player_id;
         teamId = m.payload.team_id;
         teamSide = teamId === 'team_b' ? 'right' : 'left';
         updateRibbon();
@@ -300,16 +312,32 @@
         if (t) { document.documentElement.style.setProperty('--team', t.color); $('teamName').textContent = t.name.toUpperCase(); }
       } else if (m.type === 'phase_change') {
         phase = m.payload.phase; round = m.payload.round;
-        $('roundLbl').textContent = round ? ('Drawing for Round ' + round) : 'Draw your fighter';
-        if (phase === 'draw_characters' || phase === 'draw_action') {
+        $('roundLbl').textContent = phase === 'montage' ? '🎵 Montage!'
+          : round ? ('Drawing for Round ' + round) : 'Draw your fighter';
+        if (phase === 'montage' && isKo) {
+          // KO'd players sit the montage out (Gremlins don't train).
+          show('wait');
+          $('waitTitle').textContent = 'Training montage 🎵';
+          $('waitMsg').textContent = 'The fighters are upgrading — watch the TV…';
+        } else if (phase === 'draw_characters' || phase === 'draw_action' || phase === 'montage') {
           enterDraw(phase);
           startTimer(m.payload.deadline_ts);
         }
       } else if (m.type === 'canvas_init') {
         characterPng = m.payload.png || '';
-        if (phase === 'draw_action' && pad && !pad.dirty) loadCharacter(true);
+        // The original evolves after a montage — keep the avatar in sync.
+        if (characterPng) $('avatar').style.backgroundImage = 'url(' + characterPng + ')';
+        if ((phase === 'draw_action' || phase === 'montage') && pad && !pad.dirty) loadCharacter(true);
       } else if (m.type === 'player_state') {
+        isKo = !!m.payload.is_ko;
         renderStatus(m.payload);
+      } else if (m.type === 'montage_reveal') {
+        const up = (m.payload.upgrades || []).find(u => u.player_id === myId);
+        if (up) {
+          show('wait');
+          $('waitTitle').textContent = '🎵 +1 ' + (STAT_EMOJI[up.stat] || up.stat) + '!';
+          $('waitMsg').textContent = up.flavor || 'Training complete!';
+        }
       } else if (m.type === 'reveal_step') {
         if (!submitted) return;
         show('wait');
