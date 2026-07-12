@@ -43,19 +43,19 @@ Copy `.env.example` → `.env` and add `ANTHROPIC_API_KEY` for live AI mode.
 
 **Core principle:** the AI judges (classifies drawings, writes narration), the server does all math. The engine never calls the AI; the AI never touches HP or dice.
 
-**Second principle:** every tunable value lives in `config/*.yaml`. Adding a zone, condition, or move archetype must require zero Python changes.
+**Second principle:** every tunable value lives in `config/*.yaml`. Adding a zone, hazard, or move archetype must require zero Python changes.
 
 ### Key components
 
 - **`server/engine/resolver.py`** — pure function `resolve_round(state, actions, rng, cfg) → RoundResult`. No I/O, no AI, no globals. Injected seeded RNG only. This is the maintainability core; every mechanic change needs a unit test. COMBAT V2 resolution: 2d6 + stat + creativity vs AC (10 + Speed); crit on natural 12 or margin ≥ 5; fumble on natural 2.
 
-- **`server/engine/`** — registries (`conditions.py`, `zones.py`, `moves.py`) load from YAML generically. Every tapped action resolves through its `moves.yaml` entry (stat, range, targeting, damage formula, riders). The resolver queries `registry.modifier(target, "attack_bonus")` — no if-statements for individual moves.
+- **`server/engine/`** — registries (`zones.py`, `moves.py`, `hazards.py`) load from YAML generically. Every tapped action resolves through its `moves.yaml` entry (stat, range, targeting, damage formula, riders like `ac_bonus`/`same_zone_penalty`) — no if-statements for individual moves. There is **no condition system** (removed in v2.1): SHIELD's +4 AC and movement's +1 dodge are round-local resolver state, never persisted.
 
 - **`server/ai/`** — Claude calls: `generate_characters` (Haiku, once — also returns AI team names), `classify_actions` (Haiku, per round), `narrate_round` (Sonnet, per round). Responses validated by pydantic with one repair retry; on total failure the tapped move still resolves at creativity 0 with template narration. **The game never deadlocks on the API.**
 
-- **`server/state_machine.py`** — sequential round loop (draw → deliberation interlude → reveal) plus server-side tap validation (no-repeat, edge legality, living targets) for `submit_action`.
+- **`server/state_machine.py`** — character intros play **before Round 1 drawing** (INTROS phase: drumroll interstitial masks `generate_characters`, then giant-sprite intro beats + team-name reveal), then the sequential round loop (draw → deliberation interlude → reveal) plus server-side tap validation (no-repeat, edge legality, living targets) for `submit_action`.
 
-- **`config/moves.yaml`** — COMBAT V2: exactly **eight tapped moves** (SMASH/BLAST/TRICK/SHIELD/RALLY/WILD CARD + ◀/▶ movement), each owning stat-parameterized formulas like `(1 + ceil(POW/2))d4 + 2`. Moves are tapped on the phone, never classified from drawings; the drawing supplies creativity, flavor, TRICK's condition, WILD CARD's interpretation, and combos only. WILD plays are logged to `snapshots/<room>/wildcards.jsonl` for data-driven archetype additions (`scripts/balance_sim.py` checks balance).
+- **`config/moves.yaml`** — COMBAT V2.1: exactly **eight tapped moves** (SMASH/BLAST/SHOOT/SHIELD/RALLY/WILD CARD + ◀/▶ movement), each owning stat-parameterized formulas like `(1 + ceil(POW/2))d4 + 2`. SHOOT hits any zone at half damage point-blank; SHIELD protects every ally in the caster's zone (+4 AC); RALLY heals `1d6 + CRE` (the creativity bonus). Moves are tapped on the phone, never classified from drawings; the drawing supplies creativity, flavor, WILD CARD's interpretation, and combos only. WILD plays are logged to `snapshots/<room>/wildcards.jsonl` for data-driven archetype additions (`scripts/balance_sim.py` checks balance).
 
 - **`web/`** — vanilla HTML/JS, no framework, no build step. Edit and refresh. Clients are dumb renderers; server is source of truth.
 
@@ -63,7 +63,7 @@ Copy `.env.example` → `.env` and add `ANTHROPIC_API_KEY` for live AI mode.
 
 - Engine (`server/engine/`) must stay pure: no I/O, no AI calls, no wall-clock, injected RNG only. Every mechanic change needs/updates a unit test.
 - All tunable values load from `config/*.yaml` — never hardcode a number a designer might tune (timers, bonuses, HP math, thresholds, model IDs).
-- Zones, conditions, and moves are data-driven registries. If a task seems to need code for a new zone/condition/move, fix the registry instead.
+- Zones, moves, and hazards are data-driven registries. If a task seems to need code for a new zone/move/hazard, fix the registry instead.
 - `AI_MODE=mock` must always work end-to-end with fixtures — a full playable game with no API key.
 - Run `pytest` after every change; keep it green.
 - Python 3.11+, type hints everywhere, ruff for lint/format.
@@ -81,7 +81,7 @@ Prompt templates live in `config/prompts/*.md.j2` (Jinja2). Stable rules text is
 | Layer | Approach |
 |---|---|
 | Engine | Unit + golden tests (seed 42, exact HP from GAME_DESIGN.md §12) + property tests; ≥90% coverage |
-| Registries | Load-from-YAML tests including novel zone/condition blocks |
+| Registries | Load-from-YAML tests including novel zone/move/hazard blocks |
 | State machine | Fake clock, simulated clients, full mock games |
 | AI layer | Fixture-based schema tests; repair & fallback paths |
 

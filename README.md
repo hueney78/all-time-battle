@@ -52,7 +52,7 @@ All tunable values live in `config/*.yaml` — edit and start a new room (no ser
 | `config/settings.yaml` | Timers, ports, player limits, model IDs |
 | `config/balance.yaml` | HP formulas, stat budgets, crit/fumble thresholds, creativity caps |
 | `config/zones.yaml` | Zone graph — add High Ground here with zero code changes |
-| `config/conditions.yaml` | Condition registry (duration, effects, emojis) |
+| `config/hazards.yaml` | Arena Gremlin hazard palette (damage-or-push) |
 | `config/moves.yaml` | COMBAT V2 catalog: eight tapped moves owning all action math |
 | `config/prompts/` | Jinja2 prompt templates for the AI layer |
 

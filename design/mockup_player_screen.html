@@ -33,7 +33,6 @@ header .display{font-size:17px;-webkit-text-stroke:.5px var(--ink)}
 .srow .stat.pulse{animation:statp 1.6s infinite}
 @keyframes statp{50%{background:var(--gold)}}
 .hearts{font-size:13px}.conds{font-size:14px}
-.banked{background:var(--posit);border:2px solid var(--ink);border-radius:8px;padding:1px 7px;font-size:12px;font-weight:900}
 
 /* canvas [spec: 50%-scale prefill on team side + orientation ribbon] */
 .canvaswrap{position:relative;background:var(--sand);/* canvas_background_color = arena floor */border:4px solid var(--ink);
@@ -78,10 +77,9 @@ footer{font-size:10.5px;font-weight:700;opacity:.6;text-align:center}
   <div style="display:flex;flex-direction:column;gap:3px">
     <strong class="display" style="font-size:14px">Princess Stabby</strong>
     <div class="srow">
-      <span class="stat">💪 2</span><span class="stat pulse">⚡ 4</span><span class="stat">🌀 4</span>
-      <span class="banked">🎯 banked ×2</span>
+      <span class="stat">💪 2</span><span class="stat pulse">⚡ 4</span><span class="stat">🌀 3</span>
     </div>
-    <div class="srow"><span class="hearts">❤️❤️🖤🖤🖤🖤 6/22</span></div>
+    <div class="srow"><span class="hearts">❤️❤️🖤🖤🖤🖤 6/24</span></div>
   </div>
 </section>
 
@@ -115,11 +113,11 @@ footer{font-size:10.5px;font-weight:700;opacity:.6;text-align:center}
 
 <!-- move buttons [spec: tap move + target, live per-character math, no-repeat greyed, edges disabled] -->
 <section class="tools" style="gap:5px">
-  <span class="tool" style="min-width:31%;flex-direction:column;font-size:13px">SMASH<small style="font-size:9px">1d4+2</small></span>
-  <span class="tool on" style="min-width:31%;flex-direction:column;font-size:13px">SHOOT<small style="font-size:9px">2d4+1</small></span>
-  <span class="tool" style="min-width:31%;flex-direction:column;font-size:13px;opacity:.35">BLAST<small style="font-size:9px">used last turn</small></span>
-  <span class="tool" style="min-width:31%;flex-direction:column;font-size:13px">SHIELD<small style="font-size:9px">+5 AC</small></span>
-  <span class="tool" style="min-width:31%;flex-direction:column;font-size:13px">RALLY<small style="font-size:9px">1d6+2</small></span>
+  <span class="tool" style="min-width:31%;flex-direction:column;font-size:13px">SMASH<small style="font-size:9px">2d4+2</small></span>
+  <span class="tool on" style="min-width:31%;flex-direction:column;font-size:13px">SHOOT<small style="font-size:9px">3d4+1</small></span>
+  <span class="tool" style="min-width:31%;flex-direction:column;font-size:13px;opacity:.35">BLAST<small style="font-size:9px">2d4+3</small></span>
+  <span class="tool" style="min-width:31%;flex-direction:column;font-size:13px">SHIELD<small style="font-size:9px">+4 AC</small></span>
+  <span class="tool" style="min-width:31%;flex-direction:column;font-size:13px">RALLY<small style="font-size:9px">♥ 1d6+✨</small></span>
   <span class="tool" style="min-width:31%;flex-direction:column;font-size:13px">WILD 🎲<small style="font-size:9px">2d8+1</small></span>
   <span class="tool" style="min-width:31%;opacity:.35">◀ MOVE<small style="font-size:9px"></small></span>
   <span class="tool" style="min-width:31%">MOVE ▶</span>
@@ -128,8 +126,8 @@ footer{font-size:10.5px;font-weight:700;opacity:.6;text-align:center}
 <button class="submit">SEND IT! 🚀</button>
 
 <footer>
-  Mockup notes — COMBAT V2: tap move (live math per stats) + target, then draw the style; BLAST greyed = no-repeat; ◀ disabled = at left edge. Configs shown: action_canvas_character_scale (~50%, team side) · orientation ribbon (flips for Team B) ·
-  restore-character button · multi-size erasers · stats with change-pulse (⚡ from montage) · banked actions ·
+  Mockup notes — COMBAT V2.1: tap move (live math per stats) + target, then draw the style; BLAST greyed = no-repeat; ◀ disabled = at left edge; SHIELD covers the whole zone (+4 AC, no target); RALLY heals 1d6 + creativity. Configs shown: action_canvas_character_scale (~50%, team side) · orientation ribbon (flips for Team B) ·
+  restore-character button · multi-size erasers · stats with change-pulse (⚡ from montage) ·
   timer warn state at 10s. Canvas background = canvas_background_color (#E8D5A8, matches arena floor; erasers restore it). Canvas exports 512px PNG.
 </footer>
 </body>
