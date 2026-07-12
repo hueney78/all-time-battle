@@ -129,3 +129,11 @@ def test_novel_condition_added_to_yaml(tmp_path, monkeypatch):
     cdef = reg.get("turbo_charged")
     assert cdef.duration == 3
     assert cdef.modifiers.attack == 2
+
+
+def test_unknown_condition_raises_with_known_list():
+    import pytest
+
+    reg = ConditionRegistry()
+    with pytest.raises(KeyError, match="made_up"):
+        reg.get("made_up")

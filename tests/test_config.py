@@ -476,3 +476,17 @@ def test_missing_file_raises_clear_error(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(cfg_mod, "CONFIG_DIR", tmp_path)
     with pytest.raises(FileNotFoundError, match="settings.yaml"):
         cfg_mod.load_settings()
+
+
+def test_move_and_hazard_registries_raise_on_unknown_ids():
+    """Registry lookups fail loudly with the known ids in the message."""
+    import pytest
+
+    from server.engine.hazards import HazardRegistry
+    from server.engine.moves import MoveRegistry
+
+    with pytest.raises(KeyError, match="smash"):
+        MoveRegistry().get("uppercut")
+    with pytest.raises(KeyError, match="bees"):
+        HazardRegistry().get("lava_pit")
+    assert "smash" in MoveRegistry().all_ids
