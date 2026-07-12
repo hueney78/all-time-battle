@@ -83,3 +83,23 @@ def test_static_assets_available():
             r = client.get(path)
             assert r.status_code == 200, path
             assert len(r.text) > 100, f"{path} looks empty"
+
+
+def test_poster_route_serves_composed_png(tmp_path, monkeypatch):
+    """GET /poster/<room> serves snapshots/room-<CODE>/poster.png (the victory
+    screen's download link, S3); unknown rooms and sneaky paths 404."""
+    # Point the snapshots base (a cwd-relative path) at a temp dir holding
+    # one composed poster.
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "snapshots" / "room-ABCD").mkdir(parents=True)
+    png = bytes.fromhex("89504e470d0a1a0a") + b"0" * 128   # PNG magic + filler
+    (tmp_path / "snapshots" / "room-ABCD" / "poster.png").write_bytes(png)
+
+    with TestClient(app) as client:
+        ok = client.get("/poster/abcd")            # case-insensitive room code
+        assert ok.status_code == 200
+        assert ok.headers["content-type"] == "image/png"
+        assert ok.content == png
+
+        assert client.get("/poster/ZZZZ").status_code == 404      # no such room
+        assert client.get("/poster/..%2Fsecret").status_code == 404   # traversal

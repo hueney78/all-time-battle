@@ -1055,10 +1055,15 @@ async def test_game_over_carries_awards_and_poster(tmp_path):
     assert env is not None
     pay = env.payload
     assert pay["winner_team_id"] == "team_a"
+    assert pay["winner_team_name"] == "Team A"   # display name, not the raw id
     # every player receives at least one award (the ceremony's hard rule)
     assert {aw["player_id"] for aw in pay["awards"]} == {a.id, b.id}
-    # a match poster was composed to snapshots/<room>/poster.png
+    # a match poster was composed to snapshots/<room>/poster.png…
     assert pay["poster_path"] and Path(pay["poster_path"]).exists()
+    # …and surfaced as a browser-reachable URL (GET /poster/<room>, S3).
+    assert pay["poster_url"] == "/poster/FIN"
+    # the ceremony enlarges each winner's drawing → characters carry PNGs
+    assert all("png" in c for c in pay["characters"])
 
 
 async def test_game_over_without_winner_skips_ceremony():
@@ -1075,6 +1080,7 @@ async def test_game_over_without_winner_skips_ceremony():
     assert env.type == "game_over"
     assert env.payload["winner_team_id"] is None
     assert env.payload["awards"] == [] and env.payload["poster_path"] is None
+    assert env.payload["poster_url"] is None
 
 
 # ---------------------------------------------------------------------------

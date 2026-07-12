@@ -11,8 +11,8 @@ import socket
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from server.config import load_game_rules
@@ -128,6 +128,21 @@ def _inject_config(html: str) -> str:
     if "</head>" in html:
         return html.replace("</head>", tag + "\n</head>", 1)
     return tag + html
+
+
+@app.get("/poster/{room}")
+async def poster(room: str):
+    """The composed match poster (snapshots/room-<CODE>/poster.png) — the
+    victory screen's download link and the phones' grab-it link (S3)."""
+    code = room.upper()
+    if not code.isalnum():
+        raise HTTPException(status_code=404, detail="No such poster")
+    base = Path(load_game_rules().settings.snapshots.dir)
+    path = base / f"room-{code}" / "poster.png"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="No such poster")
+    return FileResponse(path, media_type="image/png",
+                        filename=f"doodle-brawl-{code}.png")
 
 
 @app.get("/host", response_class=HTMLResponse)

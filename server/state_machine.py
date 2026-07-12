@@ -840,11 +840,16 @@ class GameStateMachine:
             poster_path = await asyncio.to_thread(self._compose_poster, summary)
         await self.room.broadcast(S2C.GAME_OVER, {
             "winner_team_id": winner,
-            "characters": self._character_deltas(),
+            "winner_team_name": next(
+                (t.name for t in self.room.teams if t.id == winner), None),
+            # PNGs included: the awards ceremony enlarges each winner's drawing.
+            "characters": self._character_deltas(include_png=True),
             # Awards ceremony + downloadable match poster (sync point S3).
             "awards": [{"title": a.title, "player_id": a.player_id, "blurb": a.blurb}
                        for a in awards],
             "poster_path": poster_path,
+            # Browser-reachable poster (GET /poster/<room> serves the PNG).
+            "poster_url": f"/poster/{self.room.code}" if poster_path else None,
         })
 
     def _compose_poster(self, summary: MatchSummary) -> str | None:

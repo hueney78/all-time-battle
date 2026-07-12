@@ -189,6 +189,9 @@
     <section id="overUI" class="card hidden">
       <h1 id="overTitle">Game Over</h1>
       <p id="overMsg" class="muted"></p>
+      <div id="myAwards"></div>
+      <p><a id="posterA" class="hidden" download
+            style="font-weight:900;color:var(--ink)">⬇️ Get the match poster</a></p>
     </section>
   </section>
 
@@ -521,8 +524,24 @@
         hideSplash();
         show('over');
         const won = m.payload.winner_team_id;
-        $('overTitle').textContent = won === teamId ? '🏆 You Win!' : 'Game Over';
-        $('overMsg').textContent = 'Winner: ' + (won || 'nobody');
+        $('overTitle').textContent = won === teamId ? '🏆 You Win!'
+          : won ? 'Game Over' : 'It’s a draw!';
+        $('overMsg').textContent = won
+          ? 'Winner: ' + (m.payload.winner_team_name || won) : '';
+        // Your award(s) from the TV ceremony — every player earns at least one.
+        const mine = (m.payload.awards || []).filter(a => a.player_id === myId);
+        $('myAwards').innerHTML = '';
+        mine.forEach(a => {
+          const d = document.createElement('p');
+          d.innerHTML = '<b>🎖️ </b><b class="atitle"></b><br><i class="ablurb muted"></i>';
+          d.querySelector('.atitle').textContent = a.title || 'Award';
+          d.querySelector('.ablurb').textContent = a.blurb || '';
+          $('myAwards').appendChild(d);
+        });
+        if (m.payload.poster_url) {
+          $('posterA').href = m.payload.poster_url;
+          $('posterA').classList.remove('hidden');
+        }
       }
     }
 
