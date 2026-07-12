@@ -344,7 +344,11 @@ class GameStateMachine:
         self._action_pngs = {}
         self._action_taps = {}
         await self._enter_phase("draw_action", round_num=round_num,
-                                timeout=self.timers.draw_action)
+                                timeout=self.timers.draw_action,
+                                # Round 1 draws while characters generate: the
+                                # phone renders this generic grid until its
+                                # personalized player_state grid arrives.
+                                extra={"moves": self._generic_moves_payload()})
         await self._send_canvas_inits()
         await self._broadcast_arena()
         await self._collect(living, self.timers.draw_action)
@@ -837,12 +841,14 @@ class GameStateMachine:
             await self.room.send(player_id, S2C.ARENA_STATE, self._arena_payload())
 
     # -- outbound helpers -------------------------------------------------
-    async def _enter_phase(self, phase: str, round_num: int, timeout: float) -> None:
+    async def _enter_phase(self, phase: str, round_num: int, timeout: float,
+                           extra: dict | None = None) -> None:
         self._phase = phase
         self._round = round_num
         self._deadline = time.time() + timeout
         await self.room.broadcast(S2C.PHASE_CHANGE, {
             "phase": phase, "round": round_num, "deadline_ts": self._deadline,
+            **(extra or {}),
         })
 
     async def _send_canvas_inits(self) -> None:
@@ -869,6 +875,15 @@ class GameStateMachine:
         payload["last_move_id"] = ch.last_move_id
         payload["moves"] = self._moves_payload(ch)
         await self.room.send(player_id, S2C.PLAYER_STATE, payload)
+
+    def _generic_moves_payload(self) -> list[dict]:
+        """The stat-less button grid for Round 1 (characters still generating):
+        labels and targeting modes, no live math, nothing disabled."""
+        return [
+            {"id": move_id, "button": move.button, "desc": move.desc, "math": "",
+             "target": move.target, "disabled": False, "disabled_reason": None}
+            for move_id, move in self.rules.moves.moves.items()
+        ]
 
     def _moves_payload(self, ch: Character) -> list[dict]:
         """The eight buttons for one character: label, live math ("4d4+2"),

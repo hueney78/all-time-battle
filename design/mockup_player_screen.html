@@ -6,7 +6,8 @@
 <title>Doodle Brawl — Player Screen Mockup</title>
 <link href="https://fonts.googleapis.com/css2?family=Titan+One&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
 <style>
-/* PLAYER (PHONE) MOCKUP — action drawing phase, Team Glitter player.
+/* PLAYER (PHONE) MOCKUP — COMBAT V2 action phase, Team Glitter player.
+   Tap the move → tap the target → draw the style (GAME_DESIGN §4, §13).
    [spec] markers map to documented features. */
 :root{--ink:#2B2338;--card:#FFF9EC;--team:#E24FA0;--posit:#6FD4F2;--sand:#E8D5A8;
   --heal:#3FB65C;--gold:#F2B233}
@@ -33,7 +34,27 @@ header .display{font-size:17px;-webkit-text-stroke:.5px var(--ink)}
 .srow .stat.pulse{animation:statp 1.6s infinite}
 @keyframes statp{50%{background:var(--gold)}}
 .hearts{font-size:13px}.conds{font-size:14px}
-.banked{background:var(--posit);border:2px solid var(--ink);border-radius:8px;padding:1px 7px;font-size:12px;font-weight:900}
+
+/* move grid [spec: 8 tapped buttons, live per-character math on labels,
+   no-repeat greying, edge-disabled movement] */
+.movegrid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}
+.movebtn{border:3px solid var(--ink);background:#fff;border-radius:14px;padding:7px 6px 6px;
+  font-weight:900;text-align:center;display:flex;flex-direction:column;gap:1px;min-height:52px;
+  justify-content:center}
+.movebtn .mname{font-family:'Titan One';font-size:14px;letter-spacing:.3px}
+.movebtn .mmath{font-size:11.5px;opacity:.75}
+.movebtn.sel{background:var(--gold);box-shadow:0 0 0 3px var(--team)}
+.movebtn.off{opacity:.38}
+.movebtn.mv{background:#F1EADB}
+.gridnote{font-size:11px;font-weight:800;opacity:.6;text-align:center}
+
+/* target picker [spec: enemy portraits, defaults to nearest] */
+.targetrow{display:flex;gap:6px;overflow-x:auto;padding:4px 2px}
+.tbtn{flex:none;border:3px solid var(--ink);background:#fff;border-radius:12px;padding:4px 8px;
+  font-weight:900;font-size:12px;display:flex;flex-direction:column;align-items:center;gap:2px;
+  min-width:64px}
+.tbtn .tpic{width:40px;height:40px;border-radius:8px;display:grid;place-items:center;font-size:26px}
+.tbtn.sel{background:var(--gold);box-shadow:0 0 0 3px var(--team)}
 
 /* canvas [spec: 50%-scale prefill on team side + orientation ribbon] */
 .canvaswrap{position:relative;background:var(--sand);/* canvas_background_color = arena floor */border:4px solid var(--ink);
@@ -79,11 +100,30 @@ footer{font-size:10.5px;font-weight:700;opacity:.6;text-align:center}
     <strong class="display" style="font-size:14px">Princess Stabby</strong>
     <div class="srow">
       <span class="stat">💪 2</span><span class="stat pulse">⚡ 4</span><span class="stat">🌀 4</span>
-      <span class="banked">🎯 banked ×2</span>
     </div>
-    <div class="srow"><span class="hearts">❤️❤️🖤🖤🖤🖤 6/22</span><span class="conds">🟢 sticky</span></div>
+    <div class="srow"><span class="hearts">❤️❤️🖤🖤🖤🖤 6/24</span><span class="conds">🟢 sticky</span></div>
   </div>
 </section>
+
+<!-- COMBAT V2 move grid: tap the move (TRICK selected), live math per button;
+     SMASH greyed by the no-repeat rule; ◀ MOVE disabled at the arena edge -->
+<section class="movegrid">
+  <button class="movebtn off" title="no repeats!"><span class="mname">SMASH</span><span class="mmath">2d4+2</span></button>
+  <button class="movebtn"><span class="mname">BLAST</span><span class="mmath">2d4+3</span></button>
+  <button class="movebtn sel"><span class="mname">TRICK</span><span class="mmath">1d6+4</span></button>
+  <button class="movebtn"><span class="mname">SHIELD</span><span class="mmath">+5 AC</span></button>
+  <button class="movebtn"><span class="mname">RALLY</span><span class="mmath">♥ 1d6+2</span></button>
+  <button class="movebtn"><span class="mname">WILD CARD</span><span class="mmath">2d8+2</span></button>
+  <button class="movebtn mv off" title="arena edge"><span class="mname">◀ MOVE</span><span class="mmath">+1 AC</span></button>
+  <button class="movebtn mv"><span class="mname">MOVE ▶</span><span class="mmath">+1 AC</span></button>
+</section>
+
+<!-- target picker: enemy portraits, nearest pre-selected -->
+<section class="targetrow">
+  <button class="tbtn sel"><span class="tpic">🦖</span><span>Sir Lawnmower</span></button>
+  <button class="tbtn"><span class="tpic">🫠</span><span>The Blob</span></button>
+</section>
+<div class="gridnote">who gets it? then draw it! ✏️</div>
 
 <!-- drawing canvas -->
 <section class="canvaswrap">
@@ -116,9 +156,12 @@ footer{font-size:10.5px;font-weight:700;opacity:.6;text-align:center}
 <button class="submit">SEND IT! 🚀</button>
 
 <footer>
-  Mockup notes — configs shown: action_canvas_character_scale (~50%, team side) · orientation ribbon (flips for Team B) ·
-  restore-character button · multi-size erasers · stats with change-pulse (⚡ from montage) · banked actions ·
-  timer warn state at 10s. Canvas background = canvas_background_color (#E8D5A8, matches arena floor; erasers restore it). Canvas exports 512px PNG.
+  Mockup notes — COMBAT V2: tap move → tap target → draw the style. Buttons show live per-character math
+  (server-computed from moves.yaml formulas); last combat move greyed (no-repeat); ◀/▶ disabled at arena edges;
+  target picker defaults to the nearest enemy (allies+self for SHIELD/RALLY). Also: action_canvas_character_scale
+  (~50%, team side) · orientation ribbon (flips for Team B) · restore-character button · multi-size erasers ·
+  stats with change-pulse (⚡ from montage) · timer warn at 10s. Canvas background = canvas_background_color
+  (#E8D5A8, matches arena floor; erasers restore it). Canvas exports 512px PNG.
 </footer>
 </body>
 </html>

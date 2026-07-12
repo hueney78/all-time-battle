@@ -48,9 +48,30 @@
     .srow .stat{background:#F1EADB; border-radius:8px; padding:1px 7px; transition:background .2s}
     .srow .stat.pulse{animation:statp 1.6s ease-in-out 2}
     @keyframes statp{50%{background:var(--gold)}}
-    .banked{background:var(--posit); border:2px solid var(--ink); border-radius:8px;
-      padding:1px 7px; font-size:12px; font-weight:900}
     .hearts{font-size:13px} .conds{font-size:14px; display:inline}
+
+    /* COMBAT V2 move grid [spec: 8 big buttons, live per-character math,
+       no-repeat greying, edge-disabled movement] */
+    #moveGrid{display:grid; grid-template-columns:repeat(2, 1fr); gap:6px; margin:.5rem 0}
+    .movebtn{border:3px solid var(--ink); background:#fff; color:var(--ink);
+      border-radius:14px; padding:7px 6px 6px; font-weight:900; text-align:center;
+      display:flex; flex-direction:column; gap:1px; min-height:52px; justify-content:center}
+    .movebtn .mname{font-family:'Titan One',cursive; font-size:14px; letter-spacing:.3px}
+    .movebtn .mmath{font-size:11.5px; opacity:.75}
+    .movebtn.sel{background:var(--gold); box-shadow:0 0 0 3px var(--team)}
+    .movebtn:disabled{opacity:.38}
+    .movebtn.mv{grid-column:span 1; background:#F1EADB}
+    .gridnote{font-size:11px; font-weight:800; opacity:.6; text-align:center}
+
+    /* target picker [spec: enemy portraits, defaults to nearest] */
+    #targetRow{display:flex; gap:6px; overflow-x:auto; padding:4px 2px; margin:.3rem 0}
+    #targetRow.hidden{display:none}
+    .tbtn{flex:none; border:3px solid var(--ink); background:#fff; color:var(--ink);
+      border-radius:12px; padding:4px 8px; font-weight:900; font-size:12px;
+      display:flex; flex-direction:column; align-items:center; gap:2px; min-width:64px}
+    .tbtn .tpic{width:40px; height:40px; background:#fff center/contain no-repeat;
+      border-radius:8px}
+    .tbtn.sel{background:var(--gold); box-shadow:0 0 0 3px var(--team)}
 
     /* canvas [spec: sand bg + ~50% prefill on team side + orientation ribbon] */
     #canvasWrap{position:relative; border:4px solid var(--ink); border-radius:20px;
@@ -109,7 +130,6 @@
           <span class="stat" id="statPow">💪 –</span>
           <span class="stat" id="statSpd">⚡ –</span>
           <span class="stat" id="statWrd">🌀 –</span>
-          <span class="banked hidden" id="banked"></span>
         </div>
         <div class="srow"><span class="hearts" id="hearts">—</span><span class="conds" id="conds"></span></div>
       </div>
@@ -122,6 +142,12 @@
       </div>
       <div id="hintWrap" class="hidden" style="margin:.5rem 0">
         <input id="hint" type="text" placeholder="optional hint (e.g. 'a very angry teapot')" style="width:100%">
+      </div>
+      <!-- COMBAT V2: tap the move, tap the target, then draw the style -->
+      <div id="moveWrap" class="hidden">
+        <div id="moveGrid"></div>
+        <div id="targetRow" class="hidden"></div>
+        <div class="gridnote" id="gridNote">tap a move, then draw how you do it ✏️</div>
       </div>
       <div id="canvasWrap">
         <div class="ribbon" id="ribbon"><span>🏠 your side</span><span>⟵ &nbsp; ⟶</span><span>enemies 💥</span></div>
@@ -177,6 +203,10 @@
     let phase = '', round = 0, characterPng = '', isKo = false;
     let submitted = false, deadline = 0, timerHandle = null;
     let prevStats = null;
+    // COMBAT V2 tap state: the button grid (server-computed math + disabled
+    // flags), the current selection, and the roster for the target picker.
+    let movesList = [], selectedMove = null, selectedTarget = null;
+    let roster = {}, zoneOrder = [], lobbyPlayers = [], myZone = null;
 
     // ---- drawing tools ----
     function buildTools() {
@@ -219,12 +249,96 @@
       r.children[2].textContent = (teamSide === 'right') ? home : foe;
     }
 
+    // ---- COMBAT V2: move grid + target picker ----
+    function needsTarget(m) {
+      if (!m) return null;
+      if (m.target === 'single_enemy' || m.target === 'zone_all') return 'enemy';
+      if (m.target === 'ally_or_self') return 'ally';
+      return null;   // self / movement — no picker
+    }
+    function candidates(kind) {
+      const chars = Object.values(roster).filter(c => !c.is_ko);
+      const pool = chars.length ? chars
+        // Round 1: no characters yet — offer lobby names instead of portraits.
+        : lobbyPlayers.map(p => ({ player_id: p.player_id, name: p.name, team_id: p.team_id }));
+      return pool.filter(c => kind === 'enemy' ? c.team_id !== teamId
+                                               : c.team_id === teamId);
+    }
+    function zdist(a, b) {
+      const i = zoneOrder.indexOf(a), j = zoneOrder.indexOf(b);
+      return (i < 0 || j < 0) ? 99 : Math.abs(i - j);
+    }
+    function defaultTarget(kind) {
+      const cs = candidates(kind);
+      if (!cs.length) return null;
+      if (kind === 'ally') return myId;             // shield/rally default: yourself
+      cs.sort((a, b) => zdist(myZone, a.zone_id) - zdist(myZone, b.zone_id));
+      return cs[0].player_id;                        // nearest enemy
+    }
+    function renderMoveGrid() {
+      const grid = $('moveGrid');
+      grid.innerHTML = '';
+      movesList.forEach(m => {
+        const b = document.createElement('button');
+        b.className = 'movebtn' + (m.id === 'move_l' || m.id === 'move_r' ? ' mv' : '')
+          + (selectedMove === m.id ? ' sel' : '');
+        b.disabled = !!m.disabled;
+        b.title = m.disabled_reason === 'no_repeat' ? 'no repeats!' : (m.desc || '');
+        b.innerHTML = '<span class="mname"></span>' + (m.math ? '<span class="mmath"></span>' : '');
+        b.querySelector('.mname').textContent = m.button || m.id;
+        if (m.math) b.querySelector('.mmath').textContent = m.math;
+        b.onclick = () => pickMove(m);
+        grid.appendChild(b);
+      });
+    }
+    function pickMove(m) {
+      selectedMove = m.id;
+      const kind = needsTarget(m);
+      selectedTarget = kind ? defaultTarget(kind) : null;
+      renderMoveGrid();
+      renderTargetPicker(kind);
+      $('gridNote').textContent = kind
+        ? (kind === 'enemy' ? 'who gets it? then draw it! ✏️' : 'who do you help? then draw it! ✏️')
+        : 'now draw how you do it ✏️';
+    }
+    function renderTargetPicker(kind) {
+      const row = $('targetRow');
+      row.classList.toggle('hidden', !kind);
+      row.innerHTML = '';
+      if (!kind) return;
+      candidates(kind).forEach(c => {
+        const b = document.createElement('button');
+        b.className = 'tbtn' + (selectedTarget === c.player_id ? ' sel' : '');
+        b.innerHTML = '<span class="tpic"></span><span></span>';
+        if (c.png || c.sprite_png) {
+          b.querySelector('.tpic').style.backgroundImage = 'url(' + (c.png || c.sprite_png) + ')';
+        } else {
+          b.querySelector('.tpic').textContent = c.player_id === myId ? '🫵' : '❓';
+        }
+        b.lastChild.textContent = c.player_id === myId ? 'yourself' : (c.name || '???');
+        b.onclick = () => { selectedTarget = c.player_id; renderTargetPicker(kind); };
+        row.appendChild(b);
+      });
+    }
+
     // ---- submit / timer ----
     function doSubmit(auto) {
       if (submitted) return;
-      submitted = true;
-      sock.send('submit_drawing', { phase: phase, round: round, png_base64: pad.toPNG() });
-      if (phase === 'draw_characters') sock.send('submit_hint', { hint: $('hint').value });
+      if (phase === 'draw_action' && !isKo) {
+        if (!selectedMove && !auto) {
+          $('gridNote').textContent = '☝️ tap a move first!';
+          return;
+        }
+        submitted = true;
+        sock.send('submit_action', {
+          round: round, png_base64: pad.toPNG(),
+          move_id: selectedMove || '', target_id: selectedTarget,
+        });
+      } else {
+        submitted = true;
+        sock.send('submit_drawing', { phase: phase, round: round, png_base64: pad.toPNG() });
+        if (phase === 'draw_characters') sock.send('submit_hint', { hint: $('hint').value });
+      }
       stopTimer();
       show('wait');
       $('waitTitle').textContent = auto ? "Time! Submitted ⏰" : "Submitted! ✓";
@@ -254,12 +368,23 @@
       show('draw');
       const isChar = kind === 'draw_characters';
       const isMontage = kind === 'montage';
+      const isAction = kind === 'draw_action' && !isKo;
       $('hintWrap').classList.toggle('hidden', !isChar);
       $('ribbon').classList.toggle('hidden', isChar || isMontage);  // no sides in a montage
       $('restore').classList.toggle('hidden', isChar);
+      // COMBAT V2: tap the move + target, then draw the style. Gremlins draw
+      // hazards with no tap.
+      $('moveWrap').classList.toggle('hidden', !isAction);
+      if (isAction) {
+        selectedMove = null; selectedTarget = null;
+        $('gridNote').textContent = 'tap a move, then draw how you do it ✏️';
+        renderMoveGrid();
+        renderTargetPicker(null);
+      }
       $('prompt').textContent = isChar ? 'Draw your fighter!'
         : isMontage ? '🎵 Upgrade your fighter! Add armor, wings, flames… 🎵'
-        : 'Draw your move! (round ' + round + ')';
+        : isKo ? 'Draw a hazard, Gremlin! 😈 (round ' + round + ')'
+        : 'Round ' + round + ' — tap your move, draw your style!';
       if (isChar) { pad.bgSide = 'center'; pad.clear(); }
       else { loadCharacter(true); }   // draw the move/upgrade on top of the character
     }
@@ -287,14 +412,19 @@
       prevStats = st;
       $('hearts').textContent = p.is_ko ? 'KO — Arena Gremlin' : hearts(p.hp, p.max_hp);
       $('conds').textContent = Object.keys(p.conditions || {}).map(k => COND_EMOJI[k] || '•').join(' ');
-      const bk = $('banked');
-      bk.classList.toggle('hidden', !p.banked_actions);
-      bk.textContent = p.banked_actions ? ('🎯 banked ×' + p.banked_actions) : '';
+      myZone = p.zone_id || myZone;
     }
 
     // ---- messages ----
     function onMessage(m) {
-      if (m.type === 'error' || m.type === 'toast') {
+      if (m.type === 'toast' && m.payload.kind === 'action_rejected') {
+        // The server refused the tap (no-repeat / edge / dead target):
+        // reopen the round so the player can re-tap.
+        submitted = false;
+        show('draw');
+        startTimer(deadline);
+        $('gridNote').textContent = '🚫 ' + (m.payload.message || 'try another move!');
+      } else if (m.type === 'error' || m.type === 'toast') {
         $('joinMsg').textContent = 'server: ' + (m.payload.message || '');
       } else if (m.type === 'joined') {
         localStorage.setItem('pid', m.payload.player_id);
@@ -308,10 +438,20 @@
         $('waitTitle').textContent = 'You’re in!';
         $('waitMsg').textContent = 'Waiting for the host to start…';
       } else if (m.type === 'lobby_state') {
+        lobbyPlayers = m.payload.players || lobbyPlayers;
         const t = (m.payload.teams || []).find(t => t.id === teamId);
         if (t) { document.documentElement.style.setProperty('--team', t.color); $('teamName').textContent = t.name.toUpperCase(); }
+      } else if (m.type === 'arena_state') {
+        zoneOrder = m.payload.zones || zoneOrder;
+        (m.payload.characters || []).forEach(c => {
+          roster[c.player_id] = Object.assign({}, roster[c.player_id], c);
+          if (c.player_id === myId) myZone = c.zone_id;
+        });
       } else if (m.type === 'phase_change') {
         phase = m.payload.phase; round = m.payload.round;
+        // Round 1 ships a generic (stat-less) grid; player_state upgrades it
+        // with this character's live math the moment characters exist.
+        if (m.payload.moves) movesList = m.payload.moves;
         $('roundLbl').textContent = phase === 'montage' ? '🎵 Montage!'
           : round ? ('Drawing for Round ' + round) : 'Draw your fighter';
         if (phase === 'montage' && isKo) {
@@ -331,6 +471,10 @@
       } else if (m.type === 'player_state') {
         isKo = !!m.payload.is_ko;
         renderStatus(m.payload);
+        if (m.payload.moves) {
+          movesList = m.payload.moves;   // live math + no-repeat/edge greying
+          if (phase === 'draw_action' && !submitted && !isKo) renderMoveGrid();
+        }
       } else if (m.type === 'montage_reveal') {
         const up = (m.payload.upgrades || []).find(u => u.player_id === myId);
         if (up) {
