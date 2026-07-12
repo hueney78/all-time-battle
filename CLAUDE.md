@@ -21,7 +21,7 @@ uv run uvicorn server.main:app --reload
 pytest
 
 # Run a single test
-pytest tests/test_resolver.py::test_round2_golden
+pytest tests/test_resolver.py::test_v2_golden
 
 # Lint / format
 ruff check .
@@ -47,15 +47,15 @@ Copy `.env.example` → `.env` and add `ANTHROPIC_API_KEY` for live AI mode.
 
 ### Key components
 
-- **`server/engine/resolver.py`** — pure function `resolve_round(state, actions, rng, cfg) → RoundResult`. No I/O, no AI, no globals. Injected seeded RNG only. This is the maintainability core; every mechanic change needs a unit test.
+- **`server/engine/resolver.py`** — pure function `resolve_round(state, actions, rng, cfg) → RoundResult`. No I/O, no AI, no globals. Injected seeded RNG only. This is the maintainability core; every mechanic change needs a unit test. COMBAT V2 resolution: 2d6 + stat + creativity vs AC (10 + Speed); crit on natural 12 or margin ≥ 5; fumble on natural 2.
 
-- **`server/engine/`** — registries (`conditions.py`, `zones.py`, `moves.py`) load from YAML generically. Every classified action resolves through its `moves.yaml` entry (roll stat, range, targeting, damage die, riders). The resolver queries `registry.modifier(target, "attack_bonus")` — no if-statements for individual moves.
+- **`server/engine/`** — registries (`conditions.py`, `zones.py`, `moves.py`) load from YAML generically. Every tapped action resolves through its `moves.yaml` entry (stat, range, targeting, damage formula, riders). The resolver queries `registry.modifier(target, "attack_bonus")` — no if-statements for individual moves.
 
-- **`server/ai/`** — three Claude calls per game: `generate_characters` (Haiku, once), `classify_actions` (Haiku, per round), `narrate_round` (Sonnet, per round). Responses validated by pydantic with one repair retry; fallback to neutral classification + template narration on total failure. **The game never deadlocks on the API.**
+- **`server/ai/`** — Claude calls: `generate_characters` (Haiku, once — also returns AI team names), `classify_actions` (Haiku, per round), `narrate_round` (Sonnet, per round). Responses validated by pydantic with one repair retry; on total failure the tapped move still resolves at creativity 0 with template narration. **The game never deadlocks on the API.**
 
-- **`server/state_machine.py`** — pipeline orchestration: players draw round r+1 while AI+engine process round r and TV reveals round r−1 (`asyncio.gather`).
+- **`server/state_machine.py`** — sequential round loop (draw → deliberation interlude → reveal) plus server-side tap validation (no-repeat, edge legality, living targets) for `submit_action`.
 
-- **`config/moves.yaml`** — the move catalog: 30 PF2e-inspired archetypes, each owning all math for that action type. The classifier prompt injects catalog descriptions so the AI maps drawings onto catalog IDs. Wildcard classifications are logged to `snapshots/<room>/wildcards.jsonl` for data-driven archetype additions.
+- **`config/moves.yaml`** — COMBAT V2: exactly **eight tapped moves** (SMASH/BLAST/TRICK/SHIELD/RALLY/WILD CARD + ◀/▶ movement), each owning stat-parameterized formulas like `(1 + ceil(POW/2))d4 + 2`. Moves are tapped on the phone, never classified from drawings; the drawing supplies creativity, flavor, TRICK's condition, WILD CARD's interpretation, and combos only. WILD plays are logged to `snapshots/<room>/wildcards.jsonl` for data-driven archetype additions (`scripts/balance_sim.py` checks balance).
 
 - **`web/`** — vanilla HTML/JS, no framework, no build step. Edit and refresh. Clients are dumb renderers; server is source of truth.
 
@@ -85,4 +85,4 @@ Prompt templates live in `config/prompts/*.md.j2` (Jinja2). Stable rules text is
 | State machine | Fake clock, simulated clients, full mock games |
 | AI layer | Fixture-based schema tests; repair & fallback paths |
 
-Golden test numbers: `tests/test_resolver.py::test_round2_golden` — see GAME_DESIGN.md §12 for exact expected HP values (Stabby 1, Blob 2, Lawnmower 17, Gerald 24).
+Golden test numbers: `tests/test_resolver.py::test_v2_golden` — the GAME_DESIGN.md §12 fixture (seed 42): Stabby 22, Blob 20, Lawnmower 22, Gerald 17. The doc's example dice are illustrative; the test asserts the actual seeded rolls (documented in the test's narrative comment).
