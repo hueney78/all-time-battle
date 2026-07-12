@@ -163,13 +163,26 @@
       font-size:15px; padding:2px 8px; cursor:pointer}
     .audioctl input{width:90px; accent-color:var(--gold)}
 
-    /* narration beats [announcer duo — speaker-tagged chips (S1)] */
+    /* narration log [spec §13: chat-style running log, newest at bottom;
+       current beat bright + gold-bordered with typewriter, history dimmed;
+       round dividers; crit/KO/combo lines keep a gold tint; ~2-3 rounds
+       visible behind a top fade mask; survives the deliberation interlude] */
     .beatcard{background:var(--card); border:4px solid var(--ink); border-radius:18px;
-      padding:10px 16px; font-size:18px; font-weight:800; display:flex; align-items:center;
-      justify-content:space-between; gap:14px; min-height:3.2rem}
-    #beats{display:flex; flex-direction:column; gap:6px; min-width:0}
-    .beat{display:flex; gap:10px; align-items:baseline}
-    .beat.old{opacity:.55}
+      padding:10px 16px; font-weight:800; display:flex; align-items:flex-end;
+      justify-content:space-between; gap:14px}
+    #beats{display:flex; flex-direction:column; gap:5px; min-width:0; flex:1;
+      height:172px; overflow-y:auto; scrollbar-width:none;
+      -webkit-mask-image:linear-gradient(transparent, #000 24%);
+      mask-image:linear-gradient(transparent, #000 24%)}
+    #beats::-webkit-scrollbar{display:none}
+    .beat{display:flex; gap:10px; align-items:baseline; font-size:14px; opacity:.55;
+      padding:0 10px; flex:none}
+    .beat.now{opacity:1; font-size:18px; background:#fff; border:3px solid var(--gold);
+      border-radius:12px; padding:7px 10px}
+    .beat.hl:not(.now){opacity:.85; background:#F2B23326; border-radius:8px}
+    .logdivider{flex:none; text-align:center; font-family:'Titan One'; font-size:11.5px;
+      opacity:.65; letter-spacing:.4px; margin-top:3px}
+    .sysline{flex:none; font-style:italic; opacity:.45; font-size:13px; text-align:center}
     .chip{flex:none; font-family:'Titan One'; font-size:11px; border:2.5px solid var(--ink);
       border-radius:9px; padding:1px 8px; background:var(--gold)}
     .chip.color{background:var(--posit)}
@@ -192,6 +205,16 @@
     #over{display:none; text-align:center; margin-top:8vh}
     #over h1{font-size:4rem; font-family:'Titan One'}
 
+    /* phase splash [spec §13: same announcement as the phones, whoosh stinger] */
+    #phaseSplash{position:fixed; inset:0; z-index:55; display:none; place-items:center;
+      background:#2B2338d9; text-align:center; padding:30px}
+    #phaseSplash.show{display:grid}
+    #phaseSplash .stext{font-family:'Titan One',cursive; font-size:64px; line-height:1.1;
+      color:var(--gold); -webkit-text-stroke:2px var(--ink); background:var(--card);
+      border:5px solid var(--ink); border-radius:26px; padding:22px 44px;
+      transform:rotate(-2deg); animation:splashin .5s cubic-bezier(.5,1.7,.4,1)}
+    @keyframes splashin{from{transform:scale(.3) rotate(-8deg); opacity:0}}
+
     /* transient AI status toast (e.g. "AI is napping — chaos mode") */
     #toast{position:fixed; top:10px; left:50%; transform:translateX(-50%) translateY(-140%);
       background:var(--gold); color:var(--ink); border:3px solid var(--ink); border-radius:14px;
@@ -203,6 +226,7 @@
 <body>
   <div id="banner">Reconnecting…</div>
   <div id="toast"></div>
+  <div id="phaseSplash"><span class="stext"></span></div>
 
   <section id="lobby">
     <h1>Doodle Brawl</h1>
@@ -377,6 +401,18 @@
       $('knotAud').style.left = (clamp01(meters.audience) * 100) + '%';
     }
 
+    // ---- phase splash (mirrors the phones; whoosh stinger) ----
+    let splashTimer = null;
+    function showPhaseSplash(sp) {
+      if (!sp || !sp.text || !(sp.seconds > 0)) return;
+      const el = $('phaseSplash');
+      el.querySelector('.stext').textContent = sp.text;
+      el.classList.add('show');
+      audio.play('whoosh');
+      clearTimeout(splashTimer);
+      splashTimer = setTimeout(() => el.classList.remove('show'), sp.seconds * 1000);
+    }
+
     // ---- team labels (Team A/B until the intro reveal, AI names after) ----
     function applyTeams(teams) {
       for (const t of teams || []) {
@@ -397,33 +433,62 @@
       clearInterval(el._tw);
       el._tw = setInterval(() => {
         el.textContent = text.slice(0, ++i);
+        logScroll();                       // keep the growing line pinned at bottom
         if (i >= text.length) clearInterval(el._tw);
       }, 18);
     }
 
-    // ---- announcer duo beat chips (S1) ----
-    // Each beat renders as a chip-tagged row: gold PLAY-BY-PLAY for the hype
-    // announcer, light-blue COLOR for the deadpan commentator. The previous
-    // beat stays visible (dimmed) so the duo's banter reads as an exchange.
+    // ---- the narration log (chat-style, newest at bottom — spec §13) ----
+    // The current beat types out in a bright gold-bordered card, then rolls up
+    // into dimmed history when the next beat starts. Round dividers separate
+    // rounds; crit/KO/combo lines keep a gold tint so highlights stay findable;
+    // speaker chips persist so re-read banter still reads as dialogue. The log
+    // stays visible during the deliberation interlude (the full transcript
+    // persists server-side to snapshots/<room>/transcript.jsonl).
     const SPEAKER_LABEL = { pbp: 'PLAY-BY-PLAY', color: 'COLOR' };
-    function setStatus(text) {
-      $('beats').innerHTML = '';
-      const s = document.createElement('span');
-      s.className = 'muted'; s.textContent = text;
-      $('beats').appendChild(s);
+    const LOG_MAX_ROWS = 60;
+    function logScroll() { const el = $('beats'); el.scrollTop = el.scrollHeight; }
+    function logAppend(el) {
+      const host = $('beats');
+      host.appendChild(el);
+      while (host.children.length > LOG_MAX_ROWS) host.firstChild.remove();
+      logScroll();
+    }
+    function finishCurrentBeat() {
+      const cur = $('beats').querySelector('.beat.now');
+      if (!cur) return;
+      const txt = cur.querySelector('.txt');
+      clearInterval(txt._tw);
+      txt.textContent = cur.dataset.full || txt.textContent;   // complete mid-type text
+      cur.classList.remove('now');
+    }
+    function beatIsHighlight(b) {
+      return b.type === 'ko' || !!b.combo_name || (b.floats || []).some(f => f.crit);
     }
     function addBeat(b) {
-      const host = $('beats');
-      const rows = host.querySelectorAll('.beat');
-      host.querySelectorAll(':scope > :not(.beat)').forEach(el => el.remove());
-      rows.forEach((el, idx) => { if (idx < rows.length - 1) el.remove(); else el.classList.add('old'); });
+      finishCurrentBeat();
       const row = document.createElement('div');
-      row.className = 'beat';
+      row.className = 'beat now' + (beatIsHighlight(b) ? ' hl' : '');
+      row.dataset.full = b.text;
       const speaker = b.speaker === 'color' ? 'color' : 'pbp';
       row.innerHTML = '<span class="chip' + (speaker === 'color' ? ' color' : '') + '">'
         + SPEAKER_LABEL[speaker] + '</span><span class="txt"></span>';
-      host.appendChild(row);
+      logAppend(row);
       typewrite(row.querySelector('.txt'), b.text);
+    }
+    function addDivider(text) {
+      finishCurrentBeat();
+      const d = document.createElement('div');
+      d.className = 'logdivider';
+      d.textContent = '— ' + text + ' —';
+      logAppend(d);
+    }
+    function addNote(text) {
+      finishCurrentBeat();
+      const n = document.createElement('div');
+      n.className = 'sysline';
+      n.textContent = text;
+      logAppend(n);
     }
 
     // ---- deliberation interlude ----
@@ -449,7 +514,9 @@
         box.appendChild(e);
       });
       $('status').textContent = isMontage ? 'training…' : 'judging…';
-      setStatus(isMontage ? '🎵 The fighters hit the gym…' : 'The judges deliberate…');
+      // The narration log stays visible behind the interlude — re-reading last
+      // round's jokes is the latency mask (§13). Just complete any mid-type beat.
+      finishCurrentBeat();
       const lines = isMontage ? MONTAGE_FILLER : DELIB_FILLER;
       let i = Math.floor(Math.random() * lines.length);
       const tick = () => { $('delibFiller').textContent = lines[i++ % lines.length]; };
@@ -479,6 +546,11 @@
       $('roundHead').textContent = 'ROUND ' + payload.round;
       $('roundTitle').textContent = payload.round_title ? ('“' + payload.round_title + '”') : '';
       $('status').textContent = 'reveal';
+      // Round divider in the log ("— Round 3: “The Fish Learns to Surf” —").
+      addDivider(payload.round === 0
+        ? (payload.round_title || 'Meet the Fighters')
+        : 'Round ' + payload.round
+          + (payload.round_title ? ': “' + payload.round_title + '”' : ''));
       (payload.characters || []).forEach(upsert);
       renderRail(payload.initiative_order || speedOrder());   // the round's acting order
       updateMeters(payload.meters);
@@ -554,7 +626,7 @@
         (payload.characters || []).forEach(upsert);
         renderRail(speedOrder());          // drop anyone KO'd during the round
         $('nextBtn').classList.add('hidden');
-        setStatus(SCHEMING[Math.floor(Math.random() * SCHEMING.length)]);
+        addNote(SCHEMING[Math.floor(Math.random() * SCHEMING.length)]);
         sock.send('next_beat');
       }
       seq = { advance: () => { clearTimeout(timer); if (pending) pending(); }, stop: () => clearTimeout(timer) };
@@ -572,6 +644,7 @@
       $('roundHead').textContent = 'ROUND ' + payload.round;
       $('roundTitle').textContent = '“Training Montage”';
       $('status').textContent = 'montage';
+      addDivider('Training Montage');
       $('nextBtn').classList.remove('hidden');
       montageActive = true;
       let i = 0, timer = null, pending = null;
@@ -594,7 +667,7 @@
         applyArena(montageHold || { characters: finalChars });
         montageHold = null;
         $('nextBtn').classList.add('hidden');
-        setStatus('🎵 Stronger! Faster! Weirder!');
+        addNote('🎵 Stronger! Faster! Weirder!');
         sock.send('next_beat');
       }
       seq = { advance: () => { clearTimeout(timer); if (pending) pending(); }, stop: () => clearTimeout(timer) };
@@ -632,22 +705,20 @@
         if (m.payload.phase === 'draw_characters') {
           view('stage'); $('roundHead').textContent = 'Doodle Brawl';
           $('status').textContent = 'drawing fighters…';
-          setStatus('Character creation');
         } else if (m.payload.phase === 'draw_action') {
           view('stage'); if (seq) seq.stop();
           hideDeliberation();
           $('roundHead').textContent = 'ROUND ' + m.payload.round;
           $('status').textContent = 'drawing…';
-          setStatus('Choose your move!');
           $('nextBtn').classList.add('hidden');
         } else if (m.payload.phase === 'montage') {
           view('stage'); if (seq) seq.stop();
           hideDeliberation();
           $('roundTitle').textContent = '';
           $('status').textContent = 'montage drawing…';
-          setStatus('🎵 Upgrade your fighters! 🎵');
           $('nextBtn').classList.add('hidden');
         }
+        showPhaseSplash(m.payload.splash);
       } else if (m.type === 'arena_state') {
         if (montageActive) { montageHold = m.payload; return; }
         applyArena(m.payload);

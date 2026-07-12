@@ -97,6 +97,17 @@ def test_settings_ui_replay_and_splash_knobs():
     assert s.ui.instant_replay.slowmo_factor == 2.0
 
 
+def test_settings_phase_splash_knobs():
+    """Phase splash (§13): duration + the per-phase text map, incl. the
+    per-role Gremlin line ({round} substituted at send time)."""
+    s = load_settings()
+    assert s.ui.phase_splash_seconds == 2.0
+    assert s.ui.splash_text["draw_characters"] == "Draw your Character!"
+    assert "{round}" in s.ui.splash_text["draw_action"]
+    assert "Gremlin" in s.ui.splash_text["gremlin"]
+    assert "montage" in s.ui.splash_text
+
+
 def test_settings_ui_defaults_when_block_missing(tmp_path: Path, monkeypatch):
     """A settings.yaml without a ui: block still loads (UIConfig defaults)."""
     minimal = {

@@ -35,6 +35,25 @@ class SnapshotWriter:
         path.write_text(json.dumps(data, indent=2), encoding="utf-8")
         return path
 
+    def append_transcript(self, round_num: int, round_title: str,
+                          beats: list[Any]) -> None:
+        """Persist the round's narration to transcript.jsonl — the full
+        announcer transcript always survives the on-screen log's roll-off
+        (GAME_DESIGN §13) and feeds the match poster's best line."""
+        if not self.enabled or not beats:
+            return
+        self._ensure_dir()
+        path = self.dir / "transcript.jsonl"
+        with path.open("a", encoding="utf-8") as f:
+            for b in beats:
+                f.write(json.dumps({
+                    "round": round_num,
+                    "round_title": round_title,
+                    "event_id": b.event_id,
+                    "speaker": getattr(b, "speaker", "pbp"),
+                    "text": b.text,
+                }) + "\n")
+
     def append_wildcards(self, round_num: int, actions: list[Any]) -> None:
         """Log every WILD CARD play + the AI's read — recurring interpretations
         are the designer's signal for what the six moves might be missing (§14)."""

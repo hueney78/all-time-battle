@@ -273,8 +273,9 @@ class GameStateMachine:
     # -- character drawing (T1) -------------------------------------------
     async def _draw_characters(self) -> None:
         await self._enter_phase("draw_characters", round_num=0,
-                                timeout=self.timers.draw_characters)
-        await self._collect([p.id for p in self.room.players], self.timers.draw_characters)
+                                timeout=self.timers.draw_characters, splash=True)
+        await self._collect([p.id for p in self.room.players],
+                            self._splash_seconds() + self.timers.draw_characters)
         # Character *generation* runs concurrently with Round 1 drawing — the
         # first move needs no prior info (GAME_DESIGN.md §2). See _round_loop.
 
@@ -351,10 +352,11 @@ class GameStateMachine:
                                 # Round 1 draws while characters generate: the
                                 # phone renders this generic grid until its
                                 # personalized player_state grid arrives.
-                                extra={"moves": self._generic_moves_payload()})
+                                extra={"moves": self._generic_moves_payload()},
+                                splash=True)
         await self._send_canvas_inits()
         await self._broadcast_arena()
-        await self._collect(living, self.timers.draw_action)
+        await self._collect(living, self._splash_seconds() + self.timers.draw_action)
         return dict(self._action_pngs), dict(self._action_taps)
 
     # -- Power-Up Montage (GAME_DESIGN §10.1) -----------------------------
@@ -373,9 +375,10 @@ class GameStateMachine:
         """The montage bonus phase: survivors' canvases preload their current
         full-size character (host scales by the `montage` phase) to add an upgrade."""
         self._montage_pngs = {}
-        await self._enter_phase("montage", round_num=round_num, timeout=self.timers.montage)
+        await self._enter_phase("montage", round_num=round_num,
+                                timeout=self.timers.montage, splash=True)
         await self._send_canvas_inits()
-        await self._collect(survivors, self.timers.montage)
+        await self._collect(survivors, self._splash_seconds() + self.timers.montage)
         return dict(self._montage_pngs)
 
     async def _resolve_montage(self, round_num: int, montage_pngs: dict[str, str],
@@ -507,6 +510,8 @@ class GameStateMachine:
         narration = await asyncio.to_thread(
             self.ai.narrate_round, result.events, result.new_state.characters, cameos
         )
+        self.snapshots.append_transcript(drawn.round_num, narration.round_title,
+                                         narration.beats)
         self._accumulate_match(actions, result.events, narration)
         return _Processed(
             round_num=drawn.round_num, narration=narration, events=result.events,
@@ -881,15 +886,40 @@ class GameStateMachine:
             await self.room.send(player_id, S2C.ARENA_STATE, self._arena_payload())
 
     # -- outbound helpers -------------------------------------------------
+    def _splash_payload(self, phase: str, round_num: int) -> dict:
+        """The phase splash (GAME_DESIGN §13): full-screen copy shown on all
+        phones + the TV before the canvas; KO'd players get the gremlin line."""
+        ui = self.rules.settings.ui
+        texts = ui.splash_text
+
+        def txt(key: str) -> str:
+            return (texts.get(key) or "").replace("{round}", str(round_num))
+
+        return {
+            "seconds": ui.phase_splash_seconds,
+            "text": txt(phase),
+            "gremlin_text": txt("gremlin") if phase == "draw_action" else txt(phase),
+        }
+
+    def _splash_seconds(self) -> float:
+        return max(0.0, self.rules.settings.ui.phase_splash_seconds)
+
     async def _enter_phase(self, phase: str, round_num: int, timeout: float,
-                           extra: dict | None = None) -> None:
+                           extra: dict | None = None,
+                           splash: bool = False) -> None:
         self._phase = phase
         self._round = round_num
-        self._deadline = time.time() + timeout
-        await self.room.broadcast(S2C.PHASE_CHANGE, {
+        # The draw timer starts only after the splash ends — the deadline
+        # excludes it (clients start counting when the splash clears).
+        lead_in = self._splash_seconds() if splash else 0.0
+        self._deadline = time.time() + lead_in + timeout
+        payload = {
             "phase": phase, "round": round_num, "deadline_ts": self._deadline,
             **(extra or {}),
-        })
+        }
+        if splash:
+            payload["splash"] = self._splash_payload(phase, round_num)
+        await self.room.broadcast(S2C.PHASE_CHANGE, payload)
 
     async def _send_canvas_inits(self) -> None:
         for p in self.room.players:

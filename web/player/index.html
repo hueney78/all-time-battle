@@ -97,11 +97,22 @@
       -webkit-text-stroke:.5px var(--ink); margin-top:8px}
 
     #waitUI, #overUI{text-align:center}
+
+    /* phase splash [spec §13: ~2s full-screen announcement on all phones + TV,
+       tap-to-skip; the draw timer starts after it] */
+    #splash{position:fixed; inset:0; z-index:50; display:none; place-items:center;
+      background:var(--team); color:#fff; text-align:center; padding:24px; cursor:pointer}
+    #splash.show{display:grid}
+    #splash .stext{font-family:'Titan One',cursive; font-size:36px; line-height:1.15;
+      -webkit-text-stroke:1.5px var(--ink); animation:splashin .5s cubic-bezier(.5,1.7,.4,1)}
+    #splash .skip{margin-top:14px; font-weight:800; font-size:12px; opacity:.75}
+    @keyframes splashin{from{transform:scale(.3) rotate(-5deg); opacity:0}}
     @media (prefers-reduced-motion:reduce){*{animation:none!important}}
   </style>
 </head>
 <body>
   <div id="banner">Reconnecting…</div>
+  <div id="splash"><div><div class="stext"></div><div class="skip">tap to skip ⏭</div></div></div>
 
   <!-- JOIN -->
   <section id="join" class="card">
@@ -356,6 +367,22 @@
     }
     function stopTimer() { if (timerHandle) { clearInterval(timerHandle); timerHandle = null; } }
 
+    // ---- phase splash (tap-to-skip; timer deadline already excludes it) ----
+    let splashTimer = null;
+    function showSplash(sp, useGremlinText) {
+      const text = sp && (useGremlinText ? sp.gremlin_text : sp.text);
+      if (!text || !(sp.seconds > 0)) return;
+      $('splash').querySelector('.stext').textContent = text;
+      $('splash').classList.add('show');
+      clearTimeout(splashTimer);
+      splashTimer = setTimeout(hideSplash, sp.seconds * 1000);
+    }
+    function hideSplash() {
+      clearTimeout(splashTimer);
+      splashTimer = null;
+      $('splash').classList.remove('show');
+    }
+
     // ---- screen switching ----
     function show(which) {
       $('drawUI').classList.toggle('hidden', which !== 'draw');
@@ -465,6 +492,7 @@
         } else if (phase === 'draw_characters' || phase === 'draw_action' || phase === 'montage') {
           enterDraw(phase);
           startTimer(m.payload.deadline_ts);
+          showSplash(m.payload.splash, phase === 'draw_action' && isKo);
         }
       } else if (m.type === 'canvas_init') {
         characterPng = m.payload.png || '';
@@ -492,6 +520,7 @@
         $('waitMsg').textContent = 'Watch the TV for the action…';
       } else if (m.type === 'game_over') {
         stopTimer();
+        hideSplash();
         show('over');
         const won = m.payload.winner_team_id;
         $('overTitle').textContent = won === teamId ? '🏆 You Win!' : 'Game Over';
@@ -501,6 +530,7 @@
 
     // ---- boot ----
     buildTools();
+    $('splash').onclick = hideSplash;   // tap-to-skip
     $('joinBtn').onclick = () => {
       const room = $('room').value.toUpperCase().trim();
       const name = $('name').value.trim() || 'Player';

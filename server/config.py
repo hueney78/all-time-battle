@@ -116,6 +116,17 @@ class UIConfig(BaseModel):
     action_canvas_character_scale: float = 0.5
     montage_canvas_character_scale: float = 0.88
     deliberation_filler_seconds: float = 3.5
+    # Phase splash (GAME_DESIGN §13): a full-screen announcement on all phones
+    # + the TV before each drawing phase; the draw timer starts after it.
+    # splash_text keys: draw_characters / draw_action / montage / gremlin
+    # ("{round}" is substituted); phones show `gremlin` to KO'd players.
+    phase_splash_seconds: float = 2.0
+    splash_text: dict[str, str] = {
+        "draw_characters": "Draw your Character!",
+        "draw_action": "Round {round} — Draw your Move!",
+        "montage": "🎵 Upgrade your Character! 🎵",
+        "gremlin": "Draw a Hazard, Gremlin! 😈",
+    }
     reveal_action_zoom_scale: float = 1.8
     reveal_action_zoom_seconds: float = 2.5
     reveal_beat_seconds: float = 3.2   # per-beat auto-advance pace; 0 = manual (host clicks Next ▶)

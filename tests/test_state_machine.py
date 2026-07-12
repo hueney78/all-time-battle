@@ -576,6 +576,68 @@ async def test_taps_flow_through_to_classification():
     assert by_pid[b.id].move_id == "shield"
 
 
+async def test_phase_change_carries_splash_and_deadline_excludes_it():
+    """Every drawing phase opens with a splash on all clients (§13): the
+    phase_change ships per-role splash text ({round} substituted, Gremlin
+    variant for KO'd players) and the deadline includes splash + draw time —
+    the timer effectively starts when the splash clears."""
+    rules = _rules()
+    rules.settings.ui.phase_splash_seconds = 2.0
+    room = Room("TEST", rules)
+    sock = FakeSocket()
+    room.add_player("Alice", "player", sock, None)
+    machine = GameStateMachine(room, rules, ai=MockAI(),
+                               timers=Timers(30, 40, 0.01, montage=20))
+
+    before = time.time()
+    await machine._enter_phase("draw_action", round_num=3, timeout=40, splash=True)
+    env = await sock.expect("phase_change")
+    sp = env.payload["splash"]
+    assert sp["seconds"] == 2.0
+    assert sp["text"] == "Round 3 — Draw your Move!"
+    assert sp["gremlin_text"] == "Draw a Hazard, Gremlin! 😈"
+    # deadline = now + splash + draw timeout (timer excludes the splash).
+    assert env.payload["deadline_ts"] >= before + 2.0 + 40 - 0.5
+
+    await machine._enter_phase("montage", round_num=3, timeout=20, splash=True)
+    env = await sock.expect("phase_change")
+    assert env.payload["splash"]["text"] == "🎵 Upgrade your Character! 🎵"
+
+    # Non-draw phases ship no splash.
+    await machine._enter_phase("deliberate", round_num=3, timeout=1)
+    env = await sock.expect("phase_change")
+    assert "splash" not in env.payload
+
+
+def test_transcript_persists_every_beat(tmp_path):
+    """The full announcer transcript persists to transcript.jsonl (§13) —
+    the on-screen log rolls off, the snapshot never does."""
+    import json
+
+    from server.ai.provider import Beat
+    from server.snapshots import SnapshotWriter
+
+    w = SnapshotWriter(tmp_path, "ROOM", enabled=True)
+    w.append_transcript(1, "The Fish Learns to Surf", [
+        Beat(event_id="e1", text="KABOOM!", speaker="pbp"),
+        Beat(event_id="e2", text="It is not.", speaker="color"),
+    ])
+    w.append_transcript(2, "Round Two", [Beat(event_id="e3", text="zap")])
+    rows = [json.loads(line) for line in
+            (tmp_path / "room-ROOM" / "transcript.jsonl").read_text(
+                encoding="utf-8").splitlines()]
+    assert len(rows) == 3
+    assert rows[0] == {"round": 1, "round_title": "The Fish Learns to Surf",
+                       "event_id": "e1", "speaker": "pbp", "text": "KABOOM!"}
+    assert rows[1]["speaker"] == "color"
+    assert rows[2]["round"] == 2
+
+    # Disabled writer stays silent.
+    w2 = SnapshotWriter(tmp_path, "OFF", enabled=False)
+    w2.append_transcript(1, "t", [Beat(event_id="e", text="x")])
+    assert not (tmp_path / "room-OFF").exists()
+
+
 async def test_team_names_revealed_as_final_intro_beat_then_used_everywhere():
     """Teams display as Team A/B until the intro reveal's final beat swaps in
     the AI names (GAME_DESIGN §2, Track A/B #7): the round-0 reveal carries a
