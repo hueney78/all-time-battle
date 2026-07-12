@@ -110,7 +110,7 @@ Acceptance: mock tests green; live smoke test returns valid classification for f
 
 ## 7. Post-Phase-5: Two Parallel Tracks
 
-**COMBAT V2 (post-playtest redesign) — do this reconciliation before new track work.** Playtesting showed drawing-classified moves were unreliable and the 30-move catalog diluted excitement. GAME_DESIGN §§3–5, 8–9, 11.1 now specify: **eight tapped moves** (SMASH/BLAST/TRICK/SHIELD/RALLY/WILD CARD + ◀/▶ movement) with a target picker; drawings supply creativity/flavor/combos only; **2d6 + stat** resolution; **stats 0–6 on budget 9** (HP 20+2×POW, AC 10+SPD); action costs and banked actions **deleted**; no-repeat rule on combat moves. Scope by track — Track A: engine rewrite (moves.yaml v2, 2d6 resolver, new golden test), `submit_action` protocol change (**guarded file — coordinate!**), classify prompt/schema v2, port `scripts/balance_sim.py` v2 (committed alongside this change; six moves verified within ±5% ablation, +2 stat budget ≈ 77% win rate). Track B: move buttons with **live per-character math** on labels, target picker, no-repeat greying, edge-disabled movement, updated player mockup. Old v1 concepts to delete on sight: action_cost, banking, min_cost, the 30-move catalog, stat range 1–4, d20.
+**COMBAT V2 (post-playtest redesign) — do this reconciliation before new track work.** Playtesting showed drawing-classified moves were unreliable and the 30-move catalog diluted excitement. GAME_DESIGN §§3–5, 8–9, 11.1 now specify: **eight tapped moves** (SMASH/BLAST/TRICK/SHIELD/RALLY/WILD CARD + ◀/▶ movement) with a target picker; drawings supply creativity/flavor/combos only; **2d6 + stat** resolution; **stats 0–6 on budget 9** (HP 20+2×POW, AC 10+SPD); action costs and banked actions **deleted**; no-repeat rule on combat moves. Scope by track — Track A: engine rewrite (moves.yaml v2, 2d6 resolver, new golden test), `submit_action` protocol change (**guarded file — coordinate!**), classify prompt/schema v2, port `scripts/balance_sim.py` v2 (committed alongside this change; six moves verified within ±5% ablation, +2 stat budget ≈ 77% win rate). Track B: move buttons with **live per-character math** on labels, target picker, no-repeat greying, edge-disabled movement, updated player mockup. Old v1 concepts to delete on sight: action_cost, banking, min_cost, the 30-move catalog, stat range 1–4, d20. **v2.1 amendments (playtest round 2):** TRICK is replaced by **SHOOT** (ranged single-target, `(1+ceil(WRD/2))d4+1`, half damage same-zone); **SHIELD protects all allies in the caster's zone** (+4 AC); **RALLY heals `1d6 + creativity bonus`**; **character intros run BEFORE Round 1 drawing** (new INTROS phase; each intro fills the arena area with the giant sprite, narration log intact below); and **the condition system is removed entirely** — delete conditions.yaml, the registry, ticks, status emojis, TRICK conditions, fumble's Embarrassed, and rewrite Gremlin hazards as damage-or-push only. Balance re-verified in `balance_sim_v2.py` (v3 run): six moves within ±5%, stat sensitivity 0.754.
 
 From here, remaining work (the old Phases 6–8) is organized as **two parallel tracks along the architecture's seam** — engine/server/AI vs presentation — so two people can each direct Claude Code sessions without colliding. Rules of engagement:
 
@@ -165,3 +165,21 @@ From here, remaining work (the old Phases 6–8) is organized as **two parallel 
 | State machine | Fake clock, simulated clients, full mock games |
 | AI layer | Fixture-based schema tests; repair & fallback paths; live smoke script |
 | End-to-end | Scripted mock game over real websockets in CI; human couch playtests at checkpoints |
+
+## 11. Kickoff Prompt (paste into Claude Code to start)
+
+```
+Read ARCHITECTURE.md, GAME_DESIGN.md, and IMPLEMENTATION_PLAN.md in this
+directory. Create CLAUDE.md with the ground rules from the plan's §0. Then
+execute Phase 1 exactly as specified: scaffold the project, config system,
+engine models, and dice module, with tests. Stop at the Phase 1 acceptance
+criteria and tell me how to run the demo checkpoint.
+```
+
+Then proceed one phase at a time: "Execute Phase 2 per IMPLEMENTATION_PLAN.md."
+Resist doing multiple phases in one shot — the checkpoints exist to catch
+design drift while it's cheap. After Phase 5, work splits into the two
+parallel tracks in sections 7-9: kick off sessions with "Execute Track A
+item 4 (montage server side) per IMPLEMENTATION_PLAN.md" and respect the
+sync-point ordering (Track A lands contracts + mock fixtures before Track B
+consumes them).

@@ -48,7 +48,6 @@ doodle-brawl/
 │   ├── settings.yaml          # timers, ports, player limits, model IDs
 │   ├── balance.yaml           # stat formulas, HP, action economy, creativity caps
 │   ├── zones.yaml             # zone graph + modifiers (add High Ground here)
-│   ├── conditions.yaml        # condition registry
 │   ├── moves.yaml             # move catalog: PF2e-style archetypes owning all action math
 │   └── prompts/
 │       ├── character_gen.md.j2
@@ -63,7 +62,6 @@ doodle-brawl/
 │   │   ├── models.py          # GameState, Character, Team, ResolvedAction
 │   │   ├── dice.py            # Seeded RNG wrapper (injectable for tests)
 │   │   ├── resolver.py        # PURE resolution: actions in → events out
-│   │   ├── conditions.py      # Registry loaded from conditions.yaml
 │   │   ├── moves.py           # Move catalog registry loaded from moves.yaml
 │   │   └── zones.py           # Zone graph loaded from zones.yaml
 │   ├── ai/
@@ -101,11 +99,11 @@ Message catalog (subset):
 | S→C | `arena_state` | zone layout + each character's PNG and current zone (host renders this during drawing phases) |
 | S→C | `phase_change` | phase, round, deadline_ts, splash (per-role text; clients show it full-screen for `phase_splash_seconds` before the canvas; timer deadline excludes the splash) |
 | S→C | `reveal_step` | ordered narrative beats + state deltas + per-player **action PNGs** + the round's **initiative order** + **meter values** (team HP share, audience-favor score) — host paces these |
-| S→C | `player_state` | your character, stats, HP, conditions, last combat move (for no-repeat greying) |
+| S→C | `player_state` | your character, stats, HP, last combat move (for no-repeat greying) |
 | S→C | `error` / `toast` | message |
 
 ### 4.2 State Machine (`state_machine.py`)
-Phases: `LOBBY → DRAW_CHARACTERS → ROUND_LOOP(draw → deliberate/process → reveal, with a MONTAGE sub-phase every N rounds) → GAME_OVER(finale → awards ceremony → match poster)`.
+Phases: `LOBBY → DRAW_CHARACTERS → INTROS → ROUND_LOOP(draw → deliberate/process → reveal, with a MONTAGE sub-phase every N rounds) → GAME_OVER(finale → awards ceremony → match poster)`.
 
 Rounds are **strictly sequential** (design doc §2) — players see their move revealed immediately after drawing it:
 
@@ -118,7 +116,7 @@ async def round_tick(r):
     await host_reveal(result)             # beats play; then next round's draw phase begins
 ```
 
-The deliberation interlude, not concurrency, is the latency mask: processing typically takes a few seconds, the TV never shows a spinner, and the 20s AI timeout + fallback path bounds the worst case. One deliberate overlap remains, invisible to players: character generation runs while players draw Round 1 (the first move needs no prior information), and the character-intro reveal then masks Round 1's processing. Teams are assigned at **lobby time** so collusion works from round 1. Timers auto-submit whatever is on the canvas (unmodified prefill = AI classifies as "hesitates dramatically," a 0-action stumble).
+The deliberation interlude, not concurrency, is the latency mask: processing typically takes a few seconds, the TV never shows a spinner, and the 20s AI timeout + fallback path bounds the worst case. Character intros play **before** Round 1 drawing (character generation is one fast call masked by a “meet the fighters” drumroll); each intro renders the fighter's sprite huge, filling the arena area. Teams are assigned at **lobby time** so collusion works from round 1. Timers auto-submit whatever is on the canvas (unmodified prefill = AI classifies as "hesitates dramatically," a 0-action stumble).
 
 ### 4.3 Engine (`engine/`) — the maintainability core
 `resolver.py` exposes one pure function:
@@ -131,13 +129,13 @@ def resolve_round(state: GameState, actions: list[ClassifiedAction],
 
 It handles: initiative, the eight v2 moves and their formulas (via the moves registry), no-repeat/edge legality, combo bonuses, attack rolls with degrees of success, damage, condition application/expiry (via registry), zone legality/movement, KO → Gremlin conversion, and victory detection. Output is an ordered list of `Event` objects (attack_resolved, condition_applied, moved, ko, ...) — this event list is BOTH the input to the narrator AI and the script for host-screen animations.
 
-**Registries, not if-statements.** Conditions, zones, and **moves** are loaded from YAML into registries of declarative effects (see Design Doc §4.1, §6–7). Every classified action resolves through its `moves.yaml` entry (roll stat, range, targeting, damage die, riders); the resolver queries `registry.modifier(target, "attack_bonus")` etc. Adding High Ground — or a whole new attack archetype — = adding a YAML block.
+**Registries, not if-statements.** Zones and **moves** are loaded from YAML into registries of declarative effects (see Design Doc §4.1, §6–7). Every classified action resolves through its `moves.yaml` entry (roll stat, range, targeting, damage die, riders); the resolver queries `registry.modifier(target, "attack_bonus")` etc. Adding High Ground — or a whole new attack archetype — = adding a YAML block.
 
 ### 4.4 AI Layer (`ai/`)
 Five call types, all with pydantic-validated JSON responses (via forced tool-use so output is guaranteed structured):
 
 1. **`generate_characters`** (Haiku, 1 call/game): all character PNGs as labeled image blocks (grouped by team) → stats, personality, announcer intro per character, plus an **AI-invented team name per team** that links its roster (teams display as “Team A/B” until the intro reveal; names then propagate to all clients via room state).
-2. **`classify_actions`** (Haiku, 1 call/round): per player, the **tapped move + target** (ground truth from the phone) plus a labeled **pair of images — original character and action drawing**. The AI judges creativity tier, drawing staleness, combo synergy, TRICK's condition choice, and WILD CARD interpretation — it never chooses the move or target. Plus compact game-state summary → per-player classification (see Design Doc §11.1). Total AI failure still resolves the round: server owns the move; fallback is creativity 0 + template narration.
+2. **`classify_actions`** (Haiku, 1 call/round): per player, the **tapped move + target** (ground truth from the phone) plus a labeled **pair of images — original character and action drawing**. The AI judges creativity tier, drawing staleness, combo synergy, and WILD CARD interpretation — it never chooses the move or target. Plus compact game-state summary → per-player classification (see Design Doc §11.1). Total AI failure still resolves the round: server owns the move; fallback is creativity 0 + template narration.
 3. **`narrate_round`** (Sonnet, 1 call/round, text-only): resolved `Event` list + personalities → comedic narrative broken into reveal beats aligned to event IDs, voiced as a two-announcer duo (optional `speaker` tag per beat for host styling and future TTS voices).
 4. **`classify_montage`** (Haiku, 1 call per montage, every `montage_every_rounds` rounds): per player, previous character image + updated montage image → which stat gets +1 and a flavor line; the updated image becomes the character's new original everywhere. Masked by a “training montage” TV interstitial (same pattern as the deliberation interlude).
 5. **`generate_awards`** (Sonnet, 1 call/game, at victory): match summary (creativity data, fumbles, combos, best beats) → 5–7 awards `{title, player_id, blurb}`, every player receiving at least one.
@@ -150,7 +148,7 @@ Reliability rules:
 - System prompts + rules text sent with `cache_control` (prompt caching) to cut input cost ~90% on repeat calls.
 
 ### 4.5 Frontend
-- **Player page:** join form → character creation (canvas + a **hint word/phrase text field** — no name entry; the AI names the character) → per-round action canvas → status card showing your stats (Power/Speed/Weird), HP, conditions, team color. Big buttons, kid-friendly.
+- **Player page:** join form → character creation (canvas + a **hint word/phrase text field** — no name entry; the AI names the character) → per-round action canvas → status card showing your stats (Power/Speed/Weird), HP, team color. Big buttons, kid-friendly.
 - **Action canvas behavior:** the canvas background color defaults to the arena floor color (`canvas_background_color` token) so exported drawings blend into the battlefield; erasers restore this color, not white. Each action round, the canvas **starts preloaded with the player's original character drawing at ~50% scale** (config `action_canvas_character_scale`), positioned on the player's team's side and paired with an **orientation ribbon** ("your side ⟵ ⟶ enemies", per-team) matching the TV's arena layout — so kids have room to draw *around* the character and directional drawings (arrows, charges) are anchored to a spatial reference. A **"restore character" button** wipes the canvas back to the scaled original at any time. Tools: pen (3 widths, 8 colors), **eraser in multiple sizes**, undo, full clear — players may erase any or all of the original character (the AI interprets whatever the final image shows; see AI layer). Visual reference: `design/mockup_player_screen.html`.
 - **Host page:** lobby with QR; arena view rendering zones as bands over the **default CSS-drawn colosseum** (stone arches, stands, sand floor — visual reference: `design/mockup_host_screen.html`); an optional custom image overrides it via `arena_background` in settings.yaml (assets in `web/host/assets/`). The sand floor color is the shared `canvas_background_color` token, so player drawings (drawn on same-colored canvases) blend seamlessly into the battlefield. Characters render as sprites showing their **most recent revealed action drawing** — action images persist on the battlefield until replaced by the character's next action (original character image until they first act). **During reveals**, the sequencer appends beats to a **running narration log** (current beat highlighted with typewriter effect, prior beats dimmed in scrollback with round dividers; log persists through the deliberation interlude; full transcript in snapshots) with HP tweens; the acting character's action drawing **zooms up by a configurable scale for a configurable duration** (`reveal_action_zoom_scale`, `reveal_action_zoom_seconds`) then settles to sprite size; characters negatively impacted by the beat get a **red border + shake**, positively impacted get a **light-blue border + pop** — both driven by the beat's engine events. A **Web Audio manager** plays per-move sounds (`sfx` keys in moves.yaml) and event stingers (`events_sfx` in settings.yaml) from curated free sound packs, with volume/mute and slight pitch variation. Damage/heal events spawn **floating combat numbers** (red/green, crits oversized) above the affected sprite. A left-side **"Initiative Order" rail** shows original character portraits in the revealed round's acting order with a compact per-character **stat strip (Power/Speed/Weird)** — the stats' home on the common screen, keeping the battlefield clean — animating reorders and dropping KO'd characters; the round's initiative order ships in `reveal_step` (the resolver already computes it — expose it on `RoundResult`). Below the battlefield, two **tug-of-war meters** render from `reveal_step` meter values: team HP share ("Who's Winning") and audience favor from accumulated per-team creativity bonuses ("Crowd Favorite"), both computed server-side. Crit/KO beats trigger a one-time **instant replay** (slow-mo re-run of the beat with a REPLAY banner; config-toggled). The **victory screen** plays the awards ceremony (one award at a time with the winning drawing enlarged) and offers the server-composed **match poster** as a download/QR. With `gallery_enabled`, past characters from the persistent `gallery/` folder render as tiny spectators in the stands (Phase 8).
 - No framework. Each page is one HTML + one or two JS modules. State is whatever the server last sent (`server is source of truth`; clients are dumb renderers).
@@ -177,7 +175,7 @@ Reliability rules:
 
 ## 7. Configuration Philosophy
 
-Every number a designer might tune lives in `config/`. Code reads config through typed pydantic settings objects loaded at room creation (so you can edit YAML and start a new game without restarting the server — hot-reload per room). Examples of things that are config, not code: draw timer seconds, HP formula coefficients, creativity bonus values, stale penalty, combo bonus and combo escalation rules, crit thresholds, zone graph, condition list, **the entire move catalog**, model IDs, max image size, prompt text, arena background image path, reveal zoom scale/duration, action-canvas character scale, and all sfx mappings (per-move and event stingers).
+Every number a designer might tune lives in `config/`. Code reads config through typed pydantic settings objects loaded at room creation (so you can edit YAML and start a new game without restarting the server — hot-reload per room). Examples of things that are config, not code: draw timer seconds, HP formula coefficients, creativity bonus values, stale penalty, combo bonus and combo escalation rules, crit thresholds, zone graph, **the entire move catalog**, model IDs, max image size, prompt text, arena background image path, reveal zoom scale/duration, action-canvas character scale, and all sfx mappings (per-move and event stingers).
 
 ## 8. Security/Privacy Notes
 

@@ -16,7 +16,7 @@ Each round is strictly sequential and immediate — playtesting showed that peop
 2. **Deliberation interlude** — the moment all drawings are in (often before the timer expires), the TV shows every submitted action drawing side by side under a "The judges deliberate…" banner while the AI classifies, the server resolves, and the narrator writes. Seeing everyone's drawings *is* the entertainment; the wait is typically a few seconds and never shows a spinner.
 3. **Reveal** — the round plays out beat by beat, then the next draw phase begins.
 
-Two exceptions, both invisible to players: character generation runs while players draw Round 1 (their first move needs no prior information), so the character intros play immediately after Round 1 drawings are in — and Round 1's processing hides behind those intros. And each classify/narrate call starts the instant the last drawing arrives rather than waiting for the timer.
+**Character introductions play BEFORE Round 1 drawing** — players meet the fighters, stats, and team names first, then draw their opening moves with full knowledge. Character generation is one fast call masked by a “meet the fighters” drumroll. (One optimization everywhere: each AI call starts the instant the last drawing arrives rather than waiting for the timer.)
 
 Teams are assigned **in the lobby** (team colors on each phone) so teammates can scheme from the first drawing. Until characters are processed, teams display as plain **“Team A” / “Team B”**; the character-generation call also returns an **AI-invented name per team** that comically links that team's characters together (e.g. a unicorn + a buff goldfish → “The Sparkle Snacks”). The names are revealed as the final beat of the intro sequence (“…and TOGETHER they are…”) and used everywhere from then on — zone labels, meters, phone headers, narration. When a team is defeated, the finale plays immediately.
 
@@ -69,16 +69,16 @@ moves:
   blast:  {stat: weird, range: any, target: zone_all, friendly_fire: true,
            damage: "(1 + floor(WRD/3))d4 + 3",
            button: "BLAST", desc: "Hits EVERYONE in a zone. Yes, everyone."}
-  trick:  {stat: weird, range: any, target: single_enemy,
-           damage: "1d6 + WRD", on_hit_condition: from_drawing,   # AI picks from conditions.yaml by flavor
-           button: "TRICK", desc: "Damage plus something nasty from your drawing."}
-  shield: {stat: none, range: any, target: ally_or_self, ac_bonus: 5,
+  shoot:  {stat: weird, range: any, target: single_enemy,
+           damage: "(1 + ceil(WRD/2))d4 + 1",   # a notch below SMASH: ranged is safer
+           same_zone_penalty: half,             # point-blank = half damage (round up)
+           button: "SHOOT", desc: "Hit anyone, anywhere. Weaker up close."}
+  shield: {stat: none, target: zone_allies, ac_bonus: 4,   # ALL teammates in the caster's zone, incl. self
            reflect: "attacks missing by 3+ deal 1d6 back",
-           button: "SHIELD", desc: "Big protection. Strong blocks reflect."}
+           button: "SHIELD", desc: "Protect everyone in your zone. Strong blocks reflect."}
   rally:  {stat: none, range: any, target: ally_or_self,
-           heal: "1d6 + 2", cleanse: all,
-           pumped_if_creativity: 2,   # the buff is earned by a great drawing
-           button: "RALLY", desc: "Heal, cleanse, and hype a teammate."}
+           heal: "1d6 + creativity bonus",   # the drawing IS the medicine
+           button: "RALLY", desc: "Heal a teammate. Great drawings heal more."}
   wild:   {stat: weird, range: any, target: single_enemy,
            damage: "2d8 + floor(WRD/2)", fumble_on_roll_lte: 3,
            button: "WILD CARD", desc: "The AI decides what your drawing does. Gamble."}
@@ -88,7 +88,7 @@ moves:
 
 Rules that replace the old action economy (action costs and banked actions are **deleted**):
 - **No repeats:** you can't pick the same combat move twice in a row (the button greys out). Movement is exempt; edge-illegal directions render disabled.
-- **WILD CARD** is the soul of v1, contained: the AI interprets the drawing freely (`wild_interpretation` in the schema — big flat damage by default, or a condition/reposition/absurdity if the drawing demands it), with the widest fumble band. Highest ceiling, highest variance.
+- **WILD CARD** is the soul of v1, contained: the AI interprets the drawing freely (`wild_interpretation` in the schema — big flat damage by default, or a reposition/absurdity if the drawing demands it; no status effects), with the widest fumble band. Highest ceiling, highest variance.
 - **Movement** grants +1 AC that round (dodging on the move). ◀/▶ are absolute and match the TV — no AI direction-guessing, ever.
 - The Monte Carlo harness (`scripts/balance_sim.py`, v2) validated this system: all six combat moves within ±5% of each other in ablation, and a +2 stat-budget edge wins ~77% of games — stats finally matter.
 
@@ -98,16 +98,16 @@ The **draw-on-top canvas** is unchanged: prefilled with the character at ~50% on
 
 Server-side, seeded **2d6** — a bell curve, so every +1 genuinely shifts outcomes and extremes stay special:
 
-`roll = 2d6 + move's stat + creativity bonus + modifiers(conditions, zones, combos, sudden death)` vs target `AC (10 + Speed) + shield/dodge bonuses`.
+`roll = 2d6 + move's stat + creativity bonus + modifiers(zones, combos, sudden death)` vs target `AC (10 + Speed) + shield/dodge bonuses`.
 
 | Result | Threshold | Effect |
 |---|---|---|
 | Critical hit | natural 12 **or** beat AC by ≥ `crit_margin` (5) | Double damage + narrator goes wild |
 | Hit | ≥ AC | Move's damage formula |
 | Miss | < AC | Whiff (a SHIELDed target missed by 3+ reflects 1d6) |
-| Fumble | natural 2 (WILD CARD: roll ≤ 3) | 3 self-damage + **Embarrassed**; comedy jackpot |
+| Fumble | natural 2 (WILD CARD: roll ≤ 3) | 3 self-damage; comedy jackpot for the narrator |
 
-Initiative = Speed (modified by conditions), ties broken by seeded roll. All dice, thresholds, and formulas are config values.
+Initiative = Speed, ties broken by seeded roll. All dice, thresholds, and formulas are config values.
 
 ## 6. Zones (config-driven — the "High Ground" test)
 
@@ -152,27 +152,13 @@ rules:
 ```
 The resolver reads `modifiers` generically (any key it knows: `attack_bonus`, `ac_bonus`, `ranged_ac_bonus`, `damage_bonus`, `speed_penalty`, `fumble_extra`, `entry_cost`, `capacity`). Unknown keys log a warning. The zone list, names, and adjacency are also injected into the AI prompts automatically so classification understands the arena.
 
-## 7. Conditions (curated registry)
+## 7. Conditions: Removed (design note)
 
-The AI may only apply conditions from this list (enforced by schema + validator). Each is declarative in `conditions.yaml`:
-
-```yaml
-# config/conditions.yaml
-conditions:
-  burning:   {duration: 2, tick_damage: 2, cure_tags: [water, soggy], emoji: "🔥"}
-  soggy:     {duration: 2, modifiers: {power: -2}, immunities: [burning], emoji: "💧"}
-  sticky:    {duration: 2, modifiers: {speed: -1}, blocks_free_step: true, emoji: "🟢"}
-  prone:     {duration: 1, stand_cost: 1, modifiers: {ac: -1}, emoji: "🙃"}
-  frightened:{duration: 2, modifiers: {attack: -1}, emoji: "😱"}
-  embarrassed:{duration: 2, modifiers: {attack: -1}, trigger: "fumble", emoji: "😳"}
-  enraged:   {duration: 2, modifiers: {attack: +1, ac: -1}, emoji: "😡"}
-  sparkly:   {duration: 2, incoming_attack_bonus: 1, emoji: "✨"}
-```
-Adding a condition = add a YAML block; the resolver applies `modifiers`/`tick_damage`/etc. generically, the phone UI shows `emoji`, and the condition list is injected into AI prompts so it knows its palette. Interactions (e.g., soggy cures burning) are data (`cure_tags`, `immunities`).
+Earlier versions had a condition system (burning, sticky, frightened, …). Playtesting showed it complicated play and bloated the announcing without earning its keep, so **v2.1 removes conditions entirely**: no registry, no ticks, no status emojis. Everything a condition used to do is now either direct (damage, healing, AC from SHIELD/dodge) or narrative (the announcers can *say* someone is soggy and embarrassed — it just doesn't need rules). If a future playtest misses them, reintroduce sparingly as one-round rider effects on WILD CARD only.
 
 ## 8. Creativity, Combos & Variety
 
-- **Creativity tiers** (AI-assigned from the drawing, server-capped): 0 (+0), 1 (+1 solid), 2 (+2 clever), 3 (+4 table-losing-it), added to the 2d6 roll — where +2 is enormous. The prompt instructs: judge *idea* creativity, not drawing skill. Creativity is now the drawing's entire mechanical contribution, which keeps the sketching central even though moves are tapped. RALLY's `pumped` buff only fires at tier ≥ 2 — support players earn it with the drawing.
+- **Creativity tiers** (AI-assigned from the drawing, server-capped): 0 (+0), 1 (+1 solid), 2 (+2 clever), 3 (+4 table-losing-it), added to the 2d6 roll — where +2 is enormous. The prompt instructs: judge *idea* creativity, not drawing skill. Creativity is now the drawing's entire mechanical contribution, which keeps the sketching central even though moves are tapped. RALLY heals `1d6 + creativity bonus` — support players earn potency with the drawing.
 - **Drawing staleness:** re-submitting essentially the same drawing concept as your last round scores creativity 0 (`similar_to_previous`) — variety in *art*, while the no-repeat button rule (§4) forces variety in *moves*.
 - **Combos:** the AI still checks teammate drawings for intentional synergy (`combo: {partners, concept, combo_name}`). Since moves are individually tapped, a combo no longer fuses actions — instead **both partners gain +2 on their rolls** and the narrator merges their beats into one named spectacle ("GLITTERNADO SURF STRIKE"). Couch-whispering stays the metagame, without new rules to track.
 - **Rubber-banding (optional, on by default for kids):** losing team gets `underdog_bonus: +1` when down ≥ 2 characters' worth of HP share. Config flag.
@@ -186,7 +172,7 @@ With tapped moves the AI no longer decides *what* a player does — but adaptati
 
 ## 10. KO & the Arena Gremlin
 
-At 0 HP a character is KO'd (dramatic narrator send-off). The player immediately becomes an **Arena Gremlin**: each round they draw one hazard; the AI classifies it as a zone effect from a curated hazard palette (banana peel → prone risk, sprinkler → soggy, bees → 1 tick damage, trapdoor → forced move), applied to a zone of the resolver's random choice. Gremlins keep drawing until the match ends. Victory = all characters of one team KO'd. Sudden death (config): after `max_rounds` (12), all attacks gain +2 and healing is disabled.
+At 0 HP a character is KO'd (dramatic narrator send-off). The player immediately becomes an **Arena Gremlin**: each round they draw one hazard; the AI classifies it as a zone effect from a curated hazard palette (bees/spikes → 1d4 damage to everyone in the zone; trapdoor/banana → forced one-zone push), applied to a zone of the resolver's random choice. Gremlins keep drawing until the match ends. Victory = all characters of one team KO'd. Sudden death (config): after `max_rounds` (12), all attacks gain +2 and healing is disabled.
 
 ### 10.1 The Power-Up Montage
 
@@ -209,14 +195,13 @@ Request contains, per living player, their **tapped move and target** (from the 
   "creativity_reason": "the lawnmower is doing a wheelie",
   "similar_to_previous": false,
   "flavor_summary": "flaming wheelie mower charge",   // feeds the narrator
-  "trick_condition": "burning",      // TRICK only: from conditions.yaml, by drawing flavor
-  "wild_interpretation": null,       // WILD CARD only: freeform effect within schema bounds
+  "wild_interpretation": null,       // WILD CARD only: damage / reposition / absurdity (no status effects)
   "combo": {"partners": ["p3"], "concept": "oil slick + sparks", "combo_name": "GREASE FIRE GAMBIT"},
   "adaptation_note": null,
   "flagged": false
 }
 ```
-Enforced by pydantic: condition names against the registry, partners against living teammates. Fallback on total AI failure: creativity 0, no condition (TRICK deals damage only), template narration — **the tapped move always resolves** because the server, not the AI, owns it.
+Enforced by pydantic: partners against living teammates. Fallback on total AI failure: creativity 0, template narration — **the tapped move always resolves** because the server, not the AI, owns it.
 
 ### 11.2 `narrate_round` request/response
 Request: ordered engine `events` (JSON), personalities, adaptation notes, tone guide. Response:
@@ -232,7 +217,7 @@ Request: ordered engine `events` (JSON), personalities, adaptation notes, tone g
 Every beat maps to event IDs so the host screen syncs text with HP-bar animations. Narration is **derived from resolved events** — it cannot change outcomes.
 
 ### 11.3 Prompt templates (Jinja2, in `config/prompts/`)
-Each template receives: rules summary, zone list, condition palette, compact state, and hard instructions: family-friendly; judge ideas not art skill; never invent conditions/targets; always adapt rather than reject (§9); return only the tool call. Rules text is stable → sent with prompt caching.
+Each template receives: rules summary, zone list, compact state, and hard instructions: family-friendly; judge ideas not art skill; never invent targets or mechanics; always adapt rather than reject (§9); return only the tool call. Rules text is stable → sent with prompt caching.
 
 **The comedy mandate (narrator prompt).** Plain play-by-play is banned: *"never write 'X attacks Y' when you could write how it went sideways."* Concretely, the narrator template instructs:
 - Every beat needs at least one comedic specific — a prop, a sound effect, a bystander reaction, a physics indignity ("the mower coughs. A pigeon judges him.")
@@ -247,27 +232,28 @@ Each template receives: rules summary, zone list, condition palette, compact sta
 ## 12. Worked Round (numbers a test can assert)
 
 Given seed `42`, 2v2 fixture: Stabby (P1/S5/W3, HP 22, AC 15) and Gerald (P3/S1/W5, HP 26, AC 11) vs Lawnmower (P6/S2/W1, HP 32, AC 12) and Blob (P0/S3/W6, HP 20, AC 13).
-1. Taps: Stabby → TRICK on Blob (drawing: glitter hypnosis, creativity 2); Blob → BLAST on the front zone (creativity 1); Lawnmower → SMASH on Gerald (auto-step, creativity 0); Gerald → SHIELD self.
-2. Initiative: Stabby(5) → Blob(3) → Lawnmower(2) → Gerald(1). Gerald's shield hasn't resolved when SMASH lands — initiative order matters and the couch sees why on the rail.
-3. Fixture dice: Stabby rolls 2d6=9 +3 +2 = 14 vs AC 13 → hit, 1d6+3 = 7, Blob 20→13, gains `confused`. Blob's BLAST 2d6=7 +6 +1 = 14 vs zone occupants → hits for 3d4+3 = 11. Lawnmower 2d6=11 +6 = 17 vs AC 11 → beats by 6, **crit**: (4d4+2)×2 = 24, Gerald 26→2. Gerald shields himself (+5 AC) one round too late.
+1. Taps: Stabby → SHOOT at Blob (glitter arrows drawing, creativity 2); Blob → BLAST on the front zone (creativity 1); Lawnmower → SMASH on Gerald (auto-step, creativity 0); Gerald → SHIELD (his zone: himself).
+2. Initiative: Stabby(5) → Blob(3) → Lawnmower(2) → Gerald(1). Gerald's shield resolves after the SMASH lands — initiative order matters and the couch sees why on the rail.
+3. Fixture dice: Stabby 2d6=9 +3 +2 = 14 vs AC 13 → hit from another zone → full 3d4+1 = 8, Blob 20→12. Blob's BLAST 2d6=7 +6 +1 = 14 vs front-zone occupants → 3d4+3 = 11 each. Lawnmower 2d6=11 +6 = 17 vs AC 11 → beats by 6, **crit**: (4d4+2)×2 = 24, Gerald 26→2. Gerald shields his zone (+4 AC) one round too late.
 4. Assert exact HPs per the seeded dice in `tests/test_resolver.py::test_v2_golden`.
 
 ## 13. UX Details
 
 - **Phase splash:** every drawing phase opens with a ~2s full-screen announcement on **all phones and the TV simultaneously** (config `phase_splash_seconds`, text map in settings.yaml): "Draw your Character!", "Round N — Draw your Move!", "🎵 Upgrade your Character! 🎵" (montage), and per-role text — KO'd players see "Draw a Hazard, Gremlin! 😈". Big display type, whoosh stinger, tap-to-skip on phones; the draw timer starts only after the splash ends.
 - Draw timer: 75s actions, 90s characters (config). 10s warning pulse. Auto-submit on expiry (whatever is on the canvas — which is at minimum the preloaded character, classified as a comedic idle).
-- **Move buttons + target picker:** eight big buttons beside/below the canvas (SMASH, BLAST, TRICK, SHIELD, RALLY, WILD CARD, ◀ MOVE, MOVE ▶), each showing **that character's live math** ("SMASH — 4d4+2"); last-used combat move greyed out (no-repeat), edge-illegal movement disabled; enemy-portrait target picker defaulting to nearest. Tap move → tap target → draw the style.
+- **Move buttons + target picker:** eight big buttons beside/below the canvas (SMASH, SHOOT, BLAST, SHIELD, RALLY, WILD CARD, ◀ MOVE, MOVE ▶), each showing **that character's live math** ("SMASH — 4d4+2"); last-used combat move greyed out (no-repeat), edge-illegal movement disabled; enemy-portrait target picker defaulting to nearest. Tap move → tap target → draw the style.
 - Action canvas: **background color defaults to the arena floor color** (`canvas_background_color: "#E8D5A8"`, shared token with the host battlefield) so submitted drawings blend into the battlefield instead of floating as white rectangles; the classifier prompt states the canvas background color so it's never read as drawn content. Preloaded with the player's character at ~50% scale **immediately on every canvas load, including Round 1** (scaling must never depend on pressing Restore Character — the restore button re-applies the same scaled prefill), positioned on their team's side, with an orientation ribbon ("your side ⟵ ⟶ enemies") matching the TV's layout; "restore character" button; pen (3 widths, 8 colors), erasers in multiple sizes, undo, clear. Erasers restore the canvas background color, not white. Character creation screen adds the hint text field ("a word or phrase to inspire the AI").
-- Phone status card always shows: your sprite, **your stats (💪 Power / ⚡ Speed / 🌀 Weird, icon + number)**, HP hearts, condition emojis, team color, "you are drawing for Round N." Stat values pulse briefly when they change (montage, transform).
+- Phone status card always shows: your sprite, **your stats (💪 Power / ⚡ Speed / 🌀 Weird, icon + number)**, HP hearts, team color, "you are drawing for Round N." Stat values pulse briefly when they change (montage, transform).
+- **Character intro presentation:** during the intro sequence (which runs **before Round 1 drawing**), the highlighted character's sprite renders **huge — filling the full arena area** (the narration log area below stays intact for the announcer intro text), with name, stats, and personality beside it; each fighter gets their moment, ending with the team-name reveal.
 - **Team naming:** all team labels (zone bands, tug-of-war meter ends, phone headers) read “Team A” / “Team B” until the intro sequence reveals the AI team names, then swap and stay for the match.
-- Host battlefield: the default arena is a **CSS-drawn colosseum** (stone arches, stands, sand floor — per `design/mockup_host_screen.html`); a custom image can optionally replace it via `settings.yaml: arena_background` (dropped into `web/host/assets/`). Zones are bands over the background; characters sit in their current zones with HP bars and condition emojis. The arena floor is **uniform** `canvas_background_color` (default `#E8D5A8`) — no gradients, vignettes, or spotlight circles — and sprites render with **no drop shadow, border, or card background**, so each drawing's own sand-colored background blends invisibly into the floor. The **name bubble floats above** the character image (HP bar and condition emojis below).
+- Host battlefield: the default arena is a **CSS-drawn colosseum** (stone arches, stands, sand floor — per `design/mockup_host_screen.html`); a custom image can optionally replace it via `settings.yaml: arena_background` (dropped into `web/host/assets/`). Zones are bands over the background; characters sit in their current zones with HP bars. The arena floor is **uniform** `canvas_background_color` (default `#E8D5A8`) — no gradients, vignettes, or spotlight circles — and sprites render with **no drop shadow, border, or card background**, so each drawing's own sand-colored background blends invisibly into the floor. The **name bubble floats above** the character image (HP bar below).
 - **Action images persist.** Once a character's action is revealed, that action drawing *becomes* their battlefield sprite and stays until their next action replaces it — the arena accumulates the round's chaos (laser-firing Stabby stays laser-firing through the next drawing phase). Characters who haven't acted yet show their original character image.
 - **Narration log:** announcer text is a **running, chat-style log** (newest at bottom), not transient captions. The current beat types out in a bright gold-bordered card, then rolls up into dimmed history (smaller, ~55% opacity) when the next beat starts. **Round dividers** ("— Round 3: *The Fish Learns to Surf* —") separate rounds; roughly the last 2–3 rounds stay on screen behind a top fade mask; crit/KO/combo lines keep a subtle gold tint in history so highlights stay findable; speaker chips (PBP/COLOR) persist so re-read banter still reads as dialogue. The log remains visible during the deliberation interlude — re-reading last round's jokes is the latency mask. The full transcript always persists to the room snapshot (feeds the match poster's "best line").
 - Host reveal pacing: beats advance on a timer (config `beat_seconds: 6`) with a host "next" override button; kids reading speed matters. When a character's beat plays, their action drawing **enlarges by a configurable scale for a configurable duration** (`reveal_action_zoom_scale: 1.8`, `reveal_action_zoom_seconds: 2.5`) so the couch can appreciate the artwork, then shrinks back to sprite size.
-- **Impact feedback during reveals:** any character *negatively* affected by the current beat (damage, a bad condition) flashes a **red border with a shake**; any character *positively* affected (heal, cleanse, buff, protection) flashes a **light-blue border with a scale "pop"**. Both derive from the beat's engine events, so they're always accurate to the math.
+- **Impact feedback during reveals:** any character *negatively* affected by the current beat (damage) flashes a **red border with a shake**; any character *positively* affected (heal, shield) flashes a **light-blue border with a scale "pop"**. Both derive from the beat's engine events, so they're always accurate to the math.
 - **Floating combat numbers:** every damage event spawns a big **red number** that floats up from the affected character and fades; healing spawns a **green** one (config `float_number_seconds: 1.5`). Crits render extra-large with an exclamation. Numbers come from engine events, so they always match the HP bars.
 - **Instant replay:** when a beat contains a crit or a KO (config `instant_replay.triggers`), the host replays that beat once in slow-mo — bigger zoom, slower shake, a "REPLAY" banner and stinger — before advancing. Pure presentation over existing beat data; `instant_replay.enabled` toggles it.
-- **Initiative Order column:** a vertical rail down the **left side** of the host screen, titled "Initiative Order," showing each character's **original character image** top-to-bottom in the acting order of the round currently being revealed — players always know when to expect their character's moment. Beside each portrait, a **compact stat strip (💪 / ⚡ / 🌀 with numbers)** — the rail is the stats' home on the common screen (the battlefield stays clean), and since the rail is ordered by Speed, the numbers visibly explain the ordering; strips pulse when a value changes (montage, transform). When order changes (Speed conditions like `sticky`, transforms, ties rerolled), the portraits **animate to their new positions**; KO'd characters drop off the rail (Gremlins get a small imp badge at the bottom).
+- **Initiative Order column:** a vertical rail down the **left side** of the host screen, titled "Initiative Order," showing each character's **original character image** top-to-bottom in the acting order of the round currently being revealed — players always know when to expect their character's moment. Beside each portrait, a **compact stat strip (💪 / ⚡ / 🌀 with numbers)** — the rail is the stats' home on the common screen (the battlefield stays clean), and since the rail is ordered by Speed, the numbers visibly explain the ordering; strips pulse when a value changes (montage, transform). When order changes (transforms, ties rerolled), the portraits **animate to their new positions**; KO'd characters drop off the rail (Gremlins get a small imp badge at the bottom).
 - **Tug-of-war meters:** two cartoony horizontal meters below the battlefield, each a rope with a knot marker sliding between the team colors. **Top — "Who's Winning":** knot position reflects relative team HP share, tweening as damage and healing land during beats. **Bottom — "Crowd Favorite":** knot reflects which team the audience is rooting for, driven by accumulated creativity bonuses per team (config `audience_recent_rounds: 3` weights recent rounds so momentum can swing). The two meters disagreeing — losing on HP but winning the crowd — is exactly the story the couch wants to see.
 - **Audio:** move sounds come from curated free sound packs (CC0 sources like Kenney.nl, Mixkit, Freesound), mapped per move via an `sfx` key on each `moves.yaml` entry; **event stingers** (crit → crowd roar, fumble → sad trombone, KO → bell + gasp, combo → air horn, sudden death → drumroll) map from engine event types via an `events_sfx` block in settings.yaml. Host page plays them through a small Web Audio manager with volume/mute controls and ±10% pitch variation so repeats don't sound robotic.
 - Accessibility: colorblind-safe team palettes (impact borders also differ in animation — shake vs pop — not just color), min font sizes, all-caps avoided in narration body.
