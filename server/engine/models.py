@@ -34,8 +34,6 @@ class Character(BaseModel):
     max_hp: int
     ac: int
     zone_id: str
-    # condition_id → rounds remaining
-    conditions: dict[str, int] = {}
     # Last tapped combat move — the no-repeat rule greys it out next round
     # (movement is exempt). Server-owned, validated at submit time.
     last_move_id: str | None = None
@@ -55,17 +53,16 @@ class Team(BaseModel):
 
 class WildInterpretation(BaseModel):
     """WILD CARD: the AI's free read of the drawing, bounded by schema — big
-    flat damage by default; optionally a registry condition rider."""
+    flat damage by default, or a reposition/absurdity; no status effects."""
 
-    condition: str | None = None   # from conditions.yaml, validated
     description: str = ""          # what the AI saw — feeds the narrator
 
 
 class ClassifiedAction(BaseModel):
     """One player's action for a round: the TAPPED move + target (ground truth
     from the phone, server-validated) plus the AI's judgment of the drawing
-    (creativity, flavor, TRICK condition, WILD read, combos). Arena Gremlins
-    reuse this shape with move_id carrying a hazard id."""
+    (creativity, flavor, WILD read, combos). Arena Gremlins reuse this shape
+    with move_id carrying a hazard id."""
 
     player_id: str
     move_id: str                  # a key in moves.yaml (or hazards.yaml for gremlins)
@@ -74,7 +71,6 @@ class ClassifiedAction(BaseModel):
     creativity_reason: str = ""
     similar_to_previous: bool = False   # stale drawing → scores creativity 0
     flavor_summary: str = ""            # feeds the narrator
-    trick_condition: str | None = None  # TRICK only: from conditions.yaml
     wild_interpretation: WildInterpretation | None = None  # WILD CARD only
     adaptation_note: str | None = None
     flagged: bool = False
@@ -85,9 +81,9 @@ class ClassifiedAction(BaseModel):
 
 class EventType(str, Enum):
     ATTACK_RESOLVED = "attack_resolved"
-    CONDITION_APPLIED = "condition_applied"
-    CONDITION_EXPIRED = "condition_expired"
-    CONDITION_TICKED = "condition_ticked"
+    # SHIELD resolved: data carries the protected player ids + ac_bonus, so the
+    # narrator and the host's "helped" pop know who got covered.
+    SHIELDED = "shielded"
     MOVED = "moved"
     HEALED = "healed"
     KO = "ko"

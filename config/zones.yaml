@@ -3,7 +3,7 @@
 # The resolver reads `modifiers` generically; the AI prompts receive this zone list automatically.
 #
 # Known modifier keys: attack_bonus, ac_bonus, ranged_ac_bonus, damage_bonus,
-#                      speed_penalty, fumble_extra
+#                      speed_penalty
 # Zone-level keys:     capacity (optional int), entry_cost (default 1)
 #
 # Uncomment the high_ground block below to enable it:
@@ -17,7 +17,6 @@
 #   modifiers:
 #     attack_bonus: 1
 #     ranged_ac_bonus: 1
-#     fumble_extra: "prone"
 
 zones:
   - id: glitter_back

@@ -1,14 +1,17 @@
-# moves.yaml — COMBAT V2. The catalog owns all math; the phone renders each
+# moves.yaml — COMBAT V2.1. The catalog owns all math; the phone renders each
 # character's live numbers from these formulas ("SMASH — 4d4+2" on the brick's
 # phone). Moves are TAPPED, never classified from the drawing — the drawing
-# supplies creativity, flavor, TRICK's condition, WILD CARD's interpretation,
-# and combos only (GAME_DESIGN §4).
+# supplies creativity, flavor, WILD CARD's interpretation, and combos only
+# (GAME_DESIGN §4).
 #
 # damage/heal formulas may reference POW / SPD / WRD plus ceil()/floor(),
 # e.g. "(1 + ceil(POW/2))d4 + 2" — evaluated per character by engine/dice.py.
-# `stat` is added to the 2d6 attack roll ("none" = no attack roll).
-# Self-buffs (SHIELD's +5 AC & reflect, movement's +1 dodge AC) live as
-# conditions in conditions.yaml so duration/expiry/emoji come for free.
+# Heal formulas may also reference CRE (the drawing's creativity bonus):
+# RALLY's healing is earned by the art. `stat` is added to the 2d6 attack
+# roll ("none" = no attack roll).
+# `ac_bonus` is a round-scoped defensive buff: SHIELD grants it to every ally
+# in the caster's zone (target: zone_allies), movement grants its own +1
+# dodge. `same_zone_penalty: half` (SHOOT) halves damage point-blank.
 # `sfx` names the clip (web/host/assets/sfx/<name>.wav) the host plays when
 # the move resolves; event stingers live in settings.yaml ui.audio.events_sfx.
 #
@@ -36,34 +39,33 @@ moves:
     desc: "Hits EVERYONE in a zone. Yes, everyone."
     sfx: boom
 
-  trick:
+  shoot:
     stat: weird
     range: any
     target: single_enemy
-    damage: "1d6 + WRD"
-    on_hit_condition: from_drawing   # AI picks from conditions.yaml by flavor
-    button: "TRICK"
-    desc: "Damage plus something nasty from your drawing."
-    sfx: poof
+    damage: "(1 + ceil(WRD/2))d4 + 1"     # a notch below SMASH: ranged is safer
+    same_zone_penalty: half               # point-blank = half damage (round up)
+    button: "SHOOT"
+    desc: "Hit anyone, anywhere. Weaker up close."
+    sfx: whoosh
 
   shield:
     stat: none
-    range: any
-    target: ally_or_self
-    applies_condition: shielded      # +5 AC; misses by 3+ reflect 1d6 (conditions.yaml)
+    target: zone_allies                   # ALL teammates in the caster's zone, incl. self
+    ac_bonus: 4
+    reflect_miss_margin: 3                # attacks missing by 3+ deal reflect_damage back
+    reflect_damage: "1d6"
     button: "SHIELD"
-    desc: "Big protection. Strong blocks reflect."
+    desc: "Protect everyone in your zone. Strong blocks reflect."
     sfx: shield
 
   rally:
     stat: none
     range: any
     target: ally_or_self
-    heal: "1d6 + 2"
-    cleanse: all                     # strips every debuff
-    pumped_if_creativity: 2          # the buff is earned by a great drawing
+    heal: "1d6 + CRE"                     # the drawing IS the medicine
     button: "RALLY"
-    desc: "Heal, cleanse, and hype a teammate."
+    desc: "Heal a teammate. Great drawings heal more."
     sfx: sparkle
 
   wild:
@@ -80,7 +82,7 @@ moves:
     stat: none
     target: self
     move: -1                         # absolute: one zone left, matches the TV
-    applies_condition: dodging       # +1 AC this round (conditions.yaml)
+    ac_bonus: 1                      # dodging on the move: +1 AC this round
     button: "◀ MOVE"
     desc: "Step one zone left, dodging as you go (+1 AC)."
     sfx: steps
@@ -89,7 +91,7 @@ moves:
     stat: none
     target: self
     move: 1
-    applies_condition: dodging
+    ac_bonus: 1
     button: "MOVE ▶"
     desc: "Step one zone right, dodging as you go (+1 AC)."
     sfx: steps

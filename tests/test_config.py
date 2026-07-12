@@ -1,6 +1,6 @@
 """Phase 1 acceptance tests: config loading.
 
-Covers: all five YAML files load without error; key values match the spec;
+Covers: all YAML config files load without error; key values match the spec;
 High Ground zone block added to zones.yaml loads and exposes its modifiers.
 """
 
@@ -14,7 +14,6 @@ import yaml
 import server.config as cfg_mod
 from server.config import (
     load_balance,
-    load_conditions,
     load_game_rules,
     load_moves,
     load_settings,
@@ -246,7 +245,6 @@ def test_high_ground_zone_modifiers(tmp_path: Path, monkeypatch):
                 "modifiers": {
                     "attack_bonus": 1,
                     "ranged_ac_bonus": 1,
-                    "fumble_extra": "prone",
                 },
             },
         ],
@@ -268,67 +266,10 @@ def test_high_ground_zone_modifiers(tmp_path: Path, monkeypatch):
 
     assert hg.modifiers.attack_bonus == 1
     assert hg.modifiers.ranged_ac_bonus == 1
-    assert hg.modifiers.fumble_extra == "prone"
     assert hg.entry_cost == 2
     assert hg.capacity == 2
     assert "frontline" in hg.adjacent
     assert "elevated" in hg.tags
-
-
-# ---------------------------------------------------------------------------
-# conditions.yaml
-# ---------------------------------------------------------------------------
-
-
-def test_conditions_loads():
-    c = load_conditions()
-    assert len(c.conditions) >= 12
-
-
-def test_conditions_burning():
-    c = load_conditions()
-    burning = c.conditions["burning"]
-    assert burning.duration == 2
-    assert burning.tick_damage == 2
-    assert "soggy" in burning.cure_tags
-
-
-def test_conditions_soggy_cures_burning():
-    c = load_conditions()
-    soggy = c.conditions["soggy"]
-    assert "burning" in soggy.immunities
-    assert soggy.modifiers.power == -2
-
-
-def test_conditions_prone():
-    c = load_conditions()
-    prone = c.conditions["prone"]
-    assert prone.duration == 1
-    assert prone.modifiers.ac == -1
-    assert prone.stand_cost == 1
-
-
-def test_conditions_shielded_and_dodging():
-    """COMBAT V2: SHIELD's +5 AC/reflect and movement's +1 dodge AC live in
-    the condition registry (duration/emoji come for free)."""
-    c = load_conditions()
-    shielded = c.conditions["shielded"]
-    assert shielded.modifiers.ac == 5
-    assert shielded.reflect_miss_margin == 3
-    assert shielded.reflect_damage == "1d6"
-    assert c.conditions["dodging"].modifiers.ac == 1
-
-
-def test_conditions_confused():
-    c = load_conditions()
-    confused = c.conditions["confused"]
-    assert confused.randomize_targets is True
-
-
-def test_conditions_all_have_duration():
-    c = load_conditions()
-    for name, cond in c.conditions.items():
-        assert cond.duration >= 1, f"Condition {name!r} has invalid duration {cond.duration}"
 
 
 # ---------------------------------------------------------------------------
@@ -337,9 +278,9 @@ def test_conditions_all_have_duration():
 
 
 def test_moves_loads_the_eight_v2_moves():
-    """COMBAT V2: exactly eight tapped moves — six combat + ◀/▶ movement."""
+    """COMBAT V2.1: exactly eight tapped moves — six combat + ◀/▶ movement."""
     m = load_moves()
-    assert set(m.moves) == {"smash", "blast", "trick", "shield", "rally", "wild",
+    assert set(m.moves) == {"smash", "blast", "shoot", "shield", "rally", "wild",
                             "move_l", "move_r"}
 
 
@@ -347,7 +288,7 @@ def test_moves_roll_stats():
     m = load_moves()
     assert m.moves["smash"].stat == "power"
     assert m.moves["blast"].stat == "weird"
-    assert m.moves["trick"].stat == "weird"
+    assert m.moves["shoot"].stat == "weird"
     assert m.moves["wild"].stat == "weird"
     assert m.moves["shield"].stat == "none"
     assert m.moves["rally"].stat == "none"
@@ -357,13 +298,19 @@ def test_moves_v2_mechanics():
     m = load_moves()
     assert m.moves["smash"].range == "same_zone" and m.moves["smash"].auto_step is True
     assert m.moves["blast"].friendly_fire is True and m.moves["blast"].target == "zone_all"
-    assert m.moves["trick"].on_hit_condition == "from_drawing"
-    assert m.moves["shield"].applies_condition == "shielded"
-    assert m.moves["rally"].heal == "1d6 + 2"
-    assert m.moves["rally"].cleanse == "all"
-    assert m.moves["rally"].pumped_if_creativity == 2
+    # SHOOT: ranged anywhere, half damage point-blank (v2.1)
+    assert m.moves["shoot"].range == "any"
+    assert m.moves["shoot"].same_zone_penalty == "half"
+    # SHIELD: +4 AC to every ally in the caster's zone, reflect on big misses
+    assert m.moves["shield"].target == "zone_allies"
+    assert m.moves["shield"].ac_bonus == 4
+    assert m.moves["shield"].reflect_miss_margin == 3
+    assert m.moves["shield"].reflect_damage == "1d6"
+    # RALLY: the drawing IS the medicine
+    assert m.moves["rally"].heal == "1d6 + CRE"
     assert m.moves["wild"].fumble_on_roll_lte == 3
     assert m.moves["move_l"].move == -1 and m.moves["move_r"].move == 1
+    assert m.moves["move_l"].ac_bonus == 1        # dodging on the move
     assert m.moves["move_l"].is_movement and not m.moves["smash"].is_movement
 
 
@@ -386,7 +333,7 @@ def test_move_formulas_evaluate_for_every_stat_line():
             if not spec:
                 continue
             for v in range(0, 7):
-                label = describe_formula(spec, {"POW": v, "SPD": v, "WRD": v})
+                label = describe_formula(spec, {"POW": v, "SPD": v, "WRD": v, "CRE": v})
                 assert label, f"{name}: formula {spec!r} failed at stat {v}"
 
 
@@ -440,10 +387,12 @@ def test_all_referenced_sfx_clips_exist():
 
 
 def test_hazards_load_and_map_to_effects():
+    """v2.1: hazards are damage-or-push only — no status effects."""
     from server.config import load_hazards
     h = load_hazards().hazards
-    assert h["sprinkler"].applies_condition == "soggy"
-    assert h["bees"].applies_condition == "stung"
+    assert h["bees"].damage == "1d4"
+    assert h["spikes"].damage == "1d4"
+    assert h["banana_peel"].forces_move is True
     assert h["trapdoor"].forces_move is True
 
 
@@ -454,14 +403,14 @@ def test_novel_hazard_added_to_yaml(tmp_path: Path, monkeypatch):
 
     data = yaml.safe_load(open("config/hazards.yaml", encoding="utf-8"))
     data["hazards"]["quicksand"] = {
-        "applies_condition": "sticky", "emoji": "⌛", "desc": "sinking sand",
+        "damage": "1d6", "emoji": "⌛", "desc": "sinking sand",
     }
     (tmp_path / "hazards.yaml").write_text(yaml.dump(data), encoding="utf-8")
     monkeypatch.setattr(cfg_mod, "CONFIG_DIR", tmp_path)
 
     reg = HazardRegistry()
     assert "quicksand" in reg
-    assert reg.get("quicksand").applies_condition == "sticky"
+    assert reg.get("quicksand").damage == "1d6"
 
 
 def test_load_game_rules_bundle():
@@ -469,9 +418,7 @@ def test_load_game_rules_bundle():
     assert rules.balance.hp_base == 20
     assert len(rules.zones.zones) == 3
     assert "smash" in rules.moves.moves
-    assert "burning" in rules.conditions.conditions
-    assert "stung" in rules.conditions.conditions          # bees hazard's condition
-    assert rules.hazards.hazards["bees"].applies_condition == "stung"
+    assert rules.hazards.hazards["bees"].damage == "1d4"
 
 
 def test_bad_yaml_raises_clear_error(tmp_path: Path, monkeypatch):

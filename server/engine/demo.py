@@ -16,15 +16,13 @@ from server.engine.resolver import resolve_round
 _CFG = load_balance()
 
 
-def _char(pid: str, name: str, power: int, speed: int, weird: int, zone: str,
-          conds: dict | None = None) -> Character:
+def _char(pid: str, name: str, power: int, speed: int, weird: int, zone: str) -> Character:
     hp = _CFG.hp_base + _CFG.hp_per_power * power
     return Character(
         player_id=pid, name=name,
         stats=Stats(power=power, speed=speed, weird=weird),
         hp=hp, max_hp=hp,
         ac=_CFG.ac_base + speed, zone_id=zone,
-        conditions=conds or {},
     )
 
 
@@ -36,26 +34,24 @@ _TEAMS = [
 _SCRIPTS: list[list[ClassifiedAction]] = [
     # ---- Round 1 (the §12 worked round) ----
     [
-        # Stabby TRICK on Blob — glitter hypnosis, creativity 2
-        ClassifiedAction(player_id="p1", move_id="trick", target_id="p2",
-                         creativity_tier=2, trick_condition="confused",
-                         flavor_summary="glitter hypnosis"),
+        # Stabby SHOOTs Blob from across the arena — glitter arrows, creativity 2
+        ClassifiedAction(player_id="p1", move_id="shoot", target_id="p2",
+                         creativity_tier=2, flavor_summary="glitter arrows"),
         # Blob BLAST on the front zone (creativity 1)
         ClassifiedAction(player_id="p2", move_id="blast", target_id="p1",
                          creativity_tier=1),
         # Lawnmower SMASH on Gerald (auto-step, creativity 0)
         ClassifiedAction(player_id="p3", move_id="smash", target_id="p4"),
-        # Gerald SHIELDs himself — one round too late
-        ClassifiedAction(player_id="p4", move_id="shield", target_id="p4"),
+        # Gerald SHIELDs his zone — one round too late
+        ClassifiedAction(player_id="p4", move_id="shield"),
     ],
     # ---- Round 2 ----
     [
-        # Stabby can't repeat TRICK — WILD CARD gamble on Lawnmower
+        # Stabby can't repeat SHOOT — WILD CARD gamble on Lawnmower
         ClassifiedAction(player_id="p1", move_id="wild", target_id="p3",
                          creativity_tier=1),
-        # Blob TRICKs Stabby
-        ClassifiedAction(player_id="p2", move_id="trick", target_id="p1",
-                         trick_condition="sticky"),
+        # Blob SHOOTs Stabby
+        ClassifiedAction(player_id="p2", move_id="shoot", target_id="p1"),
         # Lawnmower steps back toward its backline, dodging
         ClassifiedAction(player_id="p3", move_id="move_r"),
         # Gerald RALLIES himself with a table-losing-it drawing
@@ -68,8 +64,8 @@ _SCRIPTS: list[list[ClassifiedAction]] = [
         ClassifiedAction(player_id="p2", move_id="blast", target_id="p4",
                          creativity_tier=2),
         ClassifiedAction(player_id="p3", move_id="blast", target_id="p1"),
-        ClassifiedAction(player_id="p4", move_id="trick", target_id="p2",
-                         trick_condition="burning", creativity_tier=1),
+        ClassifiedAction(player_id="p4", move_id="shoot", target_id="p2",
+                         creativity_tier=1),
     ],
 ]
 
@@ -82,9 +78,10 @@ def _print_event(ev: Event) -> None:
     if t == "attack_resolved":
         result = d.get("result", "?")
         if result in ("hit", "crit"):
+            pb = "  (point-blank ½)" if d.get("point_blank") else ""
             print(f"  [{pid}->{tid}] {d.get('move_id','')} {result.upper()}"
                   f"  2d6={d.get('natural')}  total={d.get('total_atk')}"
-                  f"  vs AC {d.get('ac')}  dmg={d.get('damage')}")
+                  f"  vs AC {d.get('ac')}  dmg={d.get('damage')}{pb}")
         elif result == "fumble":
             print(f"  [{pid}] FUMBLE 2d6={d.get('natural')}  self_dmg={d.get('self_damage')}")
         elif result == "miss":
@@ -92,6 +89,8 @@ def _print_event(ev: Event) -> None:
                   f"  total={d.get('total_atk')}  vs AC {d.get('ac')}")
         elif result == "reflect":
             print(f"  [{pid}] SHIELD REFLECT -> {tid} for {d.get('damage')}")
+        elif result == "hazard":
+            print(f"  [{tid}] takes {d.get('damage')} from {d.get('move_id')}")
         elif result == "out_of_reach":
             print(f"  [{pid}] can't reach {tid} — the swing hits air")
         elif result == "no_target":
@@ -100,12 +99,9 @@ def _print_event(ev: Event) -> None:
         print(f"  [{pid}] moves {d.get('from')} -> {d.get('to')}")
     elif t == "combo":
         print(f"  ** COMBO! {d.get('combo_name')} ({', '.join(d.get('partners', []))}) **")
-    elif t == "condition_applied":
-        print(f"  [{pid}] + {d.get('condition')} ({d.get('duration')} rounds)")
-    elif t == "condition_expired":
-        print(f"  [{pid}] {d.get('condition')} expired")
-    elif t == "condition_ticked":
-        print(f"  [{pid}] {d.get('condition')} tick -{d.get('damage', 0)} HP")
+    elif t == "shielded":
+        print(f"  [{pid}] SHIELDS the zone: +{d.get('ac_bonus')} AC for "
+              f"{', '.join(d.get('protected', []))}")
     elif t == "healed":
         print(f"  [{pid}] heals {tid or pid} +{d.get('amount')}")
     elif t == "ko":
@@ -122,7 +118,6 @@ def main() -> None:
     rules = load_game_rules()
     print("=== Doodle Brawl — Engine Demo (COMBAT V2) ===\n")
     print(f"Zones:      {[z.id for z in rules.zones.zones]}")
-    print(f"Conditions: {sorted(rules.conditions.conditions)}")
     print(f"Moves:      {list(rules.moves.moves)}")
     print(f"HP formula: {rules.balance.hp_base} + {rules.balance.hp_per_power} x Power")
     print(f"AC formula: {rules.balance.ac_base} + Speed")
@@ -138,10 +133,9 @@ def main() -> None:
 
     print("Starting lineup:")
     for ch in chars:
-        cond_str = f"  [{', '.join(ch.conditions)}]" if ch.conditions else ""
         print(f"  {ch.name:20s}  HP={ch.hp}/{ch.max_hp}  AC={ch.ac}"
               f"  POW={ch.stats.power} SPD={ch.stats.speed} WRD={ch.stats.weird}"
-              f"  zone={ch.zone_id}{cond_str}")
+              f"  zone={ch.zone_id}")
     print()
 
     state = GameState(
@@ -170,8 +164,7 @@ def main() -> None:
         for pid in ["p1", "p2", "p3", "p4"]:
             ch = state.characters[pid]
             status = " [KO->GREMLIN]" if ch.is_ko else ""
-            conds = f"  {ch.conditions}" if ch.conditions else ""
-            print(f"  {ch.name:20s}  HP={ch.hp}/{ch.max_hp}  zone={ch.zone_id}{status}{conds}")
+            print(f"  {ch.name:20s}  HP={ch.hp}/{ch.max_hp}  zone={ch.zone_id}{status}")
 
         if result.new_state.winner_team_id:
             break

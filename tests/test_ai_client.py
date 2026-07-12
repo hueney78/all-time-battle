@@ -97,7 +97,7 @@ def _two_player_state():
 # COMBAT V2: taps (move + target) arrive from the phone with each submission;
 # p2's canvas is blank — the tapped move still resolves at creativity 0.
 _SUBS = {"p1": ActionSubmission("p1", "data:image/png;base64,QUJD",
-                                move_id="trick", target_id="p2"),
+                                move_id="shoot", target_id="p2"),
          "p2": ActionSubmission("p2", "", move_id="smash", target_id="p1")}
 
 
@@ -106,14 +106,14 @@ _SUBS = {"p1": ActionSubmission("p1", "data:image/png;base64,QUJD",
 # ---------------------------------------------------------------------------
 def test_classify_parses_forced_tool_use():
     script = [{"round": 1, "combos": [], "actions": [
-        {"player_id": "p1", "creativity_tier": 2, "flavor_summary": "glitter hypnosis",
-         "trick_condition": "confused"}]}]
+        {"player_id": "p1", "creativity_tier": 2,
+         "flavor_summary": "glitter arrows"}]}]
     ai = LiveAI(RULES, client=FakeAnthropic(script))
     actions = {a.player_id: a for a in ai.classify_actions(_two_player_state(), _SUBS, 1)}
-    # The AI decorated p1's tapped TRICK; the tap itself is untouched.
-    assert actions["p1"].move_id == "trick" and actions["p1"].target_id == "p2"
+    # The AI decorated p1's tapped SHOOT; the tap itself is untouched.
+    assert actions["p1"].move_id == "shoot" and actions["p1"].target_id == "p2"
     assert actions["p1"].creativity_tier == 2
-    assert actions["p1"].trick_condition == "confused"
+    assert actions["p1"].flavor_summary == "glitter arrows"
     # p2 was skipped by the AI → tapped move resolves at creativity 0.
     assert actions["p2"].move_id == "smash" and actions["p2"].creativity_tier == 0
     assert ai.degraded is False
@@ -129,7 +129,7 @@ def test_classify_request_echoes_taps_and_labeled_image_pairs():
     ai.classify_actions(_two_player_state(), _SUBS, 1)
     content = ai.client.messages.last_kwargs["messages"][0]["content"]
     texts = " | ".join(b["text"] for b in content if b.get("type") == "text")
-    assert "tapped move: TRICK" in texts and "targeting B (p2)" in texts
+    assert "tapped move: SHOOT" in texts and "targeting B (p2)" in texts
     assert "p1 ORIGINAL CHARACTER" in texts and "p1 ACTION THIS ROUND" in texts
     assert "blank canvas" in texts        # p2 drew nothing — still judged
     # The system prompt is the v2 template, sent with prompt caching.
@@ -154,7 +154,7 @@ def test_classify_falls_back_to_tapped_moves_when_api_errors():
     creativity 0 (the server owns the move, §11.1)."""
     ai = LiveAI(RULES, client=FakeAnthropic([RuntimeError("api down")]))
     actions = {a.player_id: a for a in ai.classify_actions(_two_player_state(), _SUBS, 1)}
-    assert actions["p1"].move_id == "trick" and actions["p2"].move_id == "smash"
+    assert actions["p1"].move_id == "shoot" and actions["p2"].move_id == "smash"
     assert all(a.creativity_tier == 0 for a in actions.values())
     assert ai.degraded is True                      # host banner trigger
     assert ai.client.messages.calls == RULES.settings.ai.max_retries + 1

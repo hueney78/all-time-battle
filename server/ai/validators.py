@@ -4,8 +4,7 @@ The Anthropic client forces tool-use, so responses already parse into the
 `schemas.py` pydantic models. These functions do the *semantic* repair the
 schema can't express:
   - normalize AI stats to the fixed stat budget (no drawing is stronger);
-  - clamp creativity tiers; drop unknown TRICK/WILD conditions and combo
-    partners who aren't living teammates;
+  - clamp creativity tiers; drop combo partners who aren't living teammates;
   - merge the AI's drawing judgment onto the TAPPED move + target (ground
     truth from the phone — the AI never chooses either, COMBAT V2 §11.1);
   - carry flagged through; guarantee every living player yields an action and
@@ -28,7 +27,6 @@ from server.ai.provider import (
     Narration,
 )
 from server.config import Balance, GameRules
-from server.engine.conditions import ConditionRegistry
 from server.engine.hazards import HazardRegistry
 from server.engine.models import (
     ClassifiedAction,
@@ -136,8 +134,6 @@ def build_classified_actions(
     Combo partners must be living teammates; both partners carry each other so
     the resolver grants the roll bonus to each (no fusion in v2).
     """
-    cond_reg = ConditionRegistry(rules.conditions)
-
     # combo → both partners carry the group (each gets the roll bonus).
     combo_of: dict[str, S.AIComboSpec] = {}
     for combo in resp.combos:
@@ -158,18 +154,9 @@ def build_classified_actions(
                                         target_id=target_id))
             continue
 
-        trick_condition = None
-        if move is not None and move.on_hit_condition == "from_drawing":
-            if a.trick_condition and a.trick_condition in cond_reg:
-                trick_condition = a.trick_condition
-
         wild = None
         if move is not None and move.fumble_on_roll_lte is not None and a.wild_interpretation:
-            w = a.wild_interpretation
-            wild = WildInterpretation(
-                condition=w.condition if (w.condition and w.condition in cond_reg) else None,
-                description=w.description or "",
-            )
+            wild = WildInterpretation(description=a.wild_interpretation.description or "")
 
         ca = ClassifiedAction(
             player_id=pid,
@@ -179,7 +166,6 @@ def build_classified_actions(
             creativity_reason=a.creativity_reason or "",
             similar_to_previous=bool(a.similar_to_previous),
             flavor_summary=a.flavor_summary or "",
-            trick_condition=trick_condition,
             wild_interpretation=wild,
             adaptation_note=a.adaptation_note,
             flagged=bool(a.flagged),

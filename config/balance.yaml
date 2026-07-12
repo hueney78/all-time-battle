@@ -17,7 +17,7 @@ stat_max: 6
 crit_margin: 5       # beat AC by >= this (or natural 12) → crit; too swingy? raise
 crit_damage_mult: 2.0
 # Fumble: natural 2 (WILD CARD widens the band via its fumble_on_roll_lte).
-fumble_self_damage: 3    # flat self-damage on a fumble; Embarrassed auto-applies
+fumble_self_damage: 3    # flat self-damage on a fumble — the narrator handles the shame
 
 # --- Creativity bonuses (added to the 2d6 roll) ---
 # Judge idea creativity, not drawing skill. Under 2d6, +2 is enormous.

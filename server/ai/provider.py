@@ -207,7 +207,7 @@ class MockAI:
             # The tapped move/target are ground truth when present; headless
             # mock games (no phone taps) alternate two any-range attacks so the
             # no-repeat rule holds and the game reaches a decisive result.
-            move_id = (sub.move_id if sub else "") or ("blast" if round_num % 2 else "trick")
+            move_id = (sub.move_id if sub else "") or ("blast" if round_num % 2 else "shoot")
             target_id = (sub.target_id if sub else None) or enemy
             png = (sub.png_base64 if sub else "").strip()
             # A blank canvas (auto-submit) still resolves the tapped move — at
@@ -216,9 +216,8 @@ class MockAI:
             actions.append(ClassifiedAction(
                 player_id=pid, move_id=move_id, target_id=target_id,
                 creativity_tier=creativity,
-                trick_condition="sticky" if move_id == "trick" else None,
                 wild_interpretation=WildInterpretation(
-                    condition="sparkly", description="pure doodle chaos, unleashed"
+                    description="pure doodle chaos, unleashed"
                 ) if move_id == "wild" else None,
                 flavor_summary="a no-frills energy bolt",
             ))
@@ -333,7 +332,7 @@ def _mock_speaker(ev: Event) -> str:
     t = ev.type.value
     if t == "attack_resolved" and ev.data.get("result") in ("miss", "fumble"):
         return "color"
-    if t in ("condition_applied", "condition_ticked", "banked", "gremlin_hazard", "stumble"):
+    if t in ("gremlin_hazard", "stumble"):
         return "color"
     return "pbp"
 
@@ -363,14 +362,17 @@ def _beat_text(ev: Event, characters: dict[str, Character]) -> str:
             return f"{who}'s shield flings the blow back at {whom} for {d.get('damage', 0)}!"
         if res == "out_of_reach":
             return f"{who} charges at {whom} but can't close the gap."
+        if res == "hazard":
+            return f"{whom} takes {d.get('damage', 0)} from the hazard!"
         return ""
     if t == "ko":
         return f"{who} is knocked out and becomes an Arena Gremlin!"
     if t == "gremlin_hazard":
         hz = str(d.get("hazard_id", "something")).replace("_", " ")
         return f"{who} the Gremlin drops {hz} on {d.get('zone', 'the arena')}!"
-    if t == "condition_applied":
-        return f"{who} is now {d.get('condition', 'affected')}."
+    if t == "shielded":
+        n = len(d.get("protected", []))
+        return f"{who} raises a shield over the whole zone ({n} covered)!"
     if t == "healed":
         return f"{who} recovers {d.get('amount', 0)} HP."
     if t == "victory":

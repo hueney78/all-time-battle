@@ -122,8 +122,6 @@ def _choose_action(
         move_id=mv,
         target_id=target,
         creativity_tier=tier,
-        trick_condition=prng.choice(["burning", "sticky", "frightened"])
-        if spec.on_hit_condition == "from_drawing" else None,
     )
 
 

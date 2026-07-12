@@ -205,7 +205,6 @@ class ZoneModifiers(BaseModel):
     ranged_ac_bonus: int = 0
     damage_bonus: int = 0
     speed_penalty: int = 0
-    fumble_extra: str | None = None
 
 
 class ZoneDef(BaseModel):
@@ -237,50 +236,6 @@ def load_zones(config_dir: Path | None = None) -> ZonesConfig:
 
 
 # ---------------------------------------------------------------------------
-# conditions.yaml
-# ---------------------------------------------------------------------------
-
-
-class ConditionModifiers(BaseModel):
-    model_config = {"extra": "allow"}
-    power: int = 0
-    speed: int = 0
-    attack: int = 0
-    ac: int = 0
-
-
-class ConditionDef(BaseModel):
-    model_config = {"extra": "allow"}
-    duration: int
-    tick_damage: int = 0
-    cure_tags: list[str] = []
-    immunities: list[str] = []
-    modifiers: ConditionModifiers = ConditionModifiers()
-    blocks_free_step: bool = False
-    stand_cost: int = 0
-    trigger: str | None = None
-    emoji: str = ""
-    incoming_attack_bonus: int = 0
-    randomize_targets: bool = False
-    # SHIELD reflect: attacks missing a carrier by reflect_miss_margin+ deal
-    # reflect_damage back to the attacker (0/"" disables).
-    reflect_miss_margin: int = 0
-    reflect_damage: str = ""
-    # Negative status? Only debuffs can be stripped by `cleanse`; buffs and
-    # markers (pumped, shielded, transformed, …) are left alone.
-    debuff: bool = False
-
-
-class ConditionsConfig(BaseModel):
-    conditions: dict[str, ConditionDef]
-
-
-def load_conditions(config_dir: Path | None = None) -> ConditionsConfig:
-    data = _load_yaml("conditions.yaml", config_dir)
-    return _parse(ConditionsConfig, data, "conditions.yaml")
-
-
-# ---------------------------------------------------------------------------
 # moves.yaml
 # ---------------------------------------------------------------------------
 
@@ -292,15 +247,20 @@ class MoveDef(BaseModel):
     model_config = {"extra": "allow"}
     stat: str = "none"       # attack-roll stat: "power" | "speed" | "weird" | "none"
     range: str = "same_zone"  # "same_zone" | "any"
-    target: str = "single_enemy"  # "single_enemy" | "zone_all" | "ally_or_self" | "self"
+    # "single_enemy" | "zone_all" | "ally_or_self" | "zone_allies" | "self"
+    target: str = "single_enemy"
     damage: str | None = None     # formula, e.g. "(1 + ceil(POW/2))d4 + 2"
-    heal: str | None = None       # formula, e.g. "1d6 + 2"
-    cleanse: str | None = None    # "all" strips every debuff
-    on_hit_condition: str | None = None   # condition id, or "from_drawing" (TRICK)
-    applies_condition: str | None = None  # applied to the target on resolution
+    heal: str | None = None       # formula, may reference CRE (creativity bonus)
+    same_zone_penalty: str | None = None  # "half" → point-blank damage halved (round up)
+    # Round-scoped defensive buff: SHIELD's +4 to its zone_allies, movement's
+    # +1 dodge. Lasts from when the move resolves until end of round.
+    ac_bonus: int = 0
+    # SHIELD reflect: attacks missing a shielded target by reflect_miss_margin+
+    # deal reflect_damage back to the attacker (0/"" disables).
+    reflect_miss_margin: int = 0
+    reflect_damage: str = ""
     friendly_fire: bool = False
     auto_step: bool = False       # SMASH: no enemy in zone → step toward target
-    pumped_if_creativity: int | None = None   # RALLY: buff earned at this tier+
     fumble_on_roll_lte: int | None = None     # WILD: natural 2d6 <= this fumbles
     move: int = 0                 # absolute zone steps (◀ = -1, ▶ = +1)
     button: str = ""              # phone button label
@@ -328,9 +288,9 @@ def load_moves(config_dir: Path | None = None) -> MovesConfig:
 
 class HazardDef(BaseModel):
     model_config = {"extra": "allow"}
-    # A hazard applies a condition to a zone's occupants, forces them to move, or
-    # both. Effects reuse existing registries so adding a hazard is YAML-only.
-    applies_condition: str | None = None
+    # A hazard damages a zone's occupants or forces them to move (v2.1: no
+    # status effects). Adding a hazard is YAML-only.
+    damage: str = ""              # dice spec rolled once for the whole zone
     forces_move: bool = False
     emoji: str = ""
     sfx: str = ""
@@ -355,7 +315,6 @@ class GameRules(BaseModel):
     settings: Settings
     balance: Balance
     zones: ZonesConfig
-    conditions: ConditionsConfig
     moves: MovesConfig
     hazards: HazardsConfig = HazardsConfig(hazards={})
 
@@ -365,7 +324,6 @@ def load_game_rules(config_dir: Path | None = None) -> GameRules:
         settings=load_settings(config_dir),
         balance=load_balance(config_dir),
         zones=load_zones(config_dir),
-        conditions=load_conditions(config_dir),
         moves=load_moves(config_dir),
         hazards=load_hazards(config_dir),
     )

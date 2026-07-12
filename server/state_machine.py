@@ -116,8 +116,6 @@ class GameStateMachine:
         self.balance = rules.balance
         self.ai = ai
         self._zone_reg = ZoneRegistry(rules.zones)
-        # Condition names tagged as negative — used to flag "hurt" reveal beats.
-        self._debuffs = {n for n, c in rules.conditions.conditions.items() if c.debuff}
         self.timers = timers or Timers.from_settings(rules.settings.timers)
         self.snapshots = snapshots or SnapshotWriter(
             rules.settings.snapshots.dir, room.code, rules.settings.snapshots.enabled
@@ -661,32 +659,27 @@ class GameStateMachine:
         return (move.sfx or None) if move else None
 
     def _hurt_target(self, ev) -> str | None:
-        """The player negatively impacted by an event (damaged, debuffed, KO'd),
+        """The player negatively impacted by an event (damaged, KO'd),
         or None for neutral/positive events."""
         t = ev.type.value
         d = ev.data
         if t == "attack_resolved":
-            if d.get("result") in ("hit", "crit", "reflect"):
+            if d.get("result") in ("hit", "crit", "reflect", "hazard"):
                 return ev.target_id
             if d.get("result") == "fumble":
                 return ev.player_id      # hurt themselves
-        elif t == "condition_applied" and d.get("condition") in self._debuffs:
-            return ev.player_id          # condition events use player_id as the affected char
-        elif t in ("condition_ticked", "ko"):
+        elif t == "ko":
             return ev.player_id
         return None
 
     def _helped_target(self, ev) -> str | None:
-        """The player positively impacted by an event (healed, buffed, cleansed),
+        """The player positively impacted by an event (healed, shielded),
         or None for neutral/negative events. Drives the blue border + pop."""
         t = ev.type.value
-        d = ev.data
         if t == "healed":
             return ev.target_id or ev.player_id
-        if t == "condition_applied" and d.get("condition") not in self._debuffs:
-            return ev.player_id       # a buff (pumped, shielded, …) lands on player_id
-        if t == "condition_expired" and d.get("source") == "cleanse":
-            return ev.player_id       # a debuff was washed off — that's a good thing
+        if t == "shielded":
+            return ev.player_id       # the caster raises the zone-wide shield
         return None
 
     def _floats(self, ev) -> list[dict]:
@@ -697,15 +690,12 @@ class GameStateMachine:
         d = ev.data
         if t == "attack_resolved":
             res = d.get("result")
-            if res in ("hit", "crit", "reflect") and d.get("damage"):
+            if res in ("hit", "crit", "reflect", "hazard") and d.get("damage"):
                 return [{"player_id": ev.target_id, "amount": d["damage"],
                          "kind": "damage", "crit": res == "crit"}]
             if res == "fumble" and d.get("self_damage"):
                 return [{"player_id": ev.player_id, "amount": d["self_damage"],
                          "kind": "damage", "crit": False}]
-        elif t == "condition_ticked" and d.get("damage"):
-            return [{"player_id": ev.player_id, "amount": d["damage"],
-                     "kind": "damage", "crit": False}]
         elif t == "healed" and d.get("amount"):
             return [{"player_id": ev.target_id or ev.player_id, "amount": d["amount"],
                      "kind": "heal", "crit": False}]
@@ -958,7 +948,8 @@ class GameStateMachine:
     def _moves_payload(self, ch: Character) -> list[dict]:
         """The eight buttons for one character: label, live math ("4d4+2"),
         targeting mode for the picker, and why a button is greyed out."""
-        env = {"POW": ch.stats.power, "SPD": ch.stats.speed, "WRD": ch.stats.weird}
+        env = {"POW": ch.stats.power, "SPD": ch.stats.speed, "WRD": ch.stats.weird,
+               "CRE": 0}  # heal formulas may reference the creativity bonus
         out = []
         for move_id, move in self.rules.moves.moves.items():
             math = ""
@@ -966,6 +957,10 @@ class GameStateMachine:
                 math = describe_formula(move.damage, env)
             elif move.heal:
                 math = "♥ " + describe_formula(move.heal, env)
+                if "CRE" in move.heal:
+                    math += "+✨"    # the creativity bonus tops up the heal
+            elif move.ac_bonus:
+                math = f"+{move.ac_bonus} AC"
             disabled_reason = None
             if move.is_movement:
                 if self._zone_reg.step(ch.zone_id, move.move) is None:
@@ -1029,7 +1024,6 @@ def _char_payload(ch: Character, team_id: str | None) -> dict:
         "ac": ch.ac,
         # Stats are the rail's / phone status card's home (💪 Power / ⚡ Speed / 🌀 Weird).
         "stats": {"power": ch.stats.power, "speed": ch.stats.speed, "weird": ch.stats.weird},
-        "conditions": ch.conditions,
         "zone_id": ch.zone_id,
         "team_id": team_id,
         "is_ko": ch.is_ko,

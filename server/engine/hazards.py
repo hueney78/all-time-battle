@@ -1,9 +1,9 @@
 """Hazard registry — loads hazards.yaml, provides lookup API.
 
-The Arena Gremlin hazard palette (GAME_DESIGN.md §10). Like conditions/zones/
-moves, it's a generic data-driven registry: adding a hazard is a YAML-only
-change. The resolver reads a hazard's declarative effect (a condition to apply
-or a forced move) and reuses the existing effect machinery.
+The Arena Gremlin hazard palette (GAME_DESIGN.md §10). Like zones/moves, it's
+a generic data-driven registry: adding a hazard is a YAML-only change. The
+resolver reads a hazard's declarative effect (zone damage or a forced move —
+v2.1: hazards are damage-or-push only) and reuses the existing machinery.
 """
 
 from __future__ import annotations

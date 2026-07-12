@@ -18,7 +18,6 @@ from server.engine.models import (
     GameState,
     Stats,
     Team,
-    WildInterpretation,
 )
 from server.engine.resolver import resolve_round
 
@@ -38,7 +37,6 @@ def _char(
     weird: int,
     zone: str,
     hp: int | None = None,
-    conditions: dict | None = None,
 ) -> Character:
     max_hp = CFG.hp_base + CFG.hp_per_power * power
     return Character(
@@ -49,7 +47,6 @@ def _char(
         max_hp=max_hp,
         ac=CFG.ac_base + speed,
         zone_id=zone,
-        conditions=conditions or {},
     )
 
 
@@ -82,25 +79,26 @@ def _duel(attacker: Character, defender: Character):
 
 
 # ---------------------------------------------------------------------------
-# §12 Golden test — seed 42, the COMBAT V2 worked round
+# §12 Golden test — seed 42, the COMBAT V2.1 worked round
 # ---------------------------------------------------------------------------
 #
-# Taps: Stabby TRICK on Blob (glitter hypnosis → confused, creativity 2);
-#       Blob BLAST at Stabby's zone (creativity 1); Lawnmower SMASH on Gerald
-#       (auto-step); Gerald SHIELDs himself — one round too late.
+# Taps: Stabby SHOOT at Blob (glitter arrows, creativity 2); Blob BLAST at
+#       Stabby's zone (creativity 1); Lawnmower SMASH on Gerald (auto-step);
+#       Gerald SHIELDs his zone — one round too late.
 #
 # Initiative (pure speed, no ties): Stabby(5) → Blob(3) → Lawnmower(2) → Gerald(1).
 #
 # Seed-42 dice (the doc's example rolls in §12 are illustrative; the test
 # asserts the actual seeded dice, exactly like the v1 golden test did):
-#   Stabby    TRICK: 2d6=7 +3 WRD +2 creativity = 12 vs AC 13 → MISS.
+#   Stabby    SHOOT: 2d6=7 +3 WRD +2 creativity = 12 vs AC 13 → MISS.
 #   Blob      BLAST: 2d6=7 +6 WRD +1 creativity = 14 vs frontline occupants:
 #             misses Stabby (AC 15), hits its own teammate Lawnmower (AC 12)
 #             for 3d4+3 = 10 — BLAST hits EVERYONE in the zone.
 #   Lawnmower SMASH: auto-steps frontline → glitter_back, 2d6=8 +6 POW = 14
 #             vs AC 11 → hit (margin 3 < crit_margin 5) for 4d4+2 = 9.
-#   Gerald    SHIELD: shielded (+5 AC) lands after the SMASH — initiative
-#             order matters and the couch sees why on the rail.
+#   Gerald    SHIELD: +4 AC over his zone (just himself — Stabby is up front)
+#             lands after the SMASH — initiative order matters and the couch
+#             sees why on the rail.
 
 
 def _golden_chars() -> list[Character]:
@@ -114,12 +112,12 @@ def _golden_chars() -> list[Character]:
 
 def _golden_actions() -> list[ClassifiedAction]:
     return [
-        ClassifiedAction(player_id="p1", move_id="trick", target_id="p2",
-                         creativity_tier=2, trick_condition="confused"),
+        ClassifiedAction(player_id="p1", move_id="shoot", target_id="p2",
+                         creativity_tier=2),
         ClassifiedAction(player_id="p2", move_id="blast", target_id="p1",
                          creativity_tier=1),
         ClassifiedAction(player_id="p3", move_id="smash", target_id="p4"),
-        ClassifiedAction(player_id="p4", move_id="shield", target_id="p4"),
+        ClassifiedAction(player_id="p4", move_id="shield"),
     ]
 
 
@@ -148,8 +146,12 @@ def test_v2_golden():
     moved = [e for e in result.events if e.type.value == "moved" and e.player_id == "p3"]
     assert moved and moved[0].data["to"] == "glitter_back"
 
-    # Gerald's shield landed — one round too late to stop the SMASH.
-    assert "shielded" in chars["p4"].conditions
+    # Gerald's zone-wide shield landed — one round too late to stop the SMASH
+    # (and by then only Gerald himself stood in his zone; Lawnmower is a foe).
+    shielded = next(e for e in result.events if e.type.value == "shielded")
+    assert shielded.player_id == "p4"
+    assert shielded.data["protected"] == ["p4"]
+    assert shielded.data["ac_bonus"] == 4
     smash = next(e for e in result.events
                  if e.type.value == "attack_resolved" and e.data.get("move_id") == "smash")
     assert smash.data["result"] == "hit" and smash.data["ac"] == 11
@@ -160,7 +162,7 @@ def test_v2_golden():
     assert {e.target_id for e in blast_hits} == {"p1", "p3"}
 
     # No-repeat bookkeeping: every fighter's combat move was recorded.
-    assert chars["p1"].last_move_id == "trick"
+    assert chars["p1"].last_move_id == "shoot"
     assert chars["p4"].last_move_id == "shield"
 
     assert not any(ch.is_ko for ch in chars.values())
@@ -201,20 +203,6 @@ def test_initiative_tie_broken_by_seeded_roll():
         assert resolve_round(state2, actions, Dice(seed=seed), CFG).initiative_order \
             == list(result.initiative_order)
     assert orders == {("aaa", "zzz"), ("zzz", "aaa")}
-
-
-def test_sticky_reduces_initiative_speed():
-    chars = [
-        _char("sticky", "Sticky", power=2, speed=3, weird=2, zone="frontline",
-              conditions={"sticky": 2}),   # effective speed 2
-        _char("plain", "Plain", power=2, speed=2, weird=2, zone="frontline"),
-        _char("mid", "Mid", power=2, speed=3, weird=2, zone="frontline"),
-    ]
-    state = _state(chars, [])
-    actions = [ClassifiedAction(player_id=p, move_id="shield")
-               for p in ["sticky", "plain", "mid"]]
-    result = resolve_round(state, actions, Dice(seed=5), CFG)
-    assert result.initiative_order[0] == "mid"   # only un-slowed speed-3 fighter
 
 
 def test_initiative_drops_ko_and_gremlins():
@@ -269,7 +257,8 @@ def test_crit_on_margin_doubles_damage():
     assert 12 <= ev.data["damage"] <= 36 and ev.data["damage"] % 2 == 0
 
 
-def test_natural_2_fumbles_with_self_damage_and_embarrassed():
+def test_natural_2_fumbles_with_self_damage_only():
+    """v2.1: a fumble is 3 self-damage and a narrator jackpot — no status."""
     seed = _find_natural(lambda n: n == 2)
     state = _smash_duel()
     actions = [ClassifiedAction(player_id="atk", move_id="smash", target_id="def")]
@@ -278,7 +267,6 @@ def test_natural_2_fumbles_with_self_damage_and_embarrassed():
     assert ev.data["result"] == "fumble"
     chars = result.new_state.characters
     assert chars["atk"].hp == chars["atk"].max_hp - CFG.fumble_self_damage
-    assert "embarrassed" in chars["atk"].conditions
     assert chars["def"].hp == chars["def"].max_hp   # no target effects on a fumble
 
 
@@ -338,7 +326,7 @@ def test_smash_damage_formula_scales_with_power():
     assert describe_formula("(1 + ceil(POW/2))d4 + 2", {"POW": 0, "SPD": 0, "WRD": 0}) == "1d4+2"
     assert describe_formula("(1 + ceil(POW/2))d4 + 2", {"POW": 6, "SPD": 0, "WRD": 0}) == "4d4+2"
     assert describe_formula("(1 + floor(WRD/3))d4 + 3", {"POW": 0, "SPD": 0, "WRD": 6}) == "3d4+3"
-    assert describe_formula("1d6 + WRD", {"POW": 0, "SPD": 0, "WRD": 4}) == "1d6+4"
+    assert describe_formula("(1 + ceil(WRD/2))d4 + 1", {"POW": 0, "SPD": 0, "WRD": 4}) == "3d4+1"
     assert describe_formula("2d8 + floor(WRD/2)", {"POW": 0, "SPD": 0, "WRD": 5}) == "2d8+2"
 
 
@@ -390,36 +378,84 @@ def test_blast_hits_everyone_in_zone_with_one_shared_roll():
     assert len(hit_dmg) <= 1
 
 
-def test_trick_applies_condition_from_drawing():
-    atk = _char("atk", "Atk", power=0, speed=4, weird=6, zone="frontline")
-    dfn = _char("def", "Def", power=2, speed=0, weird=2, zone="frontline")
+def test_shoot_hits_any_zone_at_full_damage():
+    """SHOOT is ranged: full damage from another zone, no auto-step needed."""
+    atk = _char("atk", "Atk", power=0, speed=4, weird=6, zone="glitter_back")
+    dfn = _char("def", "Def", power=2, speed=0, weird=2, zone="thunder_back")
     state = _duel(atk, dfn)
-    seed = _find_natural(lambda n: 8 <= n <= 10)   # comfortable hit, no fumble
-    actions = [ClassifiedAction(player_id="atk", move_id="trick", target_id="def",
-                                trick_condition="burning")]
+    seed = _find_natural(lambda n: 8 <= n <= 10)   # comfortable hit, no crit
+    actions = [ClassifiedAction(player_id="atk", move_id="shoot", target_id="def")]
     result = resolve_round(state, actions, Dice(seed=seed), CFG)
-    assert "burning" in result.new_state.characters["def"].conditions
-    # An unknown condition never crashes the engine — it is simply skipped.
-    state2 = _duel(
-        _char("atk", "Atk", power=0, speed=4, weird=6, zone="frontline"),
-        _char("def", "Def", power=2, speed=0, weird=2, zone="frontline"))
-    actions2 = [ClassifiedAction(player_id="atk", move_id="trick", target_id="def",
-                                 trick_condition="made_up_nonsense")]
-    result2 = resolve_round(state2, actions2, Dice(seed=seed), CFG)
-    assert "made_up_nonsense" not in result2.new_state.characters["def"].conditions
+    ev = next(e for e in result.events if e.data.get("move_id") == "shoot")
+    assert ev.data["result"] == "hit"
+    assert ev.data["point_blank"] is False
+    # WRD 6 → (1+3)d4+1 = 4d4+1, undivided.
+    assert 5 <= ev.data["damage"] <= 17
+    # The archer never moved.
+    assert result.new_state.characters["atk"].zone_id == "glitter_back"
 
 
-def test_shield_adds_5_ac_when_it_resolves_first():
-    """A shielded target's effective AC includes the +5 from the condition."""
-    atk = _char("atk", "Atk", power=6, speed=1, weird=0, zone="frontline")
-    dfn = _char("def", "Def", power=2, speed=6, weird=2, zone="frontline")   # acts first
-    state = _duel(atk, dfn)
+def test_shoot_point_blank_halves_damage_rounded_up():
+    """Same seed, same dice: a same-zone SHOOT deals ceil(half) of the
+    cross-zone damage (the point-blank penalty, GAME_DESIGN §4)."""
+    seed = _find_natural(lambda n: 8 <= n <= 10)
+    actions = [ClassifiedAction(player_id="atk", move_id="shoot", target_id="def")]
+
+    far = _duel(_char("atk", "Atk", power=0, speed=4, weird=6, zone="glitter_back"),
+                _char("def", "Def", power=2, speed=0, weird=2, zone="thunder_back"))
+    dmg_far = next(e for e in resolve_round(far, actions, Dice(seed=seed), CFG).events
+                   if e.data.get("move_id") == "shoot").data["damage"]
+
+    near = _duel(_char("atk", "Atk", power=0, speed=4, weird=6, zone="frontline"),
+                 _char("def", "Def", power=2, speed=0, weird=2, zone="frontline"))
+    ev = next(e for e in resolve_round(near, actions, Dice(seed=seed), CFG).events
+              if e.data.get("move_id") == "shoot")
+    assert ev.data["point_blank"] is True
+    assert ev.data["damage"] == (dmg_far + 1) // 2
+
+
+def test_shoot_point_blank_crit_doubles_the_halved_damage():
+    """Ordering: halve first (round up), then the crit doubles — a point-blank
+    crit lands roughly the original roll (matches balance_sim_v3)."""
+    seed = _find_natural(lambda n: n == 12)   # natural 12 always crits
+    actions = [ClassifiedAction(player_id="atk", move_id="shoot", target_id="def")]
+
+    far = _duel(_char("atk", "Atk", power=0, speed=4, weird=6, zone="glitter_back"),
+                _char("def", "Def", power=2, speed=0, weird=2, zone="thunder_back"))
+    dmg_far = next(e for e in resolve_round(far, actions, Dice(seed=seed), CFG).events
+                   if e.data.get("move_id") == "shoot").data["damage"]
+    base = dmg_far // 2   # crit doubled the shared roll
+
+    near = _duel(_char("atk", "Atk", power=0, speed=4, weird=6, zone="frontline"),
+                 _char("def", "Def", power=2, speed=0, weird=2, zone="frontline"))
+    ev = next(e for e in resolve_round(near, actions, Dice(seed=seed), CFG).events
+              if e.data.get("move_id") == "shoot")
+    assert ev.data["result"] == "crit" and ev.data["point_blank"] is True
+    assert ev.data["damage"] == ((base + 1) // 2) * 2
+
+
+def test_shield_protects_every_ally_in_the_casters_zone():
+    """SHIELD is zone-wide (+4 AC): the caster and same-zone teammates are
+    covered; a teammate in another zone is not."""
+    caster = _char("a1", "Caster", power=2, speed=6, weird=2, zone="frontline")
+    near = _char("a2", "Near", power=2, speed=5, weird=2, zone="frontline")
+    far = _char("a3", "Far", power=2, speed=5, weird=2, zone="glitter_back")
+    foe = _char("e1", "Foe", power=6, speed=1, weird=0, zone="frontline")
+    teams = [Team(id="team_a", name="A", color="p", player_ids=["a1", "a2", "a3"]),
+             Team(id="team_b", name="B", color="b", player_ids=["e1"])]
+    state = _state([caster, near, far, foe], teams)
     seed = _find_natural(lambda n: n == 7)
-    actions = [ClassifiedAction(player_id="def", move_id="shield", target_id="def"),
-               ClassifiedAction(player_id="atk", move_id="smash", target_id="def")]
+    actions = [ClassifiedAction(player_id="a1", move_id="shield"),
+               ClassifiedAction(player_id="e1", move_id="smash", target_id="a2")]
     result = resolve_round(state, actions, Dice(seed=seed), CFG)
+
+    shielded = next(e for e in result.events if e.type.value == "shielded")
+    assert shielded.player_id == "a1"
+    assert shielded.data["protected"] == ["a1", "a2"]   # not the far teammate
+    assert shielded.data["ac_bonus"] == 4
+
     smash = next(e for e in result.events if e.data.get("move_id") == "smash")
-    assert smash.data["ac"] == 16 + 5   # AC 10+6 speed, +5 shielded
+    assert smash.data["ac"] == (10 + 5) + 4   # Near's AC plus the zone shield
 
 
 def test_shield_reflects_big_misses():
@@ -428,7 +464,7 @@ def test_shield_reflects_big_misses():
     dfn = _char("def", "Def", power=2, speed=6, weird=2, zone="frontline")
     state = _duel(atk, dfn)
     seed = _find_natural(lambda n: n <= 6 and n > 2)   # low natural → big miss
-    actions = [ClassifiedAction(player_id="def", move_id="shield", target_id="def"),
+    actions = [ClassifiedAction(player_id="def", move_id="shield"),
                ClassifiedAction(player_id="atk", move_id="smash", target_id="def")]
     result = resolve_round(state, actions, Dice(seed=seed), CFG)
     reflect = [e for e in result.events if e.data.get("result") == "reflect"]
@@ -438,32 +474,26 @@ def test_shield_reflects_big_misses():
         result.new_state.characters["atk"].max_hp - reflect[0].data["damage"]
 
 
-def test_rally_heals_cleanses_and_earns_pumped():
-    healer = _char("atk", "Healer", power=2, speed=4, weird=2, zone="glitter_back")
-    hurt = _char("ally", "Hurt", power=2, speed=2, weird=2, zone="frontline",
-                 hp=5, conditions={"burning": 2, "enraged": 2})
-    foe = _char("def", "Foe", power=2, speed=1, weird=2, zone="thunder_back")
-    teams = [Team(id="team_a", name="A", color="p", player_ids=["atk", "ally"]),
-             Team(id="team_b", name="B", color="b", player_ids=["def"])]
-    state = _state([healer, hurt, foe], teams)
-    actions = [ClassifiedAction(player_id="atk", move_id="rally", target_id="ally",
-                                creativity_tier=2)]
-    result = resolve_round(state, actions, Dice(seed=9), CFG)
-    ally = result.new_state.characters["ally"]
-    # burning ticked 2 at round start (5→3), then RALLY healed 1d6+2.
-    heal = next(e for e in result.events if e.type.value == "healed")
-    assert 3 <= heal.data["amount"] <= 8
-    assert ally.hp == 3 + heal.data["amount"]
-    assert "burning" not in ally.conditions      # debuff cleansed
-    assert "enraged" in ally.conditions          # buffs are never stripped
-    assert "pumped" in ally.conditions           # earned: creativity 2 >= gate
-    # Tier below the gate → no pumped.
-    state2 = _state([healer.model_copy(deep=True),
-                     hurt.model_copy(deep=True), foe.model_copy(deep=True)], teams)
-    actions2 = [ClassifiedAction(player_id="atk", move_id="rally", target_id="ally",
-                                 creativity_tier=1)]
-    result2 = resolve_round(state2, actions2, Dice(seed=9), CFG)
-    assert "pumped" not in result2.new_state.characters["ally"].conditions
+def test_rally_heal_scales_with_creativity():
+    """RALLY heals 1d6 + CRE — the creativity bonus IS the medicine (§4)."""
+    def run(tier: int) -> int:
+        healer = _char("atk", "Healer", power=2, speed=4, weird=2, zone="glitter_back")
+        hurt = _char("ally", "Hurt", power=2, speed=2, weird=2, zone="frontline", hp=5)
+        foe = _char("def", "Foe", power=2, speed=1, weird=2, zone="thunder_back")
+        teams = [Team(id="team_a", name="A", color="p", player_ids=["atk", "ally"]),
+                 Team(id="team_b", name="B", color="b", player_ids=["def"])]
+        state = _state([healer, hurt, foe], teams)
+        actions = [ClassifiedAction(player_id="atk", move_id="rally", target_id="ally",
+                                    creativity_tier=tier)]
+        result = resolve_round(state, actions, Dice(seed=9), CFG)
+        heal = next(e for e in result.events if e.type.value == "healed")
+        assert result.new_state.characters["ally"].hp == 5 + heal.data["amount"]
+        return heal.data["amount"]
+
+    plain = run(0)          # 1d6 + 0
+    clever = run(2)         # same seeded d6, +2 creativity bonus
+    assert 1 <= plain <= 6
+    assert clever - plain == CFG.creativity_tier_2
 
 
 def test_rally_heal_capped_at_max_hp_and_blocked_in_sudden_death():
@@ -485,33 +515,19 @@ def test_rally_heal_capped_at_max_hp_and_blocked_in_sudden_death():
     assert heal.data["blocked"] == "sudden_death"
 
 
-def test_wild_interpretation_condition_rider_applies_on_hit():
-    atk = _char("atk", "Atk", power=0, speed=4, weird=6, zone="frontline")
-    dfn = _char("def", "Def", power=2, speed=0, weird=2, zone="frontline")
-    state = _duel(atk, dfn)
-    # natural 6 → total 12 vs AC 10: a plain hit (no crit, so no KO wiping conditions).
-    seed = _find_natural(lambda n: n == 6)
-    actions = [ClassifiedAction(
-        player_id="atk", move_id="wild", target_id="def",
-        wild_interpretation=WildInterpretation(condition="sticky",
-                                               description="a glue tornado"),
-    )]
-    result = resolve_round(state, actions, Dice(seed=seed), CFG)
-    assert "sticky" in result.new_state.characters["def"].conditions
-
-
 def test_movement_is_absolute_with_dodge_ac():
     mover = _char("atk", "Mover", power=2, speed=6, weird=2, zone="frontline")
     foe = _char("def", "Foe", power=6, speed=1, weird=2, zone="frontline")
     state = _duel(mover, foe)
     seed = _find_natural(lambda n: n == 7)
     actions = [ClassifiedAction(player_id="atk", move_id="move_l"),
-               ClassifiedAction(player_id="def", move_id="trick", target_id="atk")]
+               ClassifiedAction(player_id="def", move_id="shoot", target_id="atk")]
     result = resolve_round(state, actions, Dice(seed=seed), CFG)
     ch = result.new_state.characters["atk"]
     assert ch.zone_id == "glitter_back"     # ◀ = one zone left in zones.yaml order
-    assert "dodging" in ch.conditions
-    atk_ev = next(e for e in result.events if e.data.get("move_id") == "trick")
+    mv = next(e for e in result.events if e.type.value == "moved")
+    assert mv.data["dodge_ac"] == 1
+    atk_ev = next(e for e in result.events if e.data.get("move_id") == "shoot")
     assert atk_ev.data["ac"] == 16 + 1      # 10+6 speed, +1 dodging
     # Movement is exempt from the no-repeat rule → not recorded as last move.
     assert ch.last_move_id is None
@@ -530,7 +546,7 @@ def test_movement_at_arena_edge_stumbles():
 
 
 # ---------------------------------------------------------------------------
-# Unit: adaptation, combos, confused
+# Unit: adaptation, combos
 # ---------------------------------------------------------------------------
 
 
@@ -544,7 +560,7 @@ def test_dead_target_redirects_to_nearest_enemy():
     teams = [Team(id="team_a", name="A", color="p", player_ids=["p1"]),
              Team(id="team_b", name="B", color="b", player_ids=["p2", "p3"])]
     state = _state([atk, dead, other], teams)
-    actions = [ClassifiedAction(player_id="p1", move_id="trick", target_id="p2")]
+    actions = [ClassifiedAction(player_id="p1", move_id="shoot", target_id="p2")]
     result = resolve_round(state, actions, Dice(seed=4), CFG)
     ev = next(e for e in result.events if e.type.value == "attack_resolved")
     assert ev.target_id == "p3"
@@ -560,7 +576,7 @@ def test_combo_gives_both_partners_the_roll_bonus_and_one_combo_event():
     actions = [
         ClassifiedAction(player_id="a1", move_id="smash", target_id="e1",
                          combo_partners=["a2"], combo_name="GLITTERNADO"),
-        ClassifiedAction(player_id="a2", move_id="trick", target_id="e1",
+        ClassifiedAction(player_id="a2", move_id="shoot", target_id="e1",
                          combo_partners=["a1"], combo_name="GLITTERNADO"),
     ]
     result = resolve_round(state, actions, Dice(seed=8), CFG)
@@ -568,27 +584,9 @@ def test_combo_gives_both_partners_the_roll_bonus_and_one_combo_event():
     assert len(combo_evs) == 1
     assert combo_evs[0].data["combo_name"] == "GLITTERNADO"
     # Both partners rolled with the +2: total = natural + stat(0) + combo_bonus.
-    for mid in ("smash", "trick"):
+    for mid in ("smash", "shoot"):
         ev = next(e for e in result.events if e.data.get("move_id") == mid)
         assert ev.data["total_atk"] == ev.data["natural"] + CFG.combo_bonus
-
-
-def test_confused_randomizes_target():
-    atk = _char("p1", "Confused", power=6, speed=4, weird=2, zone="frontline",
-                conditions={"confused": 2})
-    ally = _char("p2", "Ally", power=2, speed=2, weird=2, zone="frontline")
-    foe = _char("p3", "Foe", power=2, speed=1, weird=2, zone="frontline")
-    teams = [Team(id="team_a", name="A", color="p", player_ids=["p1", "p2"]),
-             Team(id="team_b", name="B", color="b", player_ids=["p3"])]
-    hit_targets = set()
-    for seed in range(10):
-        state = _state([c.model_copy(deep=True) for c in (atk, ally, foe)], teams)
-        actions = [ClassifiedAction(player_id="p1", move_id="smash", target_id="p3")]
-        result = resolve_round(state, actions, Dice(seed=seed), CFG)
-        for e in result.events:
-            if e.type.value == "attack_resolved" and e.player_id == "p1" and e.target_id:
-                hit_targets.add(e.target_id)
-    assert "p2" in hit_targets   # friendly fire happened at least once
 
 
 # ---------------------------------------------------------------------------
@@ -604,7 +602,7 @@ def test_ko_converts_to_gremlin_and_victory_fires():
     actions = [ClassifiedAction(player_id="atk", move_id="smash", target_id="def")]
     result = resolve_round(state, actions, Dice(seed=seed), CFG)
     dead = result.new_state.characters["def"]
-    assert dead.is_ko and dead.is_gremlin and dead.hp == 0 and dead.conditions == {}
+    assert dead.is_ko and dead.is_gremlin and dead.hp == 0
     kinds = [e.type.value for e in result.events]
     assert "ko" in kinds and "victory" in kinds
     assert result.new_state.winner_team_id == "team_a"
@@ -650,6 +648,57 @@ def test_gremlin_drops_hazard_next_round_only():
     assert grem_evs[0].data["hazard_id"] == "bees"
 
 
+def _gremlin_round(hazard_id: str, seed: int):
+    """One round where a start-of-round gremlin drops `hazard_id`; the two
+    living fighters both stand on the frontline."""
+    grem = _char("g", "Grem", power=2, speed=2, weird=2, zone="frontline")
+    grem.is_ko = True
+    grem.is_gremlin = True
+    a = _char("p1", "A", power=2, speed=3, weird=2, zone="frontline")
+    b = _char("p2", "B", power=2, speed=1, weird=2, zone="frontline")
+    teams = [Team(id="team_a", name="A", color="p", player_ids=["p1", "g"]),
+             Team(id="team_b", name="B", color="b", player_ids=["p2"])]
+    state = _state([grem, a, b], teams)
+    actions = [ClassifiedAction(player_id="g", move_id=hazard_id),
+               ClassifiedAction(player_id="p1", move_id="shield"),
+               ClassifiedAction(player_id="p2", move_id="shield")]
+    return resolve_round(state, actions, Dice(seed=seed), CFG)
+
+
+def _find_gremlin_seed(hazard_id: str, zone: str) -> tuple[int, object]:
+    """Find a seed whose hazard lands on `zone` (the drop zone is seeded-random)."""
+    for seed in range(200):
+        result = _gremlin_round(hazard_id, seed)
+        ev = next(e for e in result.events if e.type.value == "gremlin_hazard")
+        if ev.data["zone"] == zone:
+            return seed, result
+    raise AssertionError("no seed landed the hazard on the target zone")
+
+
+def test_gremlin_damage_hazard_stings_every_occupant():
+    """v2.1: bees/spikes roll one shared 1d4 against everyone in the zone."""
+    _, result = _find_gremlin_seed("bees", "frontline")
+    hits = [e for e in result.events if e.data.get("result") == "hazard"]
+    assert {e.target_id for e in hits} == {"p1", "p2"}
+    dmgs = {e.data["damage"] for e in hits}
+    assert len(dmgs) == 1 and 1 <= dmgs.pop() <= 4   # one shared roll
+    chars = result.new_state.characters
+    dmg = next(e.data["damage"] for e in hits)
+    assert chars["p1"].hp == chars["p1"].max_hp - dmg
+    assert chars["p2"].hp == chars["p2"].max_hp - dmg
+
+
+def test_gremlin_push_hazard_forces_occupants_out():
+    """v2.1: trapdoor/banana push every occupant to an adjacent zone."""
+    _, result = _find_gremlin_seed("trapdoor", "frontline")
+    chars = result.new_state.characters
+    assert chars["p1"].zone_id != "frontline"
+    assert chars["p2"].zone_id != "frontline"
+    # No damage from a pure push.
+    assert chars["p1"].hp == chars["p1"].max_hp
+    assert not [e for e in result.events if e.data.get("result") == "hazard"]
+
+
 def test_underdog_bonus_applies_when_far_behind():
     """Down two characters' worth of HP share → +1 on the roll (kids mode)."""
     a1 = _char("p1", "A1", power=2, speed=4, weird=2, zone="frontline", hp=2)
@@ -680,8 +729,7 @@ def test_novel_move_added_only_to_yaml_resolves(tmp_path, monkeypatch):
 
     import server.config as cfg_mod
 
-    for f in ("moves.yaml", "conditions.yaml", "zones.yaml", "hazards.yaml",
-              "balance.yaml"):
+    for f in ("moves.yaml", "zones.yaml", "hazards.yaml", "balance.yaml"):
         shutil.copy(f"config/{f}", tmp_path / f)
     data = yaml.safe_load((tmp_path / "moves.yaml").read_text(encoding="utf-8"))
     data["moves"]["zap"] = {
@@ -713,7 +761,7 @@ def test_novel_move_added_only_to_yaml_resolves(tmp_path, monkeypatch):
 def test_resolver_never_negative_hp_and_unique_event_ids(seed):
     rng = Dice(seed=seed)
     pick = Dice(seed=seed + 1000)
-    moves = ["smash", "blast", "trick", "shield", "rally", "wild", "move_l", "move_r"]
+    moves = ["smash", "blast", "shoot", "shield", "rally", "wild", "move_l", "move_r"]
     chars = [
         _char("p1", "P1", power=5, speed=2, weird=2, zone="frontline"),
         _char("p2", "P2", power=1, speed=4, weird=4, zone="thunder_back"),

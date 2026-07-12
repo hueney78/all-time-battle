@@ -34,10 +34,14 @@ def test_classify_schema_exposes_action_fields():
     assert "actions" in schema["properties"]
     action = schema["$defs"]["AIAction"]["properties"]
     for field in ("creativity_tier", "similar_to_previous", "flavor_summary",
-                  "trick_condition", "wild_interpretation", "flagged"):
+                  "wild_interpretation", "flagged"):
         assert field in action
-    for gone in ("catalog_id", "action_cost", "targets", "move_to"):
+    # v2.1: no conditions anywhere — trick_condition is gone with TRICK itself,
+    # and the WILD read carries no status rider.
+    for gone in ("catalog_id", "action_cost", "targets", "move_to", "trick_condition"):
         assert gone not in action
+    wild = schema["$defs"]["AIWildInterpretation"]["properties"]
+    assert "description" in wild and "condition" not in wild
 
 
 def test_narrate_schema_exposes_speaker():
@@ -69,7 +73,7 @@ def test_awards_schema_exposes_title_and_player():
 
 
 def test_prompts_render_with_live_config():
-    """Templates render with real config injected (catalog/zones/conditions),
+    """Templates render with real config injected (catalog/zones/hazards),
     so YAML edits reach the AI automatically and no template is broken."""
     rules = load_game_rules()
     env = Environment(loader=FileSystemLoader(str(PROMPTS)), autoescape=False)
@@ -79,13 +83,13 @@ def test_prompts_render_with_live_config():
 
     classify = env.get_template("action_classify.md.j2").render(
         moves=rules.moves.moves,
-        conditions=sorted(rules.conditions.conditions),
         zones=rules.zones.zones,
     )
     assert "SMASH" in classify and "WILD CARD" in classify   # catalog injected
+    assert "SHOOT" in classify                                # v2.1: TRICK is gone
     assert "frontline" in classify                            # zones injected
     assert "TAPS" in classify and "never choose" in classify  # v2: taps are ground truth
-    assert "burning" in classify                              # condition palette injected
+    assert "condition" not in classify.lower()                # v2.1: no status palette
     assert "NEVER infer" in classify                          # no movement guessing
 
     narrate = env.get_template("narrate.md.j2").render()

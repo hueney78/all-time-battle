@@ -110,7 +110,6 @@ async def health():
     return {
         "status": "ok",
         "zones": [z.id for z in rules.zones.zones],
-        "conditions": sorted(rules.conditions.conditions.keys()),
         "moves": sorted(rules.moves.moves.keys()),
         "ai": {
             "classify_model": rules.settings.ai.classify_model,

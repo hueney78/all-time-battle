@@ -489,15 +489,15 @@ async def test_submit_action_validates_no_repeat_edge_and_dead_target():
 
     # A legal tap is recorded and counts as this player's submission.
     await machine.submit_action(
-        p.id, SubmitActionMsg(round=2, png_base64="x", move_id="trick", target_id=None))
-    assert machine._action_taps[p.id] == ("trick", None)
+        p.id, SubmitActionMsg(round=2, png_base64="x", move_id="shoot", target_id=None))
+    assert machine._action_taps[p.id] == ("shoot", None)
     assert p.id in machine._collected
 
     # Gremlins can't tap moves at all.
     machine._expected = {o.id}
     machine._collected = set()
     await machine.submit_action(
-        o.id, SubmitActionMsg(round=2, png_base64="x", move_id="trick"))
+        o.id, SubmitActionMsg(round=2, png_base64="x", move_id="shoot"))
     env = await asyncio.wait_for(other_sock.client_recv(), 1.0)
     assert env.type == "toast" and "Gremlin" in env.payload["message"]
 
@@ -527,11 +527,12 @@ async def test_player_state_ships_move_buttons_with_live_math():
     assert env.type == "player_state"
     assert env.payload["last_move_id"] == "smash"
     moves = {m["id"]: m for m in env.payload["moves"]}
-    assert set(moves) == {"smash", "blast", "trick", "shield", "rally", "wild",
+    assert set(moves) == {"smash", "blast", "shoot", "shield", "rally", "wild",
                           "move_l", "move_r"}
     assert moves["smash"]["math"] == "4d4+2"        # POW 6 → live math on the label
-    assert moves["trick"]["math"] == "1d6+1"        # WRD 1
-    assert moves["rally"]["math"].endswith("1d6+2")  # heal formula, ♥-prefixed
+    assert moves["shoot"]["math"] == "2d4+1"        # WRD 1 → (1+ceil(1/2))d4+1
+    assert moves["rally"]["math"] == "♥ 1d6+✨"      # heal scales with creativity
+    assert moves["shield"]["math"] == "+4 AC"       # zone-wide protection
     assert moves["smash"]["disabled"] and moves["smash"]["disabled_reason"] == "no_repeat"
     assert moves["move_l"]["disabled"] and moves["move_l"]["disabled_reason"] == "edge"
     assert not moves["move_r"]["disabled"]
@@ -560,19 +561,19 @@ async def test_taps_flow_through_to_classification():
     async def drive():
         await asyncio.sleep(0)   # let _draw_stage arm the collector
         await machine.submit_action(a.id, SubmitActionMsg(
-            round=2, png_base64="doodle", move_id="trick", target_id=b.id))
+            round=2, png_base64="doodle", move_id="shoot", target_id=b.id))
         await machine.submit_action(b.id, SubmitActionMsg(
             round=2, png_base64="doodle", move_id="shield", target_id=b.id))
 
     (pngs, taps), _ = await asyncio.gather(
         machine._draw_stage(2, [a.id, b.id]), drive())
-    assert taps == {a.id: ("trick", b.id), b.id: ("shield", b.id)}
+    assert taps == {a.id: ("shoot", b.id), b.id: ("shield", b.id)}
 
     from server.state_machine import _Drawn
     processed = await machine._process_round(
         _Drawn(2, pngs, [a.id, b.id], [], taps=taps))
     by_pid = {act.player_id: act for act in processed.actions}
-    assert by_pid[a.id].move_id == "trick" and by_pid[a.id].target_id == b.id
+    assert by_pid[a.id].move_id == "shoot" and by_pid[a.id].target_id == b.id
     assert by_pid[b.id].move_id == "shield"
 
 
@@ -697,7 +698,7 @@ def test_mock_respects_taps_and_blank_canvas_scores_zero():
     actions = {act.player_id: act for act in MockAI().classify_actions(state, subs, 1)}
 
     assert actions["a"].move_id == "smash" and actions["a"].target_id == "b"
-    assert actions["b"].move_id in ("blast", "trick")   # headless fallback pick
+    assert actions["b"].move_id in ("blast", "shoot")   # headless fallback pick
     assert actions["b"].creativity_tier == 0            # blank canvas → tier 0
 
 

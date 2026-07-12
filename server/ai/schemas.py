@@ -53,18 +53,15 @@ class AIComboSpec(BaseModel):
 
 class AIWildInterpretation(BaseModel):
     """WILD CARD only: the AI's free read of the drawing — big flat damage by
-    default, plus an optional condition rider if the drawing demands it."""
+    default, or a reposition/absurdity; no status effects."""
 
-    condition: str | None = Field(
-        default=None, description="optional rider from the allowed condition list"
-    )
     description: str = Field(default="", description="what the drawing does, for the narrator")
 
 
 class AIAction(BaseModel):
     """COMBAT V2: the move and target are TAPPED on the phone (ground truth,
     echoed in the request) — judge only the DRAWING: creativity, staleness,
-    flavor, TRICK's condition, WILD CARD's interpretation."""
+    flavor, WILD CARD's interpretation."""
 
     player_id: str
     creativity_tier: int = Field(default=0, description="0 plain..3 wild; judge the IDEA not art")
@@ -74,10 +71,6 @@ class AIAction(BaseModel):
     )
     flavor_summary: str = Field(
         default="", description="a short vivid read of the drawing, feeds the narrator"
-    )
-    trick_condition: str | None = Field(
-        default=None,
-        description="TRICK only: the on-hit condition the drawing implies, from the allowed list",
     )
     wild_interpretation: AIWildInterpretation | None = Field(
         default=None, description="WILD CARD only: your free read of the drawing"

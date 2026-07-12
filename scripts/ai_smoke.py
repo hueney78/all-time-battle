@@ -71,22 +71,22 @@ def main() -> int:
         Team(id="team_b", name="B", color="#2F6FE0", player_ids=["p2"]),
     ])
 
-    print("== classify_actions (tapped TRICK + character/action image pair) ==")
+    print("== classify_actions (tapped SHOOT + character/action image pair) ==")
     actions = ai.classify_actions(
         state,
-        {"p1": ActionSubmission("p1", action_png, move_id="trick", target_id="p2")},
+        {"p1": ActionSubmission("p1", action_png, move_id="shoot", target_id="p2")},
         1,
     )
     for a in actions:
         if a.player_id == "p1":
             print(f"  move={a.move_id!r} target={a.target_id!r} "
-                  f"creativity={a.creativity_tier} trick_condition={a.trick_condition!r}")
+                  f"creativity={a.creativity_tier}")
             print(f"  flavor={a.flavor_summary!r} note={a.adaptation_note!r}")
 
     print("== narrate_round ==")
     events = [
         Event(id="e1", type=EventType.ATTACK_RESOLVED, round=1, player_id="p1", target_id="p2",
-              data={"result": "crit", "damage": 12, "move_id": "trick"}),
+              data={"result": "crit", "damage": 12, "move_id": "shoot"}),
         Event(id="e2", type=EventType.KO, round=1, player_id="p2", data={}),
     ]
     narration = ai.narrate_round(events, state.characters)

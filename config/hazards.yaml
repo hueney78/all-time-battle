@@ -2,35 +2,34 @@
 #
 # A KO'd player becomes an Arena Gremlin and draws ONE hazard each round. The AI
 # maps the drawing to exactly one hazard below; the resolver drops it on a random
-# zone, hitting every living fighter standing there. Effects reuse the condition
-# registry and movement, so adding a hazard is a YAML-only change (zero Python) —
-# `desc` is injected into the classifier prompt, so write it visually.
+# zone, hitting every living fighter standing there. Hazards are damage-or-push
+# only (v2.1 — no status effects). Adding a hazard is a YAML-only change (zero
+# Python) — `desc` is injected into the classifier prompt, so write it visually.
 #
 # Effect keys (a hazard uses one):
-#   applies_condition: <id from conditions.yaml>   apply that condition to occupants
-#   forces_move: true                              bump occupants to a random adjacent zone
+#   damage: "<dice spec>"    roll once, subtract from every occupant of the zone
+#   forces_move: true        bump occupants to a random adjacent zone
 
 hazards:
-  banana_peel:
-    applies_condition: prone
-    emoji: "🍌"
-    sfx: banana_slip
-    desc: "slippery peels, oil slicks, marbles, ice — anything underfoot that drops you"
-
-  sprinkler:
-    applies_condition: soggy
-    emoji: "💦"
-    sfx: splash
-    desc: "water, rain clouds, sprinklers, waves, splashing — anything that soaks a spot"
-
   bees:
-    applies_condition: stung
+    damage: "1d4"
     emoji: "🐝"
     sfx: buzz
     desc: "bees, wasps, hornets, angry swarms — anything that keeps stinging"
 
+  spikes:
+    damage: "1d4"
+    emoji: "📌"
+    sfx: splat
+    desc: "spikes, tacks, cacti, caltrops, lava patches — anything sharp or searing underfoot"
+
+  banana_peel:
+    forces_move: true
+    emoji: "🍌"
+    sfx: banana_slip
+    desc: "slippery peels, oil slicks, marbles, ice — anything that sends you skidding away"
+
   trapdoor:
-    applies_condition: null
     forces_move: true
     emoji: "🕳️"
     sfx: whoosh

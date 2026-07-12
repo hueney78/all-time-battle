@@ -67,7 +67,6 @@ class LiveAI:
         self._sys_chargen = env.get_template("character_gen.md.j2").render(balance=rules.balance)
         self._sys_classify = env.get_template("action_classify.md.j2").render(
             moves=rules.moves.moves,
-            conditions=sorted(rules.conditions.conditions),
             zones=rules.zones.zones,
         )
         self._sys_gremlin = env.get_template("gremlin_classify.md.j2").render(
@@ -339,9 +338,8 @@ def _roster_text(state: GameState, round_num: int) -> str:
     for pid, ch in state.characters.items():
         if ch.is_ko:
             continue
-        conds = ",".join(ch.conditions) or "none"
         lines.append(f"- {ch.name} ({pid}) team={team_of.get(pid, '?')} zone={ch.zone_id} "
-                     f"hp={ch.hp}/{ch.max_hp} conditions={conds}")
+                     f"hp={ch.hp}/{ch.max_hp}")
     return "\n".join(lines)
 
 

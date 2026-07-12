@@ -1,7 +1,7 @@
 """Phase 5 — AI response validators (pure, offline).
 
-Covers stat normalization, flagged/missing-character fallback, catalog/target/
-condition/move_to repair, combo attachment, and narration salvage.
+Covers stat normalization, flagged/missing-character fallback, catalog/target
+repair, combo attachment, and narration salvage.
 """
 
 from __future__ import annotations
@@ -85,21 +85,19 @@ def _teams():
             Team(id="team_b", name="B", color="#0ff", player_ids=["p2"])]
 
 
-def test_classify_merges_judgment_onto_taps_and_repairs_conditions():
-    """COMBAT V2: the AI decorates the tapped move; unknown TRICK conditions
-    are dropped; a skipped player still resolves their tap at creativity 0."""
+def test_classify_merges_judgment_onto_taps():
+    """COMBAT V2: the AI decorates the tapped move; a skipped player still
+    resolves their tap at creativity 0."""
     state = _state({"p1": "glitter_back", "p2": "thunder_back"}, _teams())
-    taps = {"p1": ("trick", "p2"), "p2": ("smash", "p1")}
+    taps = {"p1": ("shoot", "p2"), "p2": ("smash", "p1")}
     resp = S.ClassifyActionsResponse(actions=[
         S.AIAction(player_id="p1", creativity_tier=9,           # clamped to 3
-                   trick_condition="made_up",                    # unknown → dropped
                    flavor_summary="a suspicious maneuver"),
     ])
     actions = {a.player_id: a for a in build_classified_actions(resp, state, taps, RULES)}
     a = actions["p1"]
-    assert a.move_id == "trick" and a.target_id == "p2"   # taps are ground truth
+    assert a.move_id == "shoot" and a.target_id == "p2"   # taps are ground truth
     assert a.creativity_tier == 3                          # clamped
-    assert a.trick_condition is None                       # unknown condition dropped
     assert a.flavor_summary == "a suspicious maneuver"
     b = actions["p2"]                                      # AI omitted p2
     assert b.move_id == "smash" and b.creativity_tier == 0
@@ -115,14 +113,14 @@ def test_classify_validates_wild_interpretation_and_attaches_combo():
         actions=[
             S.AIAction(player_id="p1",
                        wild_interpretation=S.AIWildInterpretation(
-                           condition="sticky", description="a glue tornado")),
+                           description="a glue tornado")),
             S.AIAction(player_id="p2"),
             S.AIAction(player_id="e"),
         ],
     )
     built = build_classified_actions(resp, state, taps, RULES)
     actions = {a.player_id: a for a in built}
-    assert actions["p1"].wild_interpretation.condition == "sticky"
+    assert actions["p1"].wild_interpretation.description == "a glue tornado"
     # Both partners carry the combo — each gets the roll bonus in the engine.
     assert actions["p1"].combo_partners == ["p2"]
     assert actions["p2"].combo_partners == ["p1"]
@@ -139,7 +137,7 @@ def test_classify_drops_cross_team_combos_and_wild_on_non_wild_moves():
         combos=[S.AIComboSpec(partners=["p1", "e"], combo_name="IMPOSSIBLE")],
         actions=[
             S.AIAction(player_id="p1",
-                       wild_interpretation=S.AIWildInterpretation(condition="sticky")),
+                       wild_interpretation=S.AIWildInterpretation(description="glue")),
         ],
     )
     actions = {a.player_id: a for a in build_classified_actions(resp, state, taps, RULES)}
@@ -173,12 +171,12 @@ def test_build_gremlin_hazards_maps_validates_and_skips():
     """Valid hazard ids pass through; an unknown id falls back to the palette
     (never rejected); a gremlin with no classification drops no hazard."""
     resp = S.ClassifyGremlinsResponse(hazards=[
-        S.AIGremlinHazard(player_id="g1", hazard_id="sprinkler"),
+        S.AIGremlinHazard(player_id="g1", hazard_id="bees"),
         S.AIGremlinHazard(player_id="g2", hazard_id="not_a_real_hazard"),
     ])
     out = {a.player_id: a for a in build_gremlin_hazards(resp, ["g1", "g2", "g3"], RULES)}
 
-    assert out["g1"].move_id == "sprinkler"                  # valid → kept
+    assert out["g1"].move_id == "bees"                       # valid → kept
     assert out["g2"].move_id in RULES.hazards.hazards        # unknown → palette fallback
     assert "g3" not in out                                   # unclassified → no hazard
 
