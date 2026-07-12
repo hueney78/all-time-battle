@@ -118,11 +118,12 @@ class UIConfig(BaseModel):
     deliberation_filler_seconds: float = 3.5
     # Phase splash (GAME_DESIGN §13): a full-screen announcement on all phones
     # + the TV before each drawing phase; the draw timer starts after it.
-    # splash_text keys: draw_characters / draw_action / montage / gremlin
-    # ("{round}" is substituted); phones show `gremlin` to KO'd players.
+    # splash_text keys: draw_characters / intros / draw_action / montage /
+    # gremlin ("{round}" is substituted); phones show `gremlin` to KO'd players.
     phase_splash_seconds: float = 2.0
     splash_text: dict[str, str] = {
         "draw_characters": "Draw your Character!",
+        "intros": "🥁 Meet the Fighters! 🥁",
         "draw_action": "Round {round} — Draw your Move!",
         "montage": "🎵 Upgrade your Character! 🎵",
         "gremlin": "Draw a Hazard, Gremlin! 😈",

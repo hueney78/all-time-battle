@@ -783,6 +783,7 @@ async def test_deliberation_interlude_masks_slow_ai_and_orders_reveals():
     reveal_rounds: list[int] = []
     interludes: list[dict] = []
     heartbeats: list[float] = []
+    host_seq: list[tuple[str, object]] = []   # ordered host-side milestones
     done = asyncio.Event()
 
     async def player_pump(pid: str, sock: FakeSocket) -> None:
@@ -802,9 +803,12 @@ async def test_deliberation_interlude_masks_slow_ai_and_orders_reveals():
                 env = await asyncio.wait_for(host_sock.client_recv(), 0.25)
             except TimeoutError:
                 continue
-            if env.type == "deliberation":
+            if env.type == "phase_change":
+                host_seq.append(("phase", env.payload.get("phase")))
+            elif env.type == "deliberation":
                 interludes.append(env.payload)          # the interlude, not a spinner
             elif env.type == "reveal_step":
+                host_seq.append(("reveal", env.payload["round"]))
                 reveal_rounds.append(env.payload["round"])
                 machine.advance_beat()
             elif env.type == "montage_reveal":
@@ -841,6 +845,17 @@ async def test_deliberation_interlude_masks_slow_ai_and_orders_reveals():
     assert reveal_rounds == sorted(reveal_rounds), f"out-of-order reveals: {reveal_rounds}"
     non_intro = [r for r in reveal_rounds if r > 0]
     assert non_intro == list(range(1, len(non_intro) + 1)), f"gapped rounds: {reveal_rounds}"
+
+    # v2.1: the whole INTROS sequence (phase + drumroll + giant-sprite reveal)
+    # plays BEFORE Round 1's draw phase even opens — players meet the fighters,
+    # then draw their opening moves with full knowledge.
+    assert ("phase", "intros") in host_seq, f"no intros phase: {host_seq}"
+    intro_reveal = host_seq.index(("reveal", 0))
+    first_draw = host_seq.index(("phase", "draw_action"))
+    assert intro_reveal < first_draw, (
+        f"intros must finish before Round 1 drawing: {host_seq}")
+    assert any(iv["kind"] == "intros" and iv["drawings"] for iv in interludes), (
+        "no drumroll interstitial masked character generation")
 
     # No stall: the match finished with a winner despite the slow AI.
     assert done.is_set() and machine.state is not None

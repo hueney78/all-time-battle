@@ -37,6 +37,7 @@ ui:
                                        # phase (phones tap-to-skip; draw timer starts after)
   splash_text:                         # per-phase splash copy; {round} is substituted;
     draw_characters: "Draw your Character!"        # phones show `gremlin` to KO'd players
+    intros: "🥁 Meet the Fighters! 🥁"
     draw_action: "Round {round} — Draw your Move!"
     montage: "🎵 Upgrade your Character! 🎵"
     gremlin: "Draw a Hazard, Gremlin! 😈"

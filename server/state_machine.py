@@ -11,9 +11,10 @@ The interlude, not concurrency, is the latency mask; AI calls run in
 the 20s timeout + fallback bounds the worst case. A single live `self.state` is
 updated as each round is revealed.
 
-The one deliberate overlap that survives, invisible to players: character
-generation runs while players draw Round 1 (the first move needs no prior info),
-and the character-intro reveal then masks Round 1's processing.
+Character intros play BEFORE Round 1 drawing (v2.1, GAME_DESIGN §2): players
+meet the fighters, stats, and team names first, then draw their opening moves
+with full knowledge. Character generation is one fast call masked by a "meet
+the fighters" drumroll interstitial.
 
 Each drawing phase ends as soon as every living player submits (processing starts
 that instant), or when the timer fires (missing canvases auto-submit blank → the
@@ -209,10 +210,9 @@ class GameStateMachine:
         if move is None:
             return "That move doesn't exist."
         if self.state is None or player_id not in self.state.characters:
-            # Round 1 is drawn while characters are still being generated —
-            # a first move needs no prior information (§2), so only the
-            # catalog check applies.
-            return None
+            # Intros play before Round 1 (v2.1), so characters always exist by
+            # the first action draw — a tap without one is out of order.
+            return "Hold on — the fighters aren't ready yet!"
         ch = self.state.characters[player_id]
         if ch.is_ko:
             return "You can't fight right now — you're a Gremlin!"
@@ -274,36 +274,32 @@ class GameStateMachine:
                                 timeout=self.timers.draw_characters, splash=True)
         await self._collect([p.id for p in self.room.players],
                             self._splash_seconds() + self.timers.draw_characters)
-        # Character *generation* runs concurrently with Round 1 drawing — the
-        # first move needs no prior info (GAME_DESIGN.md §2). See _round_loop.
+
+    # -- character intros (v2.1: BEFORE Round 1 drawing) ------------------
+    async def _intros_stage(self) -> None:
+        """The INTROS phase: a "meet the fighters" drumroll interstitial (the
+        deliberation pattern, showing everyone's character drawings) masks the
+        generate_characters call, then each fighter gets their giant-sprite
+        moment and the team names land as the final intro beat."""
+        await self._enter_phase("intros", round_num=0, timeout=0.0, splash=True)
+        drawings = {p.id: p.character_png for p in self.room.players
+                    if p.character_png}
+        await self.room.broadcast(S2C.DELIBERATION, {
+            "round": 0, "kind": "intros", "drawings": drawings,
+        })
+        intro_order = await self._process_characters()
+        await self._reveal_intros(intro_order)
 
     # -- the sequential round loop (GAME_DESIGN.md §2) --------------------
     async def _round_loop(self) -> None:
         cadence = self.rules.settings.game.montage_every_rounds
 
-        # Round 1 keeps the only two overlaps that survive sequential play:
-        # character generation runs WHILE players draw their first move (it needs
-        # no prior info), then the character intros play on the TV WHILE Round 1 is
-        # processed — the intros mask Round 1's classify/resolve/narrate.
-        r1_fighters, r1_gremlins = self._draw_roster()   # no chars yet → all players
-        intro_order, (r1_pngs, r1_taps) = await asyncio.gather(
-            self._process_characters(),
-            self._draw_stage(1, r1_fighters + r1_gremlins),
-        )
-        processed, _ = await asyncio.gather(
-            self._process_round(_Drawn(1, r1_pngs, r1_fighters, r1_gremlins,
-                                       taps=r1_taps)),
-            self._reveal_intros(intro_order),
-        )
-        await self._reveal_round(processed)
-        if self._has_winner():
-            return
-        if cadence and 1 % cadence == 0:
-            await self._run_montage(1)
+        # Meet the fighters first (v2.1) — every round then plays the same
+        # strictly sequential loop: draw → deliberation interlude → process →
+        # reveal. Each move is on screen right after it's drawn.
+        await self._intros_stage()
 
-        # Rounds 2+ are strictly sequential: draw → deliberation interlude →
-        # process → reveal. Each move is on screen right after it's drawn.
-        for round_num in range(2, _SAFETY_ROUND_CAP + 1):
+        for round_num in range(1, _SAFETY_ROUND_CAP + 1):
             fighters, gremlins = self._draw_roster()
             action_pngs, taps = await self._draw_stage(round_num, fighters + gremlins)
             await self._deliberation_interlude(round_num, action_pngs)
@@ -333,9 +329,8 @@ class GameStateMachine:
     def _draw_roster(self) -> tuple[list[str], list[str]]:
         """Who draws this round: living fighters (a move) and Arena Gremlins
         (a hazard — GAME_DESIGN §10). Gremlins are is_ko, so the sets are
-        disjoint. Before characters exist, everyone in the lobby draws."""
-        if self.state is None:
-            return [p.id for p in self.room.players], []
+        disjoint. Characters always exist by now — intros precede Round 1."""
+        assert self.state is not None
         fighters = [pid for pid, ch in self.state.characters.items() if not ch.is_ko]
         gremlins = [pid for pid, ch in self.state.characters.items() if ch.is_gremlin]
         return fighters, gremlins
@@ -347,10 +342,6 @@ class GameStateMachine:
         self._action_taps = {}
         await self._enter_phase("draw_action", round_num=round_num,
                                 timeout=self.timers.draw_action,
-                                # Round 1 draws while characters generate: the
-                                # phone renders this generic grid until its
-                                # personalized player_state grid arrives.
-                                extra={"moves": self._generic_moves_payload()},
                                 splash=True)
         await self._send_canvas_inits()
         await self._broadcast_arena()
@@ -530,10 +521,12 @@ class GameStateMachine:
         await self._broadcast_arena()
 
     async def _reveal_intros(self, order: list[str]) -> None:
-        """Character-intro reveal — the announcer duo greets each fighter while
-        Round 1 is processed behind it. Reuses the reveal_step shape (round 0).
-        The final beat reveals the AI team names ("…and TOGETHER they are…"),
-        which swap every Team A/B label for the rest of the match (§2)."""
+        """Character-intro reveal — each fighter's sprite fills the arena while
+        the announcer greets them (v2.1: this plays BEFORE Round 1 drawing).
+        Reuses the reveal_step shape (round 0); the host renders type=intro
+        beats as the giant-sprite showcase. The final beat reveals the AI team
+        names ("…and TOGETHER they are…"), which swap every Team A/B label for
+        the rest of the match (§2)."""
         self._beat_done = asyncio.Event()
         chars = self.state.characters if self.state else {}
         beats = [
@@ -542,6 +535,13 @@ class GameStateMachine:
                 "text": chars[pid].announcer_intro or f"Introducing {chars[pid].name}!",
                 "speaker": "pbp",   # the play-by-play announcer hypes each fighter
                 "player_id": pid, "target_id": None, "type": "intro",
+                # The giant-sprite showcase card (host fills the arena with the
+                # fighter's sprite; name/stats/personality render beside it).
+                "name": chars[pid].name,
+                "personality": chars[pid].personality,
+                "stats": {"power": chars[pid].stats.power,
+                          "speed": chars[pid].stats.speed,
+                          "weird": chars[pid].stats.weird},
                 "hurt": None, "helped": None, "floats": [],
                 "combo_name": None, "sfx": None, "result": None,
             }
@@ -935,15 +935,6 @@ class GameStateMachine:
         payload["last_move_id"] = ch.last_move_id
         payload["moves"] = self._moves_payload(ch)
         await self.room.send(player_id, S2C.PLAYER_STATE, payload)
-
-    def _generic_moves_payload(self) -> list[dict]:
-        """The stat-less button grid for Round 1 (characters still generating):
-        labels and targeting modes, no live math, nothing disabled."""
-        return [
-            {"id": move_id, "button": move.button, "desc": move.desc, "math": "",
-             "target": move.target, "disabled": False, "disabled_reason": None}
-            for move_id, move in self.rules.moves.moves.items()
-        ]
 
     def _moves_payload(self, ch: Character) -> list[dict]:
         """The eight buttons for one character: label, live math ("4d4+2"),
