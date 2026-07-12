@@ -93,7 +93,7 @@
     .fighter{position:relative; width:120px; text-align:center; transition:transform .3s;
       transform-origin:bottom center; display:flex; flex-direction:column; align-items:center}
     .fighter .pic{width:104px; height:104px; background:center/contain no-repeat}
-    /* name bubble floats ABOVE the character image (order:-1); HP bar + conds below */
+    /* name bubble floats ABOVE the character image (order:-1); HP bar below */
     .nametag{order:-1; font-family:'Titan One'; font-size:11.5px; background:#fff;
       border:2.5px solid var(--ink); border-radius:9px; padding:1px 5px; display:inline-block;
       margin-bottom:3px}
@@ -101,7 +101,6 @@
       margin:4px auto 0; width:96px; overflow:hidden}
     .hpbar > i{display:block; height:100%; background:var(--heal); transition:width .5s ease}
     .hpbar.low > i{background:var(--dmg)}
-    .conds{font-size:14px; height:17px; margin-top:1px}
     .fighter.ko{opacity:.5; filter:grayscale(1)}
     .fighter.ko .pic{transform:rotate(12deg)}
 
@@ -141,6 +140,22 @@
       background:var(--sand); border-radius:10px; border:2px solid var(--ink)}
     @keyframes entryin{from{transform:scale(0) rotate(-6deg)}}
     .delib .filler{font-weight:800; font-style:italic; color:#fff; font-size:17px; min-height:1.4em}
+
+    /* character intro showcase [v2.1: intros play BEFORE Round 1 — each
+       fighter's sprite fills the arena area; the narration log below stays
+       live for the announcer's intro line] */
+    .introcard{position:absolute; inset:0; z-index:14; display:none; align-items:center;
+      justify-content:center; gap:28px; background:#2B2338cc; padding:14px}
+    .introcard.show{display:flex}
+    .introsprite{height:94%; aspect-ratio:1/1; background:center/contain no-repeat;
+      animation:introin .5s cubic-bezier(.5,1.6,.4,1)}
+    @keyframes introin{from{transform:scale(0) rotate(-8deg)}}
+    .introinfo{display:flex; flex-direction:column; align-items:flex-start; gap:12px; max-width:36%}
+    .introname{font-family:'Titan One'; font-size:36px; color:var(--gold);
+      -webkit-text-stroke:1.5px var(--ink); line-height:1.05}
+    .introstats{font-size:22px; font-weight:900; background:var(--card);
+      border:3px solid var(--ink); border-radius:12px; padding:6px 14px}
+    .intropersona{font-style:italic; font-weight:800; color:#fff; font-size:18px}
 
     /* COMBO! splash + REPLAY banner [round-loop presentation] */
     .splash{position:absolute; inset:0; display:grid; place-items:center; z-index:20;
@@ -258,6 +273,14 @@
       </div>
       <section class="arena" id="arena">
         <div class="splash" id="comboSplash"><span class="combotext"></span></div>
+        <div class="introcard" id="introCard">
+          <div class="introsprite" id="introSprite"></div>
+          <div class="introinfo">
+            <div class="introname" id="introName"></div>
+            <div class="introstats" id="introStats"></div>
+            <div class="intropersona" id="introPersona"></div>
+          </div>
+        </div>
         <div class="delib" id="delib">
           <div class="banner" id="delibBanner"></div>
           <div class="entries" id="delibEntries"></div>
@@ -308,6 +331,11 @@
       'A judge turns one drawing upside down. It helps.',
       'The crowd argues about brushwork.',
       'Somewhere, a pencil is dramatically sharpened.',
+    ];
+    const INTRO_FILLER = [
+      'A drumroll builds somewhere backstage…',
+      'The announcers shuffle their hype cards.',
+      'The crowd chants for fighters it hasn’t even met yet.',
     ];
     const MONTAGE_FILLER = [
       '🎵 Doo doo doo… getting stronger… 🎵',
@@ -499,8 +527,10 @@
     function showDeliberation(p) {
       if (seq) seq.stop();
       const isMontage = p.kind === 'montage';
+      const isIntros = p.kind === 'intros';
       $('delibBanner').textContent = isMontage
-        ? '🎵 TRAINING MONTAGE 🎵' : '👩‍⚖️ The judges deliberate…';
+        ? '🎵 TRAINING MONTAGE 🎵'
+        : isIntros ? '🥁 MEET THE FIGHTERS 🥁' : '👩‍⚖️ The judges deliberate…';
       const box = $('delibEntries');
       box.innerHTML = '';
       Object.entries(p.drawings || {}).forEach(([pid, png], idx) => {
@@ -513,11 +543,12 @@
         e.querySelector('.nametag').textContent = shortName(c.name) || '???';
         box.appendChild(e);
       });
-      $('status').textContent = isMontage ? 'training…' : 'judging…';
+      $('status').textContent = isMontage ? 'training…'
+        : isIntros ? 'introducing…' : 'judging…';
       // The narration log stays visible behind the interlude — re-reading last
       // round's jokes is the latency mask (§13). Just complete any mid-type beat.
       finishCurrentBeat();
-      const lines = isMontage ? MONTAGE_FILLER : DELIB_FILLER;
+      const lines = isMontage ? MONTAGE_FILLER : isIntros ? INTRO_FILLER : DELIB_FILLER;
       let i = Math.floor(Math.random() * lines.length);
       const tick = () => { $('delibFiller').textContent = lines[i++ % lines.length]; };
       clearInterval(fillerTimer);
@@ -531,6 +562,23 @@
       $('delib').classList.remove('show');
     }
 
+    // ---- character intro showcase (v2.1) ----
+    // Each type=intro beat fills the arena with that fighter's sprite while the
+    // announcer line types below; the team-name reveal clears it.
+    function showIntroCard(b) {
+      $('introSprite').style.backgroundImage =
+        'url(' + (arena.spriteUrl(b.player_id) || '') + ')';
+      $('introName').textContent = b.name || '';
+      const st = b.stats || {};
+      $('introStats').textContent =
+        '💪 ' + (st.power ?? '?') + '   ⚡ ' + (st.speed ?? '?') + '   🌀 ' + (st.weird ?? '?');
+      $('introPersona').textContent = b.personality || '';
+      const card = $('introCard');
+      card.classList.remove('show'); void card.offsetWidth;   // restart the pop-in
+      card.classList.add('show');
+    }
+    function hideIntroCard() { $('introCard').classList.remove('show'); }
+
     // ---- reveal sequencer ----
     function runReveal(payload) {
       hideDeliberation();
@@ -543,7 +591,8 @@
       // for the host to click "Next ▶". `pending` is what advance() runs.
       function step(next) { clearTimeout(timer); pending = next; if (!MANUAL_BEATS) timer = setTimeout(next, BEAT_MS); }
       $('nextBtn').classList.remove('hidden');
-      $('roundHead').textContent = 'ROUND ' + payload.round;
+      $('roundHead').textContent = payload.round === 0
+        ? 'Doodle Brawl' : 'ROUND ' + payload.round;
       $('roundTitle').textContent = payload.round_title ? ('“' + payload.round_title + '”') : '';
       $('status').textContent = 'reveal';
       // Round divider in the log ("— Round 3: “The Fish Learns to Surf” —").
@@ -558,7 +607,6 @@
       function applyFinal(pid) {
         const c = finalById[pid]; if (!c) return;
         arena.setHP(c.player_id, c.hp, c.max_hp);
-        arena.setConditions(c.player_id, c.conditions);
         if (c.is_ko) arena.ko(c.player_id);
       }
       // The beat's visual effects — shared by the live pass and the slow-mo
@@ -601,6 +649,9 @@
         if (i >= beats.length) return finish();
         const b = beats[i++];
         addBeat(b);
+        // Intro beats fill the arena with the fighter's giant sprite (v2.1);
+        // any other beat type clears the showcase.
+        if (b.type === 'intro') showIntroCard(b); else hideIntroCard();
         // "…and TOGETHER they are…" — every Team A/B label swaps to the AI
         // names the moment this beat plays, and stays for the match.
         if (b.type === 'team_reveal') applyTeams(b.teams || payload.teams);
@@ -621,6 +672,7 @@
       }
       function finish() {
         clearTimeout(timer); pending = null; arena.settleAll();
+        hideIntroCard();
         $('replayBanner').classList.remove('show');
         arena.render(payload.characters || []);   // settle to final state
         (payload.characters || []).forEach(upsert);
@@ -705,9 +757,15 @@
         if (m.payload.phase === 'draw_characters') {
           view('stage'); $('roundHead').textContent = 'Doodle Brawl';
           $('status').textContent = 'drawing fighters…';
+        } else if (m.payload.phase === 'intros') {
+          view('stage'); if (seq) seq.stop();
+          $('roundHead').textContent = 'Doodle Brawl';
+          $('status').textContent = 'meet the fighters…';
+          $('nextBtn').classList.add('hidden');
         } else if (m.payload.phase === 'draw_action') {
           view('stage'); if (seq) seq.stop();
           hideDeliberation();
+          hideIntroCard();
           $('roundHead').textContent = 'ROUND ' + m.payload.round;
           $('status').textContent = 'drawing…';
           $('nextBtn').classList.add('hidden');

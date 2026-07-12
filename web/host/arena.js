@@ -1,16 +1,13 @@
 // arena.js — renders the battlefield on the TV: zone bands over the CSS
 // colosseum, each fighter's PERSISTENT action drawing as a sprite (its most
-// recent revealed action, original portrait until it first acts), HP bars, and
-// condition emojis. Exposes reveal helpers used by the sequencer: sprite swap,
-// zoom, red-shake / blue-pop impact borders, and floating combat numbers.
+// recent revealed action, original portrait until it first acts), and HP bars.
+// Exposes reveal helpers used by the sequencer: sprite swap, zoom, red-shake /
+// blue-pop impact borders, and floating combat numbers.
 //
 // All drawings/amounts come from server state + engine events — arena.js never
 // invents outcomes. Exposes window.Arena.
 
 (function () {
-  const COND_EMOJI = {burning:'🔥',soggy:'💧',sticky:'🟢',prone:'🙃',frightened:'😱',
-    embarrassed:'😳',enraged:'😡',sparkly:'✨',pumped:'💪',confused:'🌀',
-    shielded:'🛡',dodging:'💨',stung:'🐝'};
   const CFG = window.DOODLE_CONFIG || {};
   const FLOAT_MS = (CFG.float_number_seconds || 1.5) * 1000;
 
@@ -55,7 +52,7 @@
       }
     }
 
-    // chars: {player_id,name,zone_id,hp,max_hp,conditions,team_id,is_ko,png,sprite_png}
+    // chars: {player_id,name,zone_id,hp,max_hp,team_id,is_ko,png,sprite_png}
     render(chars) {
       if (!this.zoneIds.length) return;
       for (const c of chars) {
@@ -69,7 +66,6 @@
         this._setImg(s, s.spritePng);
         s.el.style.setProperty('--team', c.team_id === 'team_b' ? '#2F6FE0' : '#E24FA0');
         this.setHP(c.player_id, c.hp, c.max_hp);
-        this.setConditions(c.player_id, c.conditions);
         s.el.classList.toggle('ko', !!c.is_ko);
         s.name.textContent = c.name;
       }
@@ -81,11 +77,10 @@
       el.innerHTML =
         '<div class="pic"></div>' +
         '<div class="nametag"></div>' +
-        '<div class="hpbar"><i></i></div>' +
-        '<div class="conds"></div>';
+        '<div class="hpbar"><i></i></div>';
       const s = {
         el, pic: el.querySelector('.pic'), name: el.querySelector('.nametag'),
-        hp: el.querySelector('.hpbar > i'), conds: el.querySelector('.conds'),
+        hp: el.querySelector('.hpbar > i'),
         spritePng: c.sprite_png || c.png || '',
       };
       this.sprites[c.player_id] = s;
@@ -103,14 +98,15 @@
       s.el.querySelector('.hpbar').classList.toggle('low', pct <= 30);
     }
 
-    setConditions(pid, conds) {
-      const s = this.sprites[pid]; if (!s) return;
-      s.conds.textContent = Object.keys(conds || {}).map(k => COND_EMOJI[k] || '•').join(' ');
-    }
-
     ko(pid) {
       const s = this.sprites[pid]; if (!s) return;
       s.el.classList.add('ko');
+    }
+
+    // Current sprite image for a fighter (the intro showcase blows it up).
+    spriteUrl(pid) {
+      const s = this.sprites[pid];
+      return s ? s.spritePng : '';
     }
 
     // -- reveal helpers ---------------------------------------------------

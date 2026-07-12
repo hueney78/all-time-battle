@@ -39,7 +39,7 @@
     .timer.warn{background:var(--gold); animation:blink .6s infinite}
     @keyframes blink{50%{opacity:.55}}
 
-    /* status card [spec: sprite + stats + HP + conds + banked] */
+    /* status card [spec: sprite + stats + HP] */
     .status{display:flex; gap:10px; align-items:center}
     .status .avatar{width:52px; height:52px; flex:none; border:3px solid var(--ink);
       border-radius:12px; background:#fff center/contain no-repeat}
@@ -48,7 +48,7 @@
     .srow .stat{background:#F1EADB; border-radius:8px; padding:1px 7px; transition:background .2s}
     .srow .stat.pulse{animation:statp 1.6s ease-in-out 2}
     @keyframes statp{50%{background:var(--gold)}}
-    .hearts{font-size:13px} .conds{font-size:14px; display:inline}
+    .hearts{font-size:13px}
 
     /* COMBAT V2 move grid [spec: 8 big buttons, live per-character math,
        no-repeat greying, edge-disabled movement] */
@@ -142,7 +142,7 @@
           <span class="stat" id="statSpd">⚡ –</span>
           <span class="stat" id="statWrd">🌀 –</span>
         </div>
-        <div class="srow"><span class="hearts" id="hearts">—</span><span class="conds" id="conds"></span></div>
+        <div class="srow"><span class="hearts" id="hearts">—</span></div>
       </div>
     </section>
 
@@ -202,9 +202,6 @@
     const MONTAGE_SCALE = CFG.montage_canvas_character_scale || 0.88;
     const STAT_EMOJI = { power: '💪', speed: '⚡', weird: '🌀' };
     const COLORS = ['#2B2338','#E24FA0','#2F6FE0','#3FB65C','#F2B233','#8F5FD6','#FF8B4D','#ffffff'];
-    const COND_EMOJI = {burning:'🔥',soggy:'💧',sticky:'🟢',prone:'🙃',frightened:'😱',
-      embarrassed:'😳',enraged:'😡',sparkly:'✨',hidden:'👻',off_balance:'😵',
-      pumped:'💪',confused:'🌀',shielded:'🛡',transformed:'🦋'};
     const $ = (id) => document.getElementById(id);
 
     const qs = new URLSearchParams(location.search);
@@ -217,7 +214,7 @@
     // COMBAT V2 tap state: the button grid (server-computed math + disabled
     // flags), the current selection, and the roster for the target picker.
     let movesList = [], selectedMove = null, selectedTarget = null;
-    let roster = {}, zoneOrder = [], lobbyPlayers = [], myZone = null;
+    let roster = {}, zoneOrder = [], myZone = null;
 
     // ---- drawing tools ----
     function buildTools() {
@@ -265,15 +262,13 @@
       if (!m) return null;
       if (m.target === 'single_enemy' || m.target === 'zone_all') return 'enemy';
       if (m.target === 'ally_or_self') return 'ally';
-      return null;   // self / movement — no picker
+      return null;   // self / movement / zone_allies (SHIELD) — no picker
     }
     function candidates(kind) {
+      // Intros precede Round 1 (v2.1), so the roster always has portraits.
       const chars = Object.values(roster).filter(c => !c.is_ko);
-      const pool = chars.length ? chars
-        // Round 1: no characters yet — offer lobby names instead of portraits.
-        : lobbyPlayers.map(p => ({ player_id: p.player_id, name: p.name, team_id: p.team_id }));
-      return pool.filter(c => kind === 'enemy' ? c.team_id !== teamId
-                                               : c.team_id === teamId);
+      return chars.filter(c => kind === 'enemy' ? c.team_id !== teamId
+                                                : c.team_id === teamId);
     }
     function zdist(a, b) {
       const i = zoneOrder.indexOf(a), j = zoneOrder.indexOf(b);
@@ -438,7 +433,6 @@
       pulseStat($('statWrd'), 'weird', st.weird);
       prevStats = st;
       $('hearts').textContent = p.is_ko ? 'KO — Arena Gremlin' : hearts(p.hp, p.max_hp);
-      $('conds').textContent = Object.keys(p.conditions || {}).map(k => COND_EMOJI[k] || '•').join(' ');
       myZone = p.zone_id || myZone;
     }
 
@@ -465,7 +459,6 @@
         $('waitTitle').textContent = 'You’re in!';
         $('waitMsg').textContent = 'Waiting for the host to start…';
       } else if (m.type === 'lobby_state') {
-        lobbyPlayers = m.payload.players || lobbyPlayers;
         const t = (m.payload.teams || []).find(t => t.id === teamId);
         if (t) { document.documentElement.style.setProperty('--team', t.color); $('teamName').textContent = t.name.toUpperCase(); }
       } else if (m.type === 'arena_state') {
@@ -479,12 +472,17 @@
         });
       } else if (m.type === 'phase_change') {
         phase = m.payload.phase; round = m.payload.round;
-        // Round 1 ships a generic (stat-less) grid; player_state upgrades it
-        // with this character's live math the moment characters exist.
-        if (m.payload.moves) movesList = m.payload.moves;
         $('roundLbl').textContent = phase === 'montage' ? '🎵 Montage!'
+          : phase === 'intros' ? '🥁 Meet the Fighters!'
           : round ? ('Drawing for Round ' + round) : 'Draw your fighter';
-        if (phase === 'montage' && isKo) {
+        if (phase === 'intros') {
+          // v2.1: intros play BEFORE Round 1 drawing — phones just watch.
+          stopTimer();
+          show('wait');
+          $('waitTitle').textContent = '🥁 Meet the Fighters!';
+          $('waitMsg').textContent = 'Look at the TV — your fighter is up soon…';
+          showSplash(m.payload.splash, false);
+        } else if (phase === 'montage' && isKo) {
           // KO'd players sit the montage out (Gremlins don't train).
           show('wait');
           $('waitTitle').textContent = 'Training montage 🎵';
