@@ -1,6 +1,6 @@
 """Balance-sim CI guard.
 
-The Monte-Carlo balance report (tests/sim/engine_sim.py) is a manual tuning tool,
+The Monte-Carlo balance report (scripts/balance_sim.py) is a manual tuning tool,
 but its *invariant checks* are a cheap regression guard for the real resolver:
 a batch of random battles through `resolve_round` must never produce negative HP,
 KO/HP mismatches, or over-max healing — and games must still end decisively with
@@ -9,7 +9,12 @@ no move utterly broken. Run on a small N to stay fast.
 
 from __future__ import annotations
 
-from tests.sim.engine_sim import CATALOG, run_attribution
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+
+from balance_sim import CATALOG, run_attribution  # noqa: E402
 
 _N = 12   # each battle re-resolves ~10 rounds through the real engine — keep small
 

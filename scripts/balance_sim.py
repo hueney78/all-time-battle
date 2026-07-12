@@ -1,8 +1,9 @@
 """Balance simulator that drives the REAL engine (server.engine.resolver).
 
-COMBAT V2 Monte-Carlo harness. Every round is resolved by the actual
-``resolve_round`` pipeline against the shipping configs, so the numbers
-reflect the real game — any divergence from expectation is a real bug.
+COMBAT V2 Monte-Carlo harness (the v2 port of the old balance sim, run
+against the real configs). Every round is resolved by the actual
+``resolve_round`` pipeline, so the numbers reflect the real game — any
+divergence from expectation is a real bug.
 
 Jobs:
   1. Per-move win attribution + per-move ablation (all six combat moves
@@ -16,8 +17,8 @@ honored, edge-illegal movement excluded), targets random over living enemies.
 This measures intrinsic move power, not player skill.
 
 Run:
-    python tests/sim/engine_sim.py                 # default N
-    python tests/sim/engine_sim.py 3000 400        # N_attr N_abl
+    python scripts/balance_sim.py                 # default N
+    python scripts/balance_sim.py 3000 400        # N_attr N_abl
 """
 
 from __future__ import annotations
@@ -27,8 +28,8 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-# Allow running as a plain script (python tests/sim/engine_sim.py) as well as -m.
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+# Allow running as a plain script (python scripts/balance_sim.py).
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from server.config import load_balance  # noqa: E402
 from server.engine.dice import Dice  # noqa: E402
