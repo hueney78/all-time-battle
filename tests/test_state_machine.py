@@ -576,6 +576,45 @@ async def test_taps_flow_through_to_classification():
     assert by_pid[b.id].move_id == "shield"
 
 
+async def test_team_names_revealed_as_final_intro_beat_then_used_everywhere():
+    """Teams display as Team A/B until the intro reveal's final beat swaps in
+    the AI names (GAME_DESIGN §2, Track A/B #7): the round-0 reveal carries a
+    team_reveal beat + the named teams, and every later payload (lobby, arena
+    zone labels, meters) uses the names."""
+    rules = _rules()
+    room = Room("TEST", rules)
+    sock = FakeSocket()
+    p = room.add_player("Alice", "player", sock, None)
+    machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
+
+    assert [t.name for t in room.teams] == ["Team A", "Team B"]   # pre-reveal
+
+    ch = Character(player_id=p.id, name="Alice", stats=Stats(power=2, speed=2, weird=4),
+                   hp=24, max_hp=24, ac=13, zone_id="glitter_back",
+                   announcer_intro="ALICE!")
+    machine.state = GameState(room_id="TEST", characters={p.id: ch}, teams=room.teams)
+    machine._team_names = {"team_a": "The Sparkle Snacks",
+                           "team_b": "Heavy Machinery & Friend"}
+
+    await machine._reveal_intros([p.id])
+    reveal = await sock.expect("reveal_step")
+    beats = reveal.payload["beats"]
+    final = beats[-1]
+    assert final["type"] == "team_reveal"
+    assert "TOGETHER" in final["text"]
+    assert "THE SPARKLE SNACKS" in final["text"]
+    by_id = {t["id"]: t["name"] for t in reveal.payload["teams"]}
+    assert by_id == {"team_a": "The Sparkle Snacks",
+                     "team_b": "Heavy Machinery & Friend"}
+
+    # The names now stick everywhere: room state, lobby, and zone-band labels.
+    assert room.teams[0].name == "The Sparkle Snacks"
+    labels = {z["id"]: z["label"] for z in machine._arena_payload()["zones"]}
+    assert labels["glitter_back"] == "🏠 The Sparkle Snacks"
+    assert labels["thunder_back"] == "🏠 Heavy Machinery & Friend"
+    assert labels["frontline"] == "⚔️ The Pit"
+
+
 def test_mock_respects_taps_and_blank_canvas_scores_zero():
     """COMBAT V2 auto-submit semantics: the tapped move always resolves — a
     blank canvas just scores creativity 0; missing taps (headless mock games)

@@ -22,6 +22,7 @@ from server.ai.provider import (
     Beat,
     CharacterSubmission,
     GeneratedCharacter,
+    GeneratedRoster,
     MatchSummary,
     MontageResult,
     Narration,
@@ -82,11 +83,26 @@ def _fallback_character(pid: str, cfg: Balance) -> GeneratedCharacter:
     )
 
 
+# Team names must fit meters, zone bands, and phone headers (§3).
+_TEAM_NAME_MAX = 28
+_TEAM_FALLBACKS = {"team_a": "Team A", "team_b": "Team B"}
+
+
+def build_team_names(resp: S.GenerateCharactersResponse) -> dict[str, str]:
+    """The AI's per-team names, trimmed to fit labels; missing/blank names fall
+    back to plain Team A/B (the pre-reveal display, §2)."""
+    raw = {"team_a": resp.teams.team_a, "team_b": resp.teams.team_b} if resp.teams else {}
+    return {
+        tid: ((raw.get(tid) or "").strip()[:_TEAM_NAME_MAX] or fallback)
+        for tid, fallback in _TEAM_FALLBACKS.items()
+    }
+
+
 def build_generated_characters(
     resp: S.GenerateCharactersResponse,
     submissions: dict[str, CharacterSubmission],
     cfg: Balance,
-) -> dict[str, GeneratedCharacter]:
+) -> GeneratedRoster:
     by_pid = {c.player_id: c for c in resp.characters}
     out: dict[str, GeneratedCharacter] = {}
     for pid in submissions:
@@ -101,7 +117,7 @@ def build_generated_characters(
             announcer_intro=c.announcer_intro,
             flagged=bool(c.flagged),
         )
-    return out
+    return GeneratedRoster(characters=out, team_names=build_team_names(resp))
 
 
 # ---------------------------------------------------------------------------

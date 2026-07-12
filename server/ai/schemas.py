@@ -29,8 +29,17 @@ class AICharacter(BaseModel):
     flagged: bool = Field(default=False, description="true if drawing/hint is inappropriate")
 
 
+class AITeamNames(BaseModel):
+    """One AI-invented name per team, comically linking its roster (§3).
+    Short (fits meters and zone labels), family-friendly, equally funny."""
+
+    team_a: str = Field(description="a short funny name linking team A's fighters")
+    team_b: str = Field(description="a short funny name linking team B's fighters")
+
+
 class GenerateCharactersResponse(BaseModel):
     characters: list[AICharacter]
+    teams: AITeamNames | None = None
 
 
 # ---------------------------------------------------------------------------

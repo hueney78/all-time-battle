@@ -239,15 +239,38 @@ def test_mock_narration_uses_both_announcers():
 # ---------------------------------------------------------------------------
 # generate_characters
 # ---------------------------------------------------------------------------
-def test_generate_characters_normalizes_stats():
+def test_generate_characters_normalizes_stats_and_names_teams():
     script = [{"characters": [{"player_id": "p1", "name": "Zap",
-                               "stats": {"power": 9, "speed": 0, "weird": 0}}]}]
+                               "stats": {"power": 9, "speed": 0, "weird": 0}}],
+               "teams": {"team_a": "The Sparkle Snacks",
+                         "team_b": "Heavy Machinery & Friend"}}]
     ai = LiveAI(RULES, client=FakeAnthropic(script))
-    subs = {"p1": CharacterSubmission("p1", "data:image/png;base64,QUJD", "a dragon")}
-    out = ai.generate_characters(subs, RULES.balance)
-    st = out["p1"].stats
-    assert out["p1"].name == "Zap"
+    subs = {"p1": CharacterSubmission("p1", "data:image/png;base64,QUJD", "a dragon",
+                                      team_id="team_a")}
+    roster = ai.generate_characters(subs, RULES.balance)
+    st = roster.characters["p1"].stats
+    assert roster.characters["p1"].name == "Zap"
     assert st.power + st.speed + st.weird == RULES.balance.stat_budget
+    # The same call names both teams (Track A #7).
+    assert roster.team_names == {"team_a": "The Sparkle Snacks",
+                                 "team_b": "Heavy Machinery & Friend"}
+
+
+def test_generate_characters_team_names_fall_back_when_missing():
+    """No/blank team names → plain Team A/B (the pre-reveal display)."""
+    script = [{"characters": []}]
+    ai = LiveAI(RULES, client=FakeAnthropic(script))
+    subs = {"p1": CharacterSubmission("p1", _PNG, team_id="team_a")}
+    roster = ai.generate_characters(subs, RULES.balance)
+    assert roster.team_names == {"team_a": "Team A", "team_b": "Team B"}
+
+
+def test_mock_generate_characters_names_both_teams():
+    subs = {"p1": CharacterSubmission("p1", _PNG, team_id="team_a"),
+            "p2": CharacterSubmission("p2", _PNG, team_id="team_b")}
+    roster = MockAI().generate_characters(subs, RULES.balance)
+    assert set(roster.team_names) == {"team_a", "team_b"}
+    assert all(roster.team_names.values())
 
 
 # ---------------------------------------------------------------------------

@@ -164,6 +164,9 @@ class GameStateMachine:
         )
         self._degraded_announced = False
 
+        # AI team names, held back until the intro reveal (GAME_DESIGN §2).
+        self._team_names: dict[str, str] = {}
+
         # Match-wide tallies for the victory awards ceremony (GAME_DESIGN §10.2).
         self._creativity_totals: dict[str, int] = {}
         self._fumble_counts: dict[str, int] = {}
@@ -427,10 +430,15 @@ class GameStateMachine:
         """Generate characters and build the initial game state. Returns the intro
         acting order (initiative = Speed) for the character-intro reveal."""
         subs = {
-            p.id: CharacterSubmission(p.id, p.character_png, p.hint)
+            p.id: CharacterSubmission(p.id, p.character_png, p.hint,
+                                      team_id=p.team_id or "")
             for p in self.room.players
         }
-        generated = await asyncio.to_thread(self.ai.generate_characters, subs, self.balance)
+        roster = await asyncio.to_thread(self.ai.generate_characters, subs, self.balance)
+        generated = roster.characters
+        # The AI team names stay under wraps until the intro reveal's final
+        # beat swaps every Team A/B label at once (GAME_DESIGN §2).
+        self._team_names = dict(roster.team_names)
 
         chars: dict[str, Character] = {}
         for p in self.room.players:
@@ -520,7 +528,9 @@ class GameStateMachine:
 
     async def _reveal_intros(self, order: list[str]) -> None:
         """Character-intro reveal — the announcer duo greets each fighter while
-        Round 1 is processed behind it. Reuses the reveal_step shape (round 0)."""
+        Round 1 is processed behind it. Reuses the reveal_step shape (round 0).
+        The final beat reveals the AI team names ("…and TOGETHER they are…"),
+        which swap every Team A/B label for the rest of the match (§2)."""
         self._beat_done = asyncio.Event()
         chars = self.state.characters if self.state else {}
         beats = [
@@ -534,6 +544,7 @@ class GameStateMachine:
             }
             for pid in order if pid in chars
         ]
+        beats.append(self._team_reveal_beat())
         await self.room.broadcast(S2C.REVEAL_STEP, {
             "round": 0,
             "round_title": "Meet the Fighters",
@@ -542,8 +553,37 @@ class GameStateMachine:
             "action_pngs": {},
             "initiative_order": list(order),
             "meters": self._meters(),
+            # The named teams: clients swap zone bands, meter ends, and phone
+            # headers when the team_reveal beat plays, and keep them for good.
+            "teams": self._teams_payload(),
         })
         await self._pace_beats(len(beats))
+
+    def _team_reveal_beat(self) -> dict:
+        """Apply the AI team names to the room + game state and build the
+        '…and TOGETHER they are…' final intro beat."""
+        for team in self.room.teams:
+            if self._team_names.get(team.id):
+                team.name = self._team_names[team.id]
+        if self.state is not None:
+            for team in self.state.teams:
+                if self._team_names.get(team.id):
+                    team.name = self._team_names[team.id]
+        names = [t.name for t in self.room.teams]
+        return {
+            "event_id": "intro-teams",
+            "text": "…and TOGETHER they are… "
+                    + " and ".join(n.upper() for n in names) + "!",
+            "speaker": "pbp",
+            "player_id": None, "target_id": None, "type": "team_reveal",
+            "hurt": None, "helped": None, "floats": [],
+            "combo_name": None, "sfx": None, "result": None,
+            "teams": self._teams_payload(),
+        }
+
+    def _teams_payload(self) -> list[dict]:
+        return [{"id": t.id, "name": t.name, "color": t.color}
+                for t in self.room.teams]
 
     async def _reveal(self, round_num: int, narration, events, initiative_order=None,
                       action_pngs: dict[str, str] | None = None) -> None:
@@ -918,9 +958,20 @@ class GameStateMachine:
 
     def _arena_payload(self) -> dict:
         return {
-            "zones": [z.id for z in self.rules.zones.zones],
+            # Server-composed band labels: team backlines carry the team name
+            # ("Team A" until the intro reveal, the AI name after — §13).
+            "zones": [{"id": z.id, "label": self._zone_label(z)}
+                      for z in self.rules.zones.zones],
+            "teams": self._teams_payload(),
             "characters": self._character_deltas(include_png=True),
         }
+
+    def _zone_label(self, zone) -> str:
+        team_id = next((t.id for t in self.room.teams if t.id in zone.tags), None)
+        if team_id:
+            team = next(t for t in self.room.teams if t.id == team_id)
+            return f"🏠 {team.name}"
+        return f"⚔️ {zone.name}"
 
     def _character_deltas(self, include_png: bool = False) -> list[dict]:
         if self.state is None:

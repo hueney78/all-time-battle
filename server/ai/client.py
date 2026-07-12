@@ -29,7 +29,7 @@ from server.ai.provider import (
     Award,
     Beat,
     CharacterSubmission,
-    GeneratedCharacter,
+    GeneratedRoster,
     MatchSummary,
     MontageResult,
     Narration,
@@ -87,12 +87,16 @@ class LiveAI:
     # -- AIProvider ------------------------------------------------------
     def generate_characters(
         self, submissions: dict[str, CharacterSubmission], cfg: Balance
-    ) -> dict[str, GeneratedCharacter]:
+    ) -> GeneratedRoster:
         content: list[dict] = [{"type": "text",
-                                "text": "Create a fighter for EACH labeled drawing below."}]
-        for pid, sub in submissions.items():
+                                "text": "Create a fighter for EACH labeled drawing below, "
+                                        "then name BOTH teams from their rosters."}]
+        # Grouped by team so the roster-linking team names come naturally.
+        by_team = sorted(submissions.items(), key=lambda kv: (kv[1].team_id, kv[0]))
+        for pid, sub in by_team:
             hint = (sub.hint or "").strip()
-            label = f"--- player {pid}" + (f" — hint: “{hint}”" if hint else "") + " ---"
+            team = f" [{sub.team_id}]" if sub.team_id else ""
+            label = f"--- player {pid}{team}" + (f" — hint: “{hint}”" if hint else "") + " ---"
             content.append({"type": "text", "text": label})
             img = _image_block(sub.png_base64)
             content.append(img if img else {"type": "text", "text": "(no drawing submitted)"})

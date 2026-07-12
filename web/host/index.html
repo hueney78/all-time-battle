@@ -247,10 +247,10 @@
       <section class="meters">
         <div class="meter"><span class="label">WHO'S<br>WINNING</span>
           <div><div class="rope"><span class="knot" id="knotHp">🪢</span></div>
-            <div class="ticks"><span>GLITTER</span><span>THUNDER</span></div></div></div>
+            <div class="ticks"><span class="tick-a">TEAM A</span><span class="tick-b">TEAM B</span></div></div></div>
         <div class="meter"><span class="label">CROWD<br>FAVORITE</span>
           <div><div class="rope"><span class="knot" id="knotAud">📣</span></div>
-            <div class="ticks"><span>GLITTER</span><span>THUNDER</span></div></div></div>
+            <div class="ticks"><span class="tick-a">TEAM A</span><span class="tick-b">TEAM B</span></div></div></div>
       </section>
     </main>
   </section>
@@ -375,6 +375,14 @@
       if (!meters) return;
       $('knotHp').style.left = (clamp01(meters.hp_share) * 100) + '%';
       $('knotAud').style.left = (clamp01(meters.audience) * 100) + '%';
+    }
+
+    // ---- team labels (Team A/B until the intro reveal, AI names after) ----
+    function applyTeams(teams) {
+      for (const t of teams || []) {
+        const cls = t.id === 'team_b' ? '.tick-b' : '.tick-a';
+        document.querySelectorAll(cls).forEach(el => el.textContent = t.name.toUpperCase());
+      }
     }
 
     const DISP = { lobby: 'block', stage: 'grid', over: 'block' };
@@ -521,6 +529,9 @@
         if (i >= beats.length) return finish();
         const b = beats[i++];
         addBeat(b);
+        // "…and TOGETHER they are…" — every Team A/B label swaps to the AI
+        // names the moment this beat plays, and stays for the match.
+        if (b.type === 'team_reveal') applyTeams(b.teams || payload.teams);
         if (b.combo_name) comboSplash(b.combo_name);
         playEffects(b, 1);
         beatSfx(b);
@@ -596,6 +607,8 @@
       const chars = payload.characters || [];
       chars.forEach(upsert);
       if (!arena.zoneIds.length) arena.setup(payload.zones || []);
+      else arena.setLabels(payload.zones || []);   // backline labels follow team names
+      applyTeams(payload.teams);
       if (chars.length) view('stage');
       arena.render(chars);
       renderRail(speedOrder());          // rail visible during drawing phases too
@@ -614,6 +627,7 @@
             + (p.connected ? '' : ' 💤') + '</span>';
         }).join('');
         $('startBtn').disabled = !m.payload.can_start;
+        applyTeams(m.payload.teams);
       } else if (m.type === 'phase_change') {
         if (m.payload.phase === 'draw_characters') {
           view('stage'); $('roundHead').textContent = 'Doodle Brawl';

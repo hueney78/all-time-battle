@@ -54,11 +54,27 @@ def test_generated_characters_flagged_and_missing_fallback():
                       personality="rude", announcer_intro="boo", flagged=True),
     ])
     subs = {"p1": CharacterSubmission("p1"), "p2": CharacterSubmission("p2")}
-    out = build_generated_characters(resp, subs, CFG)
+    out = build_generated_characters(resp, subs, CFG).characters
     assert set(out) == {"p1", "p2"}
     assert out["p1"].flagged is True
     assert out["p1"].stats.power + out["p1"].stats.speed + out["p1"].stats.weird == CFG.stat_budget
     assert out["p2"].name == "Mystery Blob"     # AI omitted p2 → deadpan fallback
+
+
+def test_team_names_trimmed_and_backfilled():
+    """AI team names are length-capped to fit meters/labels; blanks fall back
+    to plain Team A/B."""
+    from server.ai.validators import build_team_names
+
+    resp = S.GenerateCharactersResponse(characters=[], teams=S.AITeamNames(
+        team_a="  The Extraordinarily Long Sparkle Snack Battalion  ",
+        team_b="",
+    ))
+    names = build_team_names(resp)
+    assert names["team_a"] == "The Extraordinarily Long Spa"   # 28-char cap
+    assert names["team_b"] == "Team B"
+    assert build_team_names(S.GenerateCharactersResponse(characters=[])) == {
+        "team_a": "Team A", "team_b": "Team B"}
 
 
 # ---------------------------------------------------------------------------

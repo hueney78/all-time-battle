@@ -35,6 +35,7 @@ class CharacterSubmission:
     player_id: str
     png_base64: str = ""
     hint: str = ""
+    team_id: str = ""     # lobby team — the AI names each team from its roster
 
 
 @dataclass
@@ -44,6 +45,15 @@ class GeneratedCharacter:
     personality: str = ""
     announcer_intro: str = ""
     flagged: bool = False
+
+
+@dataclass
+class GeneratedRoster:
+    """The full generate_characters result: one character per player plus an
+    AI-invented name per team (revealed as the final intro beat, §2)."""
+
+    characters: dict[str, GeneratedCharacter]
+    team_names: dict[str, str] = field(default_factory=dict)  # team_id → name
 
 
 @dataclass
@@ -118,7 +128,7 @@ def make_ai(rules: GameRules) -> AIProvider:
 class AIProvider(Protocol):
     def generate_characters(
         self, submissions: dict[str, CharacterSubmission], cfg: Balance
-    ) -> dict[str, GeneratedCharacter]: ...
+    ) -> GeneratedRoster: ...
 
     def classify_actions(
         self, state: GameState, submissions: dict[str, ActionSubmission], round_num: int
@@ -158,13 +168,16 @@ _AWARD_TITLES = [
 ]
 
 
+_MOCK_TEAM_NAMES = {"team_a": "The Doodle Dynamos", "team_b": "The Scribble Squad"}
+
+
 class MockAI:
     """Deterministic fixtures. Stats come from a seed derived from player_id so
     the same lobby always produces the same characters."""
 
     def generate_characters(
         self, submissions: dict[str, CharacterSubmission], cfg: Balance
-    ) -> dict[str, GeneratedCharacter]:
+    ) -> GeneratedRoster:
         out: dict[str, GeneratedCharacter] = {}
         for idx, (pid, sub) in enumerate(sorted(submissions.items())):
             rng = random.Random(f"chargen:{pid}")
@@ -178,7 +191,7 @@ class MockAI:
                 personality=personality,
                 announcer_intro=f"Introducing {name}, {personality}!",
             )
-        return out
+        return GeneratedRoster(characters=out, team_names=dict(_MOCK_TEAM_NAMES))
 
     def classify_actions(
         self, state: GameState, submissions: dict[str, ActionSubmission], round_num: int

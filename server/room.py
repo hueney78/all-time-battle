@@ -35,9 +35,11 @@ log = logging.getLogger("doodle.room")
 
 # Team A fights from the glitter backline, Team B from the thunder backline
 # (zone ids from zones.yaml). Kept here because seating is a room concern.
+# Teams display as plain "Team A"/"Team B" until the intro reveal swaps in the
+# AI-invented names (GAME_DESIGN §2).
 _TEAM_ZONES = ["glitter_back", "thunder_back"]
 _TEAM_COLORS = ["#ec4899", "#3b82f6"]
-_TEAM_NAMES = ["Glitter Crew", "Thunder Squad"]
+_TEAM_NAMES = ["Team A", "Team B"]
 _CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ"  # no I/O to avoid confusion
 
 

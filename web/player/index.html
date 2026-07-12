@@ -442,7 +442,10 @@
         const t = (m.payload.teams || []).find(t => t.id === teamId);
         if (t) { document.documentElement.style.setProperty('--team', t.color); $('teamName').textContent = t.name.toUpperCase(); }
       } else if (m.type === 'arena_state') {
-        zoneOrder = m.payload.zones || zoneOrder;
+        zoneOrder = (m.payload.zones || []).map(z => z.id || z);
+        // Team labels: "Team A/B" until the intro reveal swaps in the AI names.
+        const mine = (m.payload.teams || []).find(t => t.id === teamId);
+        if (mine) $('teamName').textContent = mine.name.toUpperCase();
         (m.payload.characters || []).forEach(c => {
           roster[c.player_id] = Object.assign({}, roster[c.player_id], c);
           if (c.player_id === myId) myZone = c.zone_id;

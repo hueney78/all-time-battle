@@ -51,13 +51,15 @@ def main() -> int:
     action_png = _data_url("action.png")
 
     print("== generate_characters ==")
-    chars = ai.generate_characters(
-        {"p1": CharacterSubmission("p1", character_png, hint="an angry pea")},
+    roster = ai.generate_characters(
+        {"p1": CharacterSubmission("p1", character_png, hint="an angry pea",
+                                   team_id="team_a")},
         rules.balance,
     )
-    g = chars["p1"]
+    g = roster.characters["p1"]
     print(f"  name={g.name!r} stats=P{g.stats.power}/S{g.stats.speed}/W{g.stats.weird} "
           f"flagged={g.flagged}\n  intro={g.announcer_intro!r}")
+    print(f"  team names: {roster.team_names}")
 
     # A tiny 1v1 state so classification has a legal target.
     p1 = Character(player_id="p1", name=g.name, stats=g.stats, hp=24, max_hp=24, ac=13,
@@ -69,18 +71,22 @@ def main() -> int:
         Team(id="team_b", name="B", color="#2F6FE0", player_ids=["p2"]),
     ])
 
-    print("== classify_actions (character + action image pair) ==")
-    actions = ai.classify_actions(state, {"p1": ActionSubmission("p1", action_png)}, 1)
+    print("== classify_actions (tapped TRICK + character/action image pair) ==")
+    actions = ai.classify_actions(
+        state,
+        {"p1": ActionSubmission("p1", action_png, move_id="trick", target_id="p2")},
+        1,
+    )
     for a in actions:
         if a.player_id == "p1":
-            print(f"  catalog_id={a.catalog_id!r} cost={a.action_cost} targets={a.targets} "
-                  f"creativity={a.creativity_tier} move_to={a.move_to}")
-            print(f"  note={a.adaptation_note!r}")
+            print(f"  move={a.move_id!r} target={a.target_id!r} "
+                  f"creativity={a.creativity_tier} trick_condition={a.trick_condition!r}")
+            print(f"  flavor={a.flavor_summary!r} note={a.adaptation_note!r}")
 
     print("== narrate_round ==")
     events = [
         Event(id="e1", type=EventType.ATTACK_RESOLVED, round=1, player_id="p1", target_id="p2",
-              data={"result": "crit", "damage": 12, "catalog_id": "ray"}),
+              data={"result": "crit", "damage": 12, "move_id": "trick"}),
         Event(id="e2", type=EventType.KO, round=1, player_id="p2", data={}),
     ]
     narration = ai.narrate_round(events, state.characters)

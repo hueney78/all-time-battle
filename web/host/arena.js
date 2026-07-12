@@ -9,10 +9,8 @@
 
 (function () {
   const COND_EMOJI = {burning:'🔥',soggy:'💧',sticky:'🟢',prone:'🙃',frightened:'😱',
-    embarrassed:'😳',enraged:'😡',sparkly:'✨',hidden:'👻',off_balance:'😵',
-    pumped:'💪',confused:'🌀',shielded:'🛡',transformed:'🦋'};
-  const ZONE_LABEL = {glitter_back:'🏠 Glitter Backline', frontline:'⚔️ The Pit',
-    thunder_back:'🏠 Thunder Backline'};
+    embarrassed:'😳',enraged:'😡',sparkly:'✨',pumped:'💪',confused:'🌀',
+    shielded:'🛡',dodging:'💨',stung:'🐝'};
   const CFG = window.DOODLE_CONFIG || {};
   const FLOAT_MS = (CFG.float_number_seconds || 1.5) * 1000;
 
@@ -28,21 +26,33 @@
       }
     }
 
-    setup(zoneIds) {
-      this.zoneIds = zoneIds;
+    // zones: [{id, label}] (server-composed labels — team backlines carry the
+    // team name, "Team A/B" until the intro reveal swaps in the AI names).
+    setup(zones) {
+      this.zoneIds = zones.map(z => z.id || z);
       // Keep the arena's ::before arches / background; only (re)build the zones.
       this.zones = document.createElement('div');
       this.zones.className = 'zones';
       this.zoneEls = {};
-      for (const z of zoneIds) {
+      for (const z of zones) {
+        const id = z.id || z;
         const band = document.createElement('div');
         band.className = 'zone';
-        band.innerHTML = '<span class="zonelabel">' + (ZONE_LABEL[z] || z) + '</span>';
+        band.innerHTML = '<span class="zonelabel"></span>';
+        band.querySelector('.zonelabel').textContent = z.label || id;
         this.zones.appendChild(band);
-        this.zoneEls[z] = band;
+        this.zoneEls[id] = band;
       }
       this.root.appendChild(this.zones);
       this.sprites = {};
+    }
+
+    // Re-label existing bands (the team-name reveal renames the backlines).
+    setLabels(zones) {
+      for (const z of zones || []) {
+        const band = this.zoneEls[z.id || z];
+        if (band && z.label) band.querySelector('.zonelabel').textContent = z.label;
+      }
     }
 
     // chars: {player_id,name,zone_id,hp,max_hp,conditions,team_id,is_ko,png,sprite_png}
