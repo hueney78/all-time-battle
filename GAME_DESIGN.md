@@ -18,164 +18,96 @@ Each round is strictly sequential and immediate — playtesting showed that peop
 
 Two exceptions, both invisible to players: character generation runs while players draw Round 1 (their first move needs no prior information), so the character intros play immediately after Round 1 drawings are in — and Round 1's processing hides behind those intros. And each classify/narrate call starts the instant the last drawing arrives rather than waiting for the timer.
 
-Teams are assigned **in the lobby** (team colors on each phone) so teammates can scheme from the first drawing. When a team is defeated, the finale plays immediately.
+Teams are assigned **in the lobby** (team colors on each phone) so teammates can scheme from the first drawing. Until characters are processed, teams display as plain **“Team A” / “Team B”**; the character-generation call also returns an **AI-invented name per team** that comically links that team's characters together (e.g. a unicorn + a buff goldfish → “The Sparkle Snacks”). The names are revealed as the final beat of the intro sequence (“…and TOGETHER they are…”) and used everywhere from then on — zone labels, meters, phone headers, narration. When a team is defeated, the finale plays immediately.
 
 ## 3. Characters & Stats
 
-Three stats, each 1–4, assigned by the AI from the character drawing:
+Three stats, each **0–6**, assigned by the AI from the character drawing on a fixed budget (`stat_budget: 9`) — the AI chooses the *distribution*, config guarantees fairness. Wide ranges are the point: a 6/3/0 specialist plays a completely different game than a 3/3/3 generalist, and a stat of 0 is characterful, not broken.
 
 | Stat | Governs | AI guidance |
 |---|---|---|
-| **Power** | Melee/physical damage, HP | Muscles, weapons, size, spikes |
-| **Speed** | Initiative, zone moves, dodging | Legs, wheels, wings, streamlines |
-| **Weird** | Creative/magical/nonsense actions | Extra eyes, auras, impossible anatomy, glitter |
+| **Power** | SMASH damage dice, HP | Muscles, weapons, size, spikes |
+| **Speed** | Initiative, AC | Legs, wheels, wings, streamlines |
+| **Weird** | BLAST / TRICK / WILD CARD potency | Extra eyes, auras, impossible anatomy, glitter |
 
-Derived (formulas in `balance.yaml`):
-- `HP = hp_base(18) + hp_per_power(2) × Power`
-- `AC = ac_base(11) + Speed`
-- Attack bonus = Power or Weird, determined by the classified move's `roll` stat in the move catalog (§4.1).
+Derived (formulas in `balance.yaml`): `HP = 20 + 2 × Power` (20–32) and `AC = 10 + Speed` (10–16). Under 2d6 resolution (§5) every stat point is a felt difference, and **the phone shows the math**: each move button displays that character's live numbers ("SMASH — 4d4+2" on the brick's phone, "SMASH — 1d4+2" on the gremlin's), so stat identity is visible every round, not just at intro.
 
 **Players do not name their characters.** Instead, the creation screen has one text field: *"Give the AI a hint about your fighter (a word or phrase)."* The AI receives the drawing + hint and generates a **funny name** itself — leaning grand for elaborate drawings ("Princess Stabby, Duchess of Pointy Ends") and deliberately deadpan for bland ones (a plain circle with eyes gets named "Tim"). The hint is optional; a blank hint means the AI works from the drawing alone. Hints and drawings are both covered by the family-friendly `flagged` check — a flagged character gets a censored sprite and a tame AI-chosen name.
 
-AI also returns a one-line personality and an announcer intro. Stat totals are normalized server-side to `stat_budget` (default 8) so no drawing is strictly better — the AI chooses the *distribution*, config guarantees fairness.
+AI also returns a one-line personality and an announcer intro.
 
 **Example character generation (input: drawing + `hint: "unicorn knight"` → AI output for one player):**
 ```json
 {
   "player_id": "p3",
   "name": "Princess Stabby",
-  "stats": {"power": 2, "speed": 3, "weird": 4},
+  "stats": {"power": 1, "speed": 5, "weird": 3},
   "personality": "A unicorn princess with zero blade discipline and infinite confidence.",
   "announcer_intro": "She's royalty, she's pointy, she has NO concept of sword safety... PRINCESS STABBYYY!",
   "flagged": false
 }
 ```
-
-## 4. Action Economy (PF2e-inspired, one drawing per round)
-
-**The draw-on-top canvas.** Each action round, the player's canvas starts **preloaded with their original character drawing rendered at ~50% scale** (config: `action_canvas_character_scale`) — playtesting showed kids draw characters that fill the whole canvas, leaving no room for actions. The scaled character is **positioned on the player's own team's side of the canvas** (matching the TV's arena orientation), leaving the majority of the canvas open toward the enemy side for lasers, charges, and thrown things. A subtle **orientation ribbon** along the canvas edge ("🏠 your side ⟵ ⟶ enemies 💥", flipped appropriately per team) anchors directional drawing so arrows mean what kids think they mean. They draw their action *onto and around* the character — laser beams from the eyes, a giant hammer in hand, a bubble shield. A **"restore character" button** resets the canvas to the scaled original at any time, and **multi-size erasers** let players modify or completely erase the character (all tools: pen in 3 widths / 8 colors, erasers, undo, clear).
-
-The AI receives the **original character image and the action image as a labeled pair** and is instructed to interpret the *differences* as the action — and told explicitly that the character appears at reduced scale on the action canvas, so the size difference itself is never misread as "the character shrank." This makes classification dramatically more reliable (no guessing which blob is whose character) and enables expressive moves:
-- Added laser beam → weird ranged attack
-- Character redrawn small behind an added rock → defend/hide
-- Character's legs erased and redrawn as springs → move/reposition
-- **Entire character erased** → the AI interprets it in context: vanishing (defensive, hard to target this round) or dramatic cowardice (a 1-action stumble with a great narration) — always something, never a rejection
-
-Each round every living player submits **one drawing**. The AI rates its scope as an **action cost of 1–3**:
-
-| Cost | Feel | Mechanical effect (balance.yaml) |
-|---|---|---|
-| 1 | A jab, a step, a taunt | Small effect (0.5× damage die); **bank 2** |
-| 2 | A solid attack or maneuver | Standard effect; **bank 1** |
-| 3 | A haymaker / ultimate | Big effect (1.5×, +1 to hit); **bank 0** |
-
-**Banked actions** convert to reactions: each banked action grants +1 AC against one incoming attack this round (auto-spent, best-first), and 2 banked actions additionally allow a free zone step when targeted. This makes "small move now, safe and flexible" a real strategy against haymaker spam.
-
-**Example classifications (drawing → catalog move, see §4.1):**
-- A fist poking → `strike`, cost 1
-- Character surrounded by a tornado hurling toward an enemy → `burst`, cost 3
-- Laser beam added from the eyes → `ray`, cost 2 (the Scorching Ray analog)
-- Lines radiating from the character in all directions → `burst` targeting the character's own zone — hits **everyone** there, allies included (friendly fire is comedy)
-- Character behind an added brick wall → `defend`, cost 2 (+2 AC this round, stacking with banked)
-- Legs erased and redrawn as springs → `move`, cost 1
-- A heart beaming to a teammate → `heal`, cost 2
-- Character erased entirely → `hide`, or a 0-cost `stumble` with legendary narration — classifier's pick from context
-
-### 4.1 The Move Catalog (`config/moves.yaml`)
-
-Every drawing is classified to exactly **one catalog move** (or a combo — §8). The catalog owns all math (roll stat, range, targeting, damage die, condition riders); the AI owns flavor, cost rating, and creativity. This keeps balance empirical — every move is one YAML block — and guarantees an eye-laser resolves identically no matter how it's drawn. Each entry names its PF2e analog for design reference:
-
-```yaml
-# config/moves.yaml — damage dice are BASE dice; cost scaling from balance.yaml
-# applies on top (cost 1 = 0.5x, cost 2 = 1x, cost 3 = 1.5x and +1 to hit).
-# `desc` is injected into the classifier prompt — the AI picks moves by
-# matching the drawing to these descriptions, so write them visually.
-moves:
-  # --- core attacks & maneuvers ---
-  strike:     {pf2e: Strike,          roll: power, range: same_zone, target: single_enemy, damage: d8,
-               desc: "hitting, slashing, or bonking a nearby enemy with body or weapon"}
-  charge:     {pf2e: Sudden Charge,   roll: power, range: any, target: single_enemy, damage: d8, includes_move: true, min_cost: 2,
-               desc: "rushing across the arena to smash into an enemy (motion lines toward target)"}
-  ray:        {pf2e: Scorching Ray,   roll: weird, range: any, target: single_enemy, damage: d6,
-               desc: "a single beam/projectile/blast aimed at one enemy (eye lasers, fireballs, arrows)"}
-  burst:      {pf2e: Fireball,        roll: weird, range: any, target: zone_all, damage: d6, min_cost: 2, friendly_fire: true,
-               desc: "an explosion or effect radiating in ALL directions, hitting everyone in a zone"}
-  line:       {pf2e: Lightning Bolt,  roll: weird, range: any, target: line_all_zones, damage: d6, min_cost: 2,
-               desc: "a beam/bolt crossing the whole arena in a line, hitting one enemy in every zone it passes"}
-  dot:        {pf2e: Acid Arrow,      roll: weird, range: any, target: single_enemy, damage: d4, on_hit_condition: burning,
-               desc: "goo, acid, bees, or anything that clearly KEEPS hurting after it lands"}
-  drain:      {pf2e: Vampiric Touch,  roll: weird, range: same_zone, target: single_enemy, damage: d6, heal_self_ratio: 0.5,
-               desc: "sucking life/energy from an enemy into yourself (fangs, straws, glowing transfer)"}
-  summon:     {pf2e: Summon Animal,   roll: weird, range: any, target: single_enemy, damage: d8, min_cost: 2,
-               desc: "a drawn creature/ally attacking for you; it strikes once then vanishes"}
-  grapple:    {pf2e: Grapple,         roll: power, range: same_zone, target: single_enemy, damage: d4, on_hit_condition: sticky,
-               desc: "grabbing, holding, wrapping, or swallowing an enemy"}
-  shove:      {pf2e: Shove,           roll: power, range: same_zone, target: single_enemy, damage: d4, on_hit_push_zones: 1,
-               desc: "pushing/launching an enemy into another zone"}
-  trip:       {pf2e: Trip,            roll: power, range: same_zone, target: single_enemy, on_hit_condition: prone,
-               desc: "knocking an enemy off their feet (sweeps, banana peels aimed at someone)"}
-  steal:      {pf2e: Disarm,          roll: power, range: same_zone, target: single_enemy, on_hit_steal_banked: true,
-               desc: "grabbing something FROM an enemy — steals their banked actions for yourself"}
-  # --- control & debuffs ---
-  demoralize: {pf2e: Demoralize,      roll: weird, range: any, target: single_enemy, on_hit_condition: frightened,
-               desc: "scaring or intimidating an enemy (roars, scary faces, looming)"}
-  feint:      {pf2e: Feint,           roll: weird, range: same_zone, target: single_enemy, on_hit_condition: off_balance,
-               desc: "tricking or misdirecting an enemy (fake-outs, decoys, distractions)"}
-  confuse:    {pf2e: Confusion,       roll: weird, range: any, target: single_enemy, on_hit_condition: confused,
-               desc: "hypnosis, spirals, dizzying effects — the victim's next action targets someone RANDOM"}
-  trap:       {pf2e: Snare,           roll: none, range: any, target: zone, creates_hazard: true, hidden_hazard: true, min_cost: 2,
-               desc: "placing a hidden trap in a zone (pits, nets, tripwires) that springs on entry"}
-  wall:       {pf2e: Wall of Fire,    roll: weird, range: any, target: zone, damage: d4, creates_hazard: true, min_cost: 2,
-               desc: "a visible persistent hazard filling a zone (fire wall, spike field, tornado that stays)"}
-  # --- defense & protection ---
-  defend:     {pf2e: Raise a Shield,  roll: none, target: self, ac_bonus: 2,
-               desc: "shields, walls, armor, or bracing drawn on/around YOURSELF"}
-  counter:    {pf2e: Shield (spell),  roll: none, target: self, counters_next_attack: true, min_cost: 2,
-               desc: "a readied mirror/parry/reversal — negates and reflects the next attack against you this round"}
-  hide:       {pf2e: Hide,            roll: none, target: self, applies_condition: hidden,
-               desc: "vanishing, hiding, camouflage, or the character erased from the canvas"}
-  protect:    {pf2e: "Champion react",roll: none, range: any, target: ally, redirect_attacks_to_self: true,
-               desc: "bodyguarding a teammate — attacks aimed at them hit YOU instead this round"}
-  sanctuary:  {pf2e: Bless,           roll: none, range: any, target: zone, zone_modifier: {ally_ac_bonus: 1}, min_cost: 2,
-               desc: "a protective bubble/aura over an area — teammates in that zone get +1 AC this round"}
-  # --- support & self-modification ---
-  heal:       {pf2e: Heal,            roll: none, range: any, target: ally_or_self, heal: d6,
-               desc: "restoring a teammate's (or your own) health (hearts, bandages, potions)"}
-  cleanse:    {pf2e: Restoration,     roll: none, range: any, target: ally_or_self, removes_conditions: 2,
-               desc: "removing bad conditions (fire extinguishers, washing off goo, un-scaring)"}
-  buff:       {pf2e: Inspire Courage, roll: none, range: any, target: ally, applies_condition: pumped,
-               desc: "powering up a teammate (energy beams TO an ally, cheering, power-up auras)"}
-  aid:        {pf2e: Aid,             roll: none, range: any, target: ally, grants_roll_bonus: 2,
-               desc: "helping a teammate's own move succeed (holding the ladder, setting the pick)"}
-  transform:  {pf2e: Wild Shape,      roll: none, target: self, stat_swap: 2, duration: 2,
-               desc: "the character redrawn AS something else — shift 2 stat points (e.g. +2 Power/−2 Speed) for 2 rounds"}
-  # --- movement & fallbacks ---
-  move:       {pf2e: Stride,          roll: none, target: self, move_zones_per_cost: 1,
-               desc: "repositioning to another zone (arrows, motion lines, running pose)"}
-  stumble:    {pf2e: Delay,           roll: none, target: self, fixed_cost: 0,
-               desc: "blank/unmodified canvas or pure indecision — a dramatic pause"}
-  wildcard:   {pf2e: "(improvised)",  roll: weird, range: any, target: single_enemy, damage: d6,
-               desc: "ONLY if nothing above fits — describe what you see in adaptation_note"}
+The same response includes one **team name per team**, generated from that team's full roster with the same comedy standards as character names — short (fits meters and zone labels), family-friendly, equally funny for both sides, and clearly derived from the characters:
+```json
+{"teams": {"team_a": "The Sparkle Snacks", "team_b": "Heavy Machinery & Friend"}}
 ```
 
-Catalog moves may reference conditions; `conditions.yaml` therefore also includes `hidden` (untargetable by melee, +2 AC vs ranged, 1 round), `off_balance` (−2 AC vs the feinter's team, 1 round), `pumped` (+1 attack, 2 rounds), and `confused` (next action's targets are rerolled uniformly among ALL living characters — allies included; pure comedy). `dot` reuses the `burning` tick mechanics regardless of flavor (acid, bees — the narrator reskins it). `summon` is deliberately a one-shot strike, not a persistent pet — persistent companions with their own HP would bloat state and slow rounds (Phase 7 stretch if the kids demand it).
+## 4. Actions: Tap the Move, Draw the Style
 
-**Catalog guardrails.** Thirty moves is the ceiling: beyond that, classifier accuracy degrades as descriptions blur together and the balance surface explodes. Each entry may also carry an **`sfx` key** naming the sound clip the host plays when the move resolves (see §13 audio). Growth is driven by data, not speculation, via the **wildcard feedback loop**: every classification that falls through to `wildcard` is logged (round snapshot reference + the AI's `adaptation_note` describing what it saw). If playtests show the same shape repeatedly landing in wildcard ("kids keep drawing themselves growing giant"), that's the signal to add an archetype — always a YAML-only change. For PF2e completeness, the remaining basic actions (Stand, Escape, Interact, Ready, Seek, Take Cover, Tumble Through…) are deliberately folded into these archetypes or handled automatically (standing from prone is a cost deduction, escaping a grapple is a `strike` vs the grappler).
+Playtesting v1 taught us two things: pure drawing-classification made it hard to reliably do the move you intended, and thirty moves meant most were forgettable. **Combat v2:** each round the phone shows **eight big move buttons** — six combat moves plus ◀ MOVE LEFT / MOVE RIGHT ▶ — with a target picker (enemy portraits, defaulting to nearest). The player **taps the move and target, then draws how their character does it** on the usual draw-on-top canvas. The tap decides *what happens*; the drawing decides *how well* (creativity bonus, §8) and *how it's narrated*. The AI never guesses the move again.
 
-## 5. Resolution & Degrees of Success
+### 4.1 The Move Catalog (`config/moves.yaml`) — few, loud, and all math-visible
 
-Server-side, seeded d20:
+```yaml
+# config/moves.yaml — COMBAT V2. The catalog owns all math; buttons render
+# each character's live numbers from these formulas. sfx keys per move.
+moves:
+  smash:  {stat: power, range: same_zone, target: single_enemy,
+           damage: "(1 + ceil(POW/2))d4 + 2",     # POW 0: 1d4+2 … POW 6: 4d4+2
+           auto_step: true,   # no enemy in your zone → step toward target and swing
+           button: "SMASH", desc: "Huge single hit. Get in their face."}
+  blast:  {stat: weird, range: any, target: zone_all, friendly_fire: true,
+           damage: "(1 + floor(WRD/3))d4 + 3",
+           button: "BLAST", desc: "Hits EVERYONE in a zone. Yes, everyone."}
+  trick:  {stat: weird, range: any, target: single_enemy,
+           damage: "1d6 + WRD", on_hit_condition: from_drawing,   # AI picks from conditions.yaml by flavor
+           button: "TRICK", desc: "Damage plus something nasty from your drawing."}
+  shield: {stat: none, range: any, target: ally_or_self, ac_bonus: 5,
+           reflect: "attacks missing by 3+ deal 1d6 back",
+           button: "SHIELD", desc: "Big protection. Strong blocks reflect."}
+  rally:  {stat: none, range: any, target: ally_or_self,
+           heal: "1d6 + 2", cleanse: all,
+           pumped_if_creativity: 2,   # the buff is earned by a great drawing
+           button: "RALLY", desc: "Heal, cleanse, and hype a teammate."}
+  wild:   {stat: weird, range: any, target: single_enemy,
+           damage: "2d8 + floor(WRD/2)", fumble_on_roll_lte: 3,
+           button: "WILD CARD", desc: "The AI decides what your drawing does. Gamble."}
+  move_l: {stat: none, target: self, move: -1, dodge_ac: 1, button: "◀ MOVE"}
+  move_r: {stat: none, target: self, move: +1, dodge_ac: 1, button: "MOVE ▶"}
+```
 
-`roll = d20 + attack_stat + creativity_bonus + modifiers(conditions, zones, combos) − penalties(stale, embarrassed…)` vs target `AC + banked/defend bonuses`.
+Rules that replace the old action economy (action costs and banked actions are **deleted**):
+- **No repeats:** you can't pick the same combat move twice in a row (the button greys out). Movement is exempt; edge-illegal directions render disabled.
+- **WILD CARD** is the soul of v1, contained: the AI interprets the drawing freely (`wild_interpretation` in the schema — big flat damage by default, or a condition/reposition/absurdity if the drawing demands it), with the widest fumble band. Highest ceiling, highest variance.
+- **Movement** grants +1 AC that round (dodging on the move). ◀/▶ are absolute and match the TV — no AI direction-guessing, ever.
+- The Monte Carlo harness (`scripts/balance_sim.py`, v2) validated this system: all six combat moves within ±5% of each other in ablation, and a +2 stat-budget edge wins ~77% of games — stats finally matter.
+
+The **draw-on-top canvas** is unchanged: prefilled with the character at ~50% on the team side (immediately on every load), orientation ribbon, restore button, multi-size erasers, sand background. Gremlin hazard drawing and the montage are also unchanged.
+
+## 5. Resolution & Degrees of Success (2d6)
+
+Server-side, seeded **2d6** — a bell curve, so every +1 genuinely shifts outcomes and extremes stay special:
+
+`roll = 2d6 + move's stat + creativity bonus + modifiers(conditions, zones, combos, sudden death)` vs target `AC (10 + Speed) + shield/dodge bonuses`.
 
 | Result | Threshold | Effect |
 |---|---|---|
-| Critical hit | beat AC by ≥ `crit_margin` (10) **or** natural 20 | Double damage + narrator goes wild |
-| Hit | ≥ AC | Standard damage: `cost-scaled die + stat` |
-| Miss | < AC | Nothing (narrated as a whiff) |
-| Fumble | miss by ≥ 10 **or** natural 1 | Self-inflicted comedy: small self-damage OR a condition, chosen by table in `balance.yaml` |
+| Critical hit | natural 12 **or** beat AC by ≥ `crit_margin` (5) | Double damage + narrator goes wild |
+| Hit | ≥ AC | Move's damage formula |
+| Miss | < AC | Whiff (a SHIELDed target missed by 3+ reflects 1d6) |
+| Fumble | natural 2 (WILD CARD: roll ≤ 3) | 3 self-damage + **Embarrassed**; comedy jackpot |
 
-Initiative = Speed (modified by conditions), ties broken by seeded roll. All dice, thresholds, and damage dice are config values.
+Initiative = Speed (modified by conditions), ties broken by seeded roll. All dice, thresholds, and formulas are config values.
 
 ## 6. Zones (config-driven — the "High Ground" test)
 
@@ -200,10 +132,9 @@ zones:
     tags: [backline, team_b]
     modifiers: {}
 rules:
-  melee_requires_same_zone: true
+  melee_requires_same_zone: true    # SMASH; auto_step closes 1 zone toward the target
   ranged_any_zone: true
-  move_cost_per_step: 1
-  free_steps_from_speed: {threshold: 3, steps: 1}   # Speed 3+ = 1 free step/round
+  move_buttons: [move_l, move_r]    # movement is tapped, absolute, edge-disabled
 ```
 
 **Adding High Ground later requires only this YAML edit — zero code:**
@@ -239,26 +170,19 @@ conditions:
 ```
 Adding a condition = add a YAML block; the resolver applies `modifiers`/`tick_damage`/etc. generically, the phone UI shows `emoji`, and the condition list is injected into AI prompts so it knows its palette. Interactions (e.g., soggy cures burning) are data (`cure_tags`, `immunities`).
 
-## 8. Creativity, Staleness, Combos
+## 8. Creativity, Combos & Variety
 
-- **Creativity tiers** (AI-assigned, server-capped): 0 (+0), 1 (+1 solid), 2 (+2 clever), 3 (+4 table-losing-it). The prompt instructs: judge *idea* creativity, not drawing skill — a hilarious stick figure concept outranks a beautiful boring sword. Tier values in `balance.yaml`.
-- **Stale penalty:** the AI flags `similar_to_previous: true` when a player repeats their last concept; server applies −2 (config). Forces variety.
-- **Combos:** the AI checks teammate drawings for intentional synergy (`combo: {partners: [...], concept: "..."}`); the narrator names the fused move ("GLITTERNADO SURF STRIKE"). **A combo consumes both players' rounds**, so the math must beat two separate attacks — and it does, trading variance for a higher ceiling:
-  - **One attack roll**: best participant's roll stat + `combo_bonus` (+3) + creativity at the highest partner's tier **escalated by one tier** (capped at tier 3 / +4)
-  - **Combined damage**: the sum of *both* participants' cost-scaled damage contributions (each contributes their own drawing's cost multiplier)
-  - **A crit doubles the combined total** — the jackpot that makes couch-whispering irresistible
-  - Base behavior comes from the "leading" catalog move (a burst-shaped combo hits the whole zone)
-  - **The risk**: one roll. A miss means both players whiff simultaneously (narrated as a legendary catastrophe); everything rides on a single die and usually a single target
-  - Each participant's banked actions still derive from their *own* drawing's cost, and stale penalties apply individually
-  - Combos are **not** `aid`: aid is the safe one-sided version (+2 to a teammate's roll while keeping your own small action and banking). Combo = all-in fusion; aid = supportive hedge. Both should see play.
-- **Rubber-banding (optional, on by default for kids):** losing team gets `underdog_bonus: +1` to attack rolls when down ≥ 2 characters' worth of HP share. Config flag.
+- **Creativity tiers** (AI-assigned from the drawing, server-capped): 0 (+0), 1 (+1 solid), 2 (+2 clever), 3 (+4 table-losing-it), added to the 2d6 roll — where +2 is enormous. The prompt instructs: judge *idea* creativity, not drawing skill. Creativity is now the drawing's entire mechanical contribution, which keeps the sketching central even though moves are tapped. RALLY's `pumped` buff only fires at tier ≥ 2 — support players earn it with the drawing.
+- **Drawing staleness:** re-submitting essentially the same drawing concept as your last round scores creativity 0 (`similar_to_previous`) — variety in *art*, while the no-repeat button rule (§4) forces variety in *moves*.
+- **Combos:** the AI still checks teammate drawings for intentional synergy (`combo: {partners, concept, combo_name}`). Since moves are individually tapped, a combo no longer fuses actions — instead **both partners gain +2 on their rolls** and the narrator merges their beats into one named spectacle ("GLITTERNADO SURF STRIKE"). Couch-whispering stays the metagame, without new rules to track.
+- **Rubber-banding (optional, on by default for kids):** losing team gets `underdog_bonus: +1` when down ≥ 2 characters' worth of HP share. Config flag.
 
 ## 9. Intent Adaptation (adapt, never reject)
 
-Drawings are ambiguous, targets sometimes fall to a faster teammate earlier in the same initiative order, and the classifier occasionally misreads. The rule stands regardless: the AI must **adapt, never reject**:
-- Target invalid by resolution time (KO'd earlier in the round, out of reach) → redirect to the drawing's evident *intention* (nearest enemy in that zone), or narrate the whiff hilariously with a consolation `cost 1` effect.
-- Impossible action given current conditions (you're Engulfed and drew a charge) → transform into the closest legal action ("charges... inside the blob. It tickles. 2 damage from within.")
-- The classification schema includes `adaptation_note` explaining any transformation — this feeds the narrator so the comedy lands.
+With tapped moves the AI no longer decides *what* a player does — but adaptation still applies where reality intervenes:
+- **Invalid target at resolution time** (KO'd earlier in the initiative order by a faster teammate): the server redirects to the nearest legal enemy and the `adaptation_note` feeds the narrator ("the fireball sails on to the next-rudest target").
+- **WILD CARD interpretation:** the one move where the AI reads the drawing freely; whatever it sees becomes a legal effect — never a rejection.
+- **Blank/unmodified canvas:** the tapped move still resolves at creativity 0, narrated as maximum-confidence minimum-effort.
 
 ## 10. KO & the Arena Gremlin
 
@@ -277,35 +201,22 @@ The server then composes a **match poster** (Pillow): arena background, final ch
 ## 11. AI Contract — Schemas
 
 ### 11.1 `classify_actions` (per round)
-Request contains, per living player, two labeled image blocks — `"p3 ORIGINAL CHARACTER"` and `"p3 ACTION THIS ROUND"` — plus compact game-state context. The prompt instructs: *the action is what changed between the two images; the character is rendered at reduced scale on the action canvas; the canvas background is the arena floor color (`canvas_background_color`), not drawn content; erasures are meaningful; a background-only canvas means the character vanished.*
-
-**Movement is relational, never absolute.** The prompt includes the zone layout, each character's current zone, and each team's side, and the AI never reasons in "left/right" — it interprets drawn movement as *toward enemies*, *toward own backline*, or *to a specific zone*, outputting a concrete `move_to` zone id. When direction is genuinely unreadable, defaults apply: aggressive-looking movement (speed lines, charging posture, drawn toward a target) → toward the nearest enemy; fleeing cues (sweat drops, looking backward, cowering) → toward own backline. The validator then enforces that `move_to` is a legal, adjacency-reachable zone — a misread direction can cost one zone of position, never a teleport, and the narrator plays confident wrong-way charges for laughs. Response:
+Request contains, per living player, their **tapped move and target** (from the phone — ground truth, not for the AI to decide), plus two labeled image blocks — `"p3 ORIGINAL CHARACTER"` and `"p3 ACTION THIS ROUND"` — and compact game-state context. The prompt instructs: *the drawing shows HOW the tapped move is performed; the character is rendered at reduced scale; the canvas background is the arena floor color, not drawn content.* Response (per player):
 ```json
 {
-  "round": 4,
-  "combos": [
-    {"partners": ["p2", "p4"], "leading_catalog_id": "burst",
-     "concept": "tornado + surfing it",
-     "combo_name": "Glitternado Surf Strike"}
-  ],
-  "actions": [
-    {
-      "player_id": "p1",
-      "catalog_id": "charge",        // MUST be an id from moves.yaml
-      "action_cost": 3,              // 1-3 (clamped to the move's min_cost)
-      "targets": ["p2"],
-      "move_to": null,               // zone id if the move includes movement
-      "creativity_tier": 1,          // 0-3
-      "creativity_reason": "committed lawnmower theming",
-      "similar_to_previous": true,
-      "suggested_conditions": [],    // only riders beyond the catalog's own; from conditions.yaml
-      "adaptation_note": null,
-      "flagged": false
-    }
-  ]
+  "player_id": "p1",
+  "creativity_tier": 2,              // 0-3, from the drawing
+  "creativity_reason": "the lawnmower is doing a wheelie",
+  "similar_to_previous": false,
+  "flavor_summary": "flaming wheelie mower charge",   // feeds the narrator
+  "trick_condition": "burning",      // TRICK only: from conditions.yaml, by drawing flavor
+  "wild_interpretation": null,       // WILD CARD only: freeform effect within schema bounds
+  "combo": {"partners": ["p3"], "concept": "oil slick + sparks", "combo_name": "GREASE FIRE GAMBIT"},
+  "adaptation_note": null,
+  "flagged": false
 }
 ```
-Enforced by pydantic: `catalog_id` and condition names validated against the loaded registries, targets against living characters, zones against zones.yaml. One repair retry on failure; fallback = `wildcard`, creativity 0.
+Enforced by pydantic: condition names against the registry, partners against living teammates. Fallback on total AI failure: creativity 0, no condition (TRICK deals damage only), template narration — **the tapped move always resolves** because the server, not the AI, owns it.
 
 ### 11.2 `narrate_round` request/response
 Request: ordered engine `events` (JSON), personalities, adaptation notes, tone guide. Response:
@@ -335,20 +246,24 @@ Each template receives: rules summary, zone list, condition palette, compact sta
 
 ## 12. Worked Round (numbers a test can assert)
 
-Given seed `42`, Round 2 of the sample playthrough fixture (4 players, states as in the example doc):
-1. Classification fixture returns Blob devour (cost 3), Stabby laser (cost 2, weird), Gerald water throw (cost 2, weird, creativity 2), Mike donuts (cost 2, move+taunt).
-2. Resolver: initiative Speed w/ sticky → Blob first; devour hits (17 vs 13), 8 dmg + engulfed; Stabby interior laser nat-20 crit 12 dmg + freed; Gerald crit vs Lawnmower (margin ≥10) 7 dmg + soggy + prone; Mike nat-1 fumble → 2 self-dmg + embarrassed.
-3. Assert final HP: Stabby 1, Blob 2, Lawnmower 17, Gerald 24. This exact scenario ships as a golden test (`tests/test_resolver.py::test_round2_golden`).
+Given seed `42`, 2v2 fixture: Stabby (P1/S5/W3, HP 22, AC 15) and Gerald (P3/S1/W5, HP 26, AC 11) vs Lawnmower (P6/S2/W1, HP 32, AC 12) and Blob (P0/S3/W6, HP 20, AC 13).
+1. Taps: Stabby → TRICK on Blob (drawing: glitter hypnosis, creativity 2); Blob → BLAST on the front zone (creativity 1); Lawnmower → SMASH on Gerald (auto-step, creativity 0); Gerald → SHIELD self.
+2. Initiative: Stabby(5) → Blob(3) → Lawnmower(2) → Gerald(1). Gerald's shield hasn't resolved when SMASH lands — initiative order matters and the couch sees why on the rail.
+3. Fixture dice: Stabby rolls 2d6=9 +3 +2 = 14 vs AC 13 → hit, 1d6+3 = 7, Blob 20→13, gains `confused`. Blob's BLAST 2d6=7 +6 +1 = 14 vs zone occupants → hits for 3d4+3 = 11. Lawnmower 2d6=11 +6 = 17 vs AC 11 → beats by 6, **crit**: (4d4+2)×2 = 24, Gerald 26→2. Gerald shields himself (+5 AC) one round too late.
+4. Assert exact HPs per the seeded dice in `tests/test_resolver.py::test_v2_golden`.
 
 ## 13. UX Details
 
 - **Phase splash:** every drawing phase opens with a ~2s full-screen announcement on **all phones and the TV simultaneously** (config `phase_splash_seconds`, text map in settings.yaml): "Draw your Character!", "Round N — Draw your Move!", "🎵 Upgrade your Character! 🎵" (montage), and per-role text — KO'd players see "Draw a Hazard, Gremlin! 😈". Big display type, whoosh stinger, tap-to-skip on phones; the draw timer starts only after the splash ends.
 - Draw timer: 75s actions, 90s characters (config). 10s warning pulse. Auto-submit on expiry (whatever is on the canvas — which is at minimum the preloaded character, classified as a comedic idle).
+- **Move buttons + target picker:** eight big buttons beside/below the canvas (SMASH, BLAST, TRICK, SHIELD, RALLY, WILD CARD, ◀ MOVE, MOVE ▶), each showing **that character's live math** ("SMASH — 4d4+2"); last-used combat move greyed out (no-repeat), edge-illegal movement disabled; enemy-portrait target picker defaulting to nearest. Tap move → tap target → draw the style.
 - Action canvas: **background color defaults to the arena floor color** (`canvas_background_color: "#E8D5A8"`, shared token with the host battlefield) so submitted drawings blend into the battlefield instead of floating as white rectangles; the classifier prompt states the canvas background color so it's never read as drawn content. Preloaded with the player's character at ~50% scale **immediately on every canvas load, including Round 1** (scaling must never depend on pressing Restore Character — the restore button re-applies the same scaled prefill), positioned on their team's side, with an orientation ribbon ("your side ⟵ ⟶ enemies") matching the TV's layout; "restore character" button; pen (3 widths, 8 colors), erasers in multiple sizes, undo, clear. Erasers restore the canvas background color, not white. Character creation screen adds the hint text field ("a word or phrase to inspire the AI").
-- Phone status card always shows: your sprite, **your stats (💪 Power / ⚡ Speed / 🌀 Weird, icon + number)**, HP hearts, condition emojis, banked actions, team color, "you are drawing for Round N." Stat values pulse briefly when they change (montage, transform).
+- Phone status card always shows: your sprite, **your stats (💪 Power / ⚡ Speed / 🌀 Weird, icon + number)**, HP hearts, condition emojis, team color, "you are drawing for Round N." Stat values pulse briefly when they change (montage, transform).
+- **Team naming:** all team labels (zone bands, tug-of-war meter ends, phone headers) read “Team A” / “Team B” until the intro sequence reveals the AI team names, then swap and stay for the match.
 - Host battlefield: the default arena is a **CSS-drawn colosseum** (stone arches, stands, sand floor — per `design/mockup_host_screen.html`); a custom image can optionally replace it via `settings.yaml: arena_background` (dropped into `web/host/assets/`). Zones are bands over the background; characters sit in their current zones with HP bars and condition emojis. The arena floor is **uniform** `canvas_background_color` (default `#E8D5A8`) — no gradients, vignettes, or spotlight circles — and sprites render with **no drop shadow, border, or card background**, so each drawing's own sand-colored background blends invisibly into the floor. The **name bubble floats above** the character image (HP bar and condition emojis below).
 - **Action images persist.** Once a character's action is revealed, that action drawing *becomes* their battlefield sprite and stays until their next action replaces it — the arena accumulates the round's chaos (laser-firing Stabby stays laser-firing through the next drawing phase). Characters who haven't acted yet show their original character image.
-- Host reveal pacing: each beat auto-advances after `ui.reveal_beat_seconds` (default 6s), with a host "Next ▶" override button; set `reveal_beat_seconds: 0` for **manual** pacing (host clicks Next for every beat). Kids reading speed matters. The server's `timers.beat_seconds` is only the AFK safety net that force-proceeds if the host never signals done. When a character's beat plays, their action drawing **enlarges by a configurable scale for a configurable duration** (`reveal_action_zoom_scale: 1.8`, `reveal_action_zoom_seconds: 2.5`) so the couch can appreciate the artwork, then shrinks back to sprite size.
+- **Narration log:** announcer text is a **running, chat-style log** (newest at bottom), not transient captions. The current beat types out in a bright gold-bordered card, then rolls up into dimmed history (smaller, ~55% opacity) when the next beat starts. **Round dividers** ("— Round 3: *The Fish Learns to Surf* —") separate rounds; roughly the last 2–3 rounds stay on screen behind a top fade mask; crit/KO/combo lines keep a subtle gold tint in history so highlights stay findable; speaker chips (PBP/COLOR) persist so re-read banter still reads as dialogue. The log remains visible during the deliberation interlude — re-reading last round's jokes is the latency mask. The full transcript always persists to the room snapshot (feeds the match poster's "best line").
+- Host reveal pacing: beats advance on a timer (config `beat_seconds: 6`) with a host "next" override button; kids reading speed matters. When a character's beat plays, their action drawing **enlarges by a configurable scale for a configurable duration** (`reveal_action_zoom_scale: 1.8`, `reveal_action_zoom_seconds: 2.5`) so the couch can appreciate the artwork, then shrinks back to sprite size.
 - **Impact feedback during reveals:** any character *negatively* affected by the current beat (damage, a bad condition) flashes a **red border with a shake**; any character *positively* affected (heal, cleanse, buff, protection) flashes a **light-blue border with a scale "pop"**. Both derive from the beat's engine events, so they're always accurate to the math.
 - **Floating combat numbers:** every damage event spawns a big **red number** that floats up from the affected character and fades; healing spawns a **green** one (config `float_number_seconds: 1.5`). Crits render extra-large with an exclamation. Numbers come from engine events, so they always match the HP bars.
 - **Instant replay:** when a beat contains a crit or a KO (config `instant_replay.triggers`), the host replays that beat once in slow-mo — bigger zoom, slower shake, a "REPLAY" banner and stinger — before advancing. Pure presentation over existing beat data; `instant_replay.enabled` toggles it.
@@ -359,7 +274,7 @@ Given seed `42`, Round 2 of the sample playthrough fixture (4 players, states as
 
 ## 14. Tuning Guide (for the human designer)
 
-Want faster games? Lower `hp_base`. Too swingy? Reduce `creativity_tier_3` from 4→3 or raise `crit_margin`. Kids losing? Raise `underdog_bonus`. Haymaker spam? Increase banked-action AC value. Every knob named in this doc exists in `balance.yaml` with a comment. Change YAML → start a new room → new rules apply. After each game night, skim the **wildcard log** (`snapshots/<room>/wildcards.jsonl`) — recurring shapes the classifier couldn't place are your shopping list for new `moves.yaml` archetypes.
+Want faster games? Lower `hp_base`. Too swingy? Reduce `creativity_tier_3` from 4→3 or raise `crit_margin`. Kids losing? Raise `underdog_bonus`. One move dominating playtests? Its whole formula is one line in moves.yaml. Every knob named in this doc exists in `balance.yaml` with a comment. Change YAML → start a new room → new rules apply. After each game night, skim the **wildcard log** (`snapshots/<room>/wildcards.jsonl`) — recurring WILD CARD interpretations are your signal for what the six moves might be missing.
 
 ## 15. Legacy: The Doodle Crowd (Phase 8)
 

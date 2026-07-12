@@ -35,9 +35,9 @@ ui:
   deliberation_filler_seconds: 3.5     # announcer filler line rotation during the interlude
   reveal_action_zoom_scale: 1.8        # how far the acting drawing zooms during its beat
   reveal_action_zoom_seconds: 2.5      # how long the zoom holds before settling
-  reveal_beat_seconds: 6.0             # seconds each announcer beat holds before auto-advancing
+  reveal_beat_seconds: 12.0             # seconds each announcer beat holds before auto-advancing
                                        # (0 = manual: host clicks "Next ▶" for every beat)
-  float_number_seconds: 1.5            # floating damage/heal number lifetime
+  float_number_seconds: 2.5            # floating damage/heal number lifetime
   audience_recent_rounds: 3            # Crowd Favorite meter recency window (rounds)
   combo_splash_seconds: 2.0            # how long the COMBO! splash holds on screen
   instant_replay:                      # crit/KO beats replay once in slow-mo
