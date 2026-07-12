@@ -26,13 +26,14 @@ class _Usage:
 class _ToolUse:
     type = "tool_use"
 
-    def __init__(self, inp):
+    def __init__(self, inp, tid):
         self.input = inp
+        self.id = tid
 
 
 class _Resp:
-    def __init__(self, inp):
-        self.content = [_ToolUse(inp)]
+    def __init__(self, inp, tid):
+        self.content = [_ToolUse(inp, tid)]
         self.usage = _Usage()
 
 
@@ -44,11 +45,35 @@ class _Messages:
 
     def create(self, **_kw):
         self.last_kwargs = _kw
+        _enforce_tool_result_pairing(_kw.get("messages", []))
         item = self.script[min(self.calls, len(self.script) - 1)]
         self.calls += 1
         if isinstance(item, Exception):
             raise item
-        return _Resp(item)
+        return _Resp(item, f"toolu_fake_{self.calls}")
+
+
+def _enforce_tool_result_pairing(messages) -> None:
+    """Mirror the real API rule that broke a live playtest: every assistant
+    tool_use block must be answered by a tool_result with the same id in the
+    IMMEDIATELY following user message — otherwise the API 400s."""
+    for i, m in enumerate(messages):
+        if m.get("role") != "assistant":
+            continue
+        ids = [b.id for b in m.get("content", [])
+               if getattr(b, "type", None) == "tool_use"]
+        if not ids:
+            continue
+        nxt = messages[i + 1] if i + 1 < len(messages) else {}
+        results = set()
+        if nxt.get("role") == "user" and isinstance(nxt.get("content"), list):
+            results = {b.get("tool_use_id") for b in nxt["content"]
+                       if isinstance(b, dict) and b.get("type") == "tool_result"}
+        missing = [t for t in ids if t not in results]
+        if missing:
+            raise RuntimeError(
+                f"400 invalid_request_error: `tool_use` ids were found without "
+                f"`tool_result` blocks immediately after: {missing}")
 
 
 class FakeAnthropic:

@@ -258,20 +258,28 @@ class LiveAI:
                 continue
 
             self._log_cost(tool_name, model, getattr(resp, "usage", None))
-            tool_input = _tool_input(resp)
-            if tool_input is None:
+            block = _tool_use_block(resp)
+            if block is None:
                 log.warning("AI %s returned no tool_use block", tool_name)
                 continue
             try:
-                return model_cls.model_validate(tool_input)
+                return model_cls.model_validate(block.input)
             except ValidationError as exc:
                 if attempt < self.ai.max_retries:
-                    # Repair: show the model its output + the exact error, ask again.
+                    # Repair: replay the model's own tool call with the exact
+                    # validation error as its tool_result (the API requires
+                    # every tool_use to be answered by a tool_result), and ask
+                    # again.
                     messages += [
                         {"role": "assistant", "content": resp.content},
-                        {"role": "user", "content":
-                            f"That tool input failed validation:\n{exc}\nCall {tool_name} again "
-                            f"with corrected fields only."},
+                        {"role": "user", "content": [
+                            {"type": "tool_result",
+                             "tool_use_id": block.id,
+                             "is_error": True,
+                             "content": f"That tool input failed validation:\n{exc}"},
+                            {"type": "text",
+                             "text": f"Call {tool_name} again with corrected fields only."},
+                        ]},
                     ]
                     continue
                 log.warning("AI %s validation failed after repair: %s", tool_name, exc)
@@ -317,10 +325,10 @@ def _image_block(data_url: str) -> dict | None:
     return {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": data}}
 
 
-def _tool_input(resp) -> dict | None:
+def _tool_use_block(resp):
     for block in getattr(resp, "content", []) or []:
         if getattr(block, "type", None) == "tool_use":
-            return block.input
+            return block
     return None
 
 
