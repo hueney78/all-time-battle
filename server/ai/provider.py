@@ -145,6 +145,7 @@ class AIProvider(Protocol):
     def narrate_round(
         self, events: list[Event], characters: dict[str, Character],
         gallery_names: list[str] | None = None,
+        zone_names: dict[str, str] | None = None,
     ) -> Narration: ...
 
     def generate_awards(self, summary: MatchSummary) -> list[Award]: ...
@@ -260,10 +261,11 @@ class MockAI:
     def narrate_round(
         self, events: list[Event], characters: dict[str, Character],
         gallery_names: list[str] | None = None,
+        zone_names: dict[str, str] | None = None,
     ) -> Narration:
         beats: list[Beat] = []
         for ev in events:
-            text = _beat_text(ev, characters)
+            text = _beat_text(ev, characters, zone_names)
             if text:
                 beats.append(Beat(event_id=ev.id, text=text, speaker=_mock_speaker(ev)))
         if not beats:
@@ -343,11 +345,13 @@ def _name(pid: str | None, characters: dict[str, Character]) -> str:
     return "Someone"
 
 
-def _beat_text(ev: Event, characters: dict[str, Character]) -> str:
+def _beat_text(ev: Event, characters: dict[str, Character],
+               zone_names: dict[str, str] | None = None) -> str:
     t = ev.type.value
     who = _name(ev.player_id, characters)
     whom = _name(ev.target_id, characters)
     d = ev.data
+    zn = zone_names or {}
     if t == "attack_resolved":
         res = d.get("result")
         if res == "crit":
@@ -369,7 +373,8 @@ def _beat_text(ev: Event, characters: dict[str, Character]) -> str:
         return f"{who} is knocked out and becomes an Arena Gremlin!"
     if t == "gremlin_hazard":
         hz = str(d.get("hazard_id", "something")).replace("_", " ")
-        return f"{who} the Gremlin drops {hz} on {d.get('zone', 'the arena')}!"
+        zone = zn.get(d.get("zone"), d.get("zone", "the arena"))
+        return f"{who} the Gremlin drops {hz} on {zone}!"
     if t == "shielded":
         n = len(d.get("protected", []))
         return f"{who} raises a shield over the whole zone ({n} covered)!"

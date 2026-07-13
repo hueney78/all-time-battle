@@ -261,6 +261,29 @@ def test_mock_narration_uses_both_announcers():
     assert by["hit"] == "pbp" and by["miss"] == "color"
 
 
+def test_narration_never_leaks_zone_ids():
+    """Playtest fix: announcers said 'glitter backline'. Zone ids in event data
+    are translated to display names (team backlines carry the team name) in
+    both the mock beats and the live request text."""
+    from server.ai.client import _narration_text
+
+    zn = {"glitter_back": "The Sparkle Snacks' backline", "frontline": "The Pit"}
+    grem = Event(id="g1", type=EventType.GREMLIN_HAZARD, round=2, player_id="p1",
+                 data={"hazard_id": "bees", "zone": "glitter_back", "affected": []})
+    mv = Event(id="m1", type=EventType.MOVED, round=2, player_id="p1",
+               data={"from": "glitter_back", "to": "frontline"})
+
+    # MockAI beat text (also the live fallback path — same helper).
+    n = MockAI().narrate_round([grem], _two_player_state().characters, None, zn)
+    text = " ".join(b.text for b in n.beats)
+    assert "glitter_back" not in text and "The Sparkle Snacks' backline" in text
+
+    # The live narrator's request payload.
+    req = _narration_text([grem, mv], _two_player_state().characters, None, zn)
+    assert "glitter_back" not in req
+    assert "The Sparkle Snacks' backline" in req and "The Pit" in req
+
+
 # ---------------------------------------------------------------------------
 # generate_characters
 # ---------------------------------------------------------------------------

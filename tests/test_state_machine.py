@@ -754,9 +754,9 @@ class _SlowAI:
     def generate_awards(self, summary):
         return self._inner.generate_awards(summary)
 
-    def narrate_round(self, events, characters, gallery_names=None):
+    def narrate_round(self, events, characters, gallery_names=None, zone_names=None):
         time.sleep(self._delay)
-        return self._inner.narrate_round(events, characters, gallery_names)
+        return self._inner.narrate_round(events, characters, gallery_names, zone_names)
 
 
 async def test_deliberation_interlude_masks_slow_ai_and_orders_reveals():
@@ -1092,9 +1092,32 @@ class _CameoSpyAI(MockAI):
     def __init__(self) -> None:
         self.seen_cameos = None
 
-    def narrate_round(self, events, characters, gallery_names=None):
+    def narrate_round(self, events, characters, gallery_names=None, zone_names=None):
         self.seen_cameos = gallery_names
-        return super().narrate_round(events, characters, gallery_names)
+        self.seen_zone_names = zone_names
+        return super().narrate_round(events, characters, gallery_names, zone_names)
+
+
+async def test_zone_display_names_use_team_names_for_backlines():
+    """The narrator never sees zone ids: backlines are named after the team
+    (the AI name once revealed, playtest fix — no more 'glitter backline')."""
+    rules = _rules()
+    room = Room("ZN", rules)
+    room.add_player("A", "player", FakeSocket(), None)
+    room.add_player("B", "player", FakeSocket(), None)
+    machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
+
+    names = machine._zone_display_names()
+    assert names["glitter_back"] == "Team A's backline"   # pre-reveal
+    assert names["frontline"] == "The Pit"
+
+    # After the team-name reveal, the on-air backline names follow.
+    machine._team_names = {"team_a": "The Doodle Dynamos",
+                           "team_b": "The Scribble Squad"}
+    machine._team_reveal_beat()
+    names = machine._zone_display_names()
+    assert names["glitter_back"] == "The Doodle Dynamos' backline"
+    assert names["thunder_back"] == "The Scribble Squad's backline"
 
 
 async def test_gallery_names_are_sampled_into_narration():

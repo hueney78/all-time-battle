@@ -497,7 +497,8 @@ class GameStateMachine:
         self.snapshots.append_wildcards(drawn.round_num, actions)
         cameos = self._sample_cameos(result.new_state)
         narration = await asyncio.to_thread(
-            self.ai.narrate_round, result.events, result.new_state.characters, cameos
+            self.ai.narrate_round, result.events, result.new_state.characters,
+            cameos, self._zone_display_names(),
         )
         self.snapshots.append_transcript(drawn.round_num, narration.round_title,
                                          narration.beats)
@@ -993,6 +994,20 @@ class GameStateMachine:
             team = next(t for t in self.room.teams if t.id == team_id)
             return f"🏠 {team.name}"
         return f"⚔️ {zone.name}"
+
+    def _zone_display_names(self) -> dict[str, str]:
+        """Zone id → on-air name for the narrator: team backlines carry the
+        current team name (the AI name once revealed) — internal ids like
+        glitter_back must never reach the announcers."""
+        out: dict[str, str] = {}
+        for zone in self.rules.zones.zones:
+            team = next((t for t in self.room.teams if t.id in zone.tags), None)
+            if team:
+                apos = "'" if team.name.endswith("s") else "'s"
+                out[zone.id] = f"{team.name}{apos} backline"
+            else:
+                out[zone.id] = zone.name
+        return out
 
     def _character_deltas(self, include_png: bool = False) -> list[dict]:
         if self.state is None:
