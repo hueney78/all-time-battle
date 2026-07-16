@@ -164,7 +164,7 @@ _MOCK_PERSONALITIES = [
 ]
 # Affectionate superlatives (GAME_DESIGN §10.2) — celebrate the comedy, never mock.
 _AWARD_TITLES = [
-    "Most Creative Doodle", "Fumble of the Match", "Best Combo Name",
+    "Most Creative Doodle", "Backfire of the Match", "Best Combo Name",
     "Crowd Favorite", "Bravest Use of a Household Object", "Heart of a Champion",
 ]
 
@@ -213,7 +213,14 @@ class MockAI:
             png = (sub.png_base64 if sub else "").strip()
             # A blank canvas (auto-submit) still resolves the tapped move — at
             # creativity 0, narrated as maximum-confidence minimum-effort (§9).
-            creativity = random.Random(f"crea:{pid}").randint(0, 2) if png else 0
+            # Seeded by round as well as player so tiers VARY across the match and
+            # span the full 0–3: in v4 creativity is the drawing's entire
+            # mechanical contribution, and tier 3 is the DEVASTATING beat that
+            # drives the replay/stinger/gold-log presentation. A mock game that
+            # never rolls a 3 leaves all of that unreachable without an API key.
+            creativity = (
+                random.Random(f"crea:{pid}:{round_num}").randint(0, 3) if png else 0
+            )
             actions.append(ClassifiedAction(
                 player_id=pid, move_id=move_id, target_id=target_id,
                 creativity_tier=creativity,

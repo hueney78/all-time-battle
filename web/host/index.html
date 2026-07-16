@@ -116,12 +116,12 @@
     @keyframes shake{25%{transform:translateX(-4px) rotate(-2deg)}75%{transform:translateX(4px) rotate(2deg)}}
     @keyframes pop{30%{transform:scale(1.14)}55%{transform:scale(1)}}
 
-    /* floating combat numbers [red dmg / green heal, crit oversized] */
+    /* floating combat numbers [red dmg / green heal, DEVASTATING oversized] */
     .floatnum{position:absolute; left:50%; top:-6px; transform:translateX(-50%);
       font-family:'Titan One'; font-size:26px; color:var(--dmg);
       -webkit-text-stroke:1.5px #fff; animation:floatup 1.5s ease-out forwards; pointer-events:none}
     .floatnum.heal{color:var(--heal)}
-    .floatnum.crit{font-size:38px}
+    .floatnum.devastating{font-size:38px}
     @keyframes floatup{0%{opacity:0; translate:0 14px}15%{opacity:1}100%{opacity:0; translate:0 -40px}}
 
     /* deliberation interlude [the latency mask — every drawing side by side,
@@ -180,7 +180,7 @@
 
     /* narration log [spec §13: chat-style running log, newest at bottom;
        current beat bright + gold-bordered with typewriter, history dimmed;
-       round dividers; crit/KO/combo lines keep a gold tint; ~2-3 rounds
+       round dividers; DEVASTATING/KO/combo lines keep a gold tint; ~2-3 rounds
        visible behind a top fade mask; survives the deliberation interlude] */
     .beatcard{background:var(--card); border:4px solid var(--ink); border-radius:18px;
       padding:10px 16px; font-weight:800; display:flex; align-items:flex-end;
@@ -203,6 +203,14 @@
     .chip.color{background:var(--posit)}
     #nextBtn{background:var(--gold); color:var(--ink); border:3px solid var(--ink);
       border-radius:12px; font-family:'Titan One'; font-size:15px; padding:6px 14px}
+
+    /* damage readout [spec §13: one addition, one total; icons match the phone
+       buttons; reductions on their own line; zero terms omitted] */
+    .readout{display:none; flex-direction:column; gap:3px; align-items:center}
+    .readout.show{display:flex}
+    .rline{font-weight:900; font-size:15px; background:var(--card); border:3px solid var(--ink);
+      border-radius:12px; padding:3px 14px}
+    .rline.dim{font-size:13px; opacity:.75}
 
     /* tug-of-war meters [HP share + crowd favorite] */
     .meters{display:flex; flex-direction:column; gap:8px}
@@ -313,6 +321,7 @@
         <div id="beats"><span class="muted">Get ready…</span></div>
         <button id="nextBtn" class="hidden">Next ▶</button>
       </section>
+      <section class="readout" id="readout"></section>
       <section class="meters">
         <div class="meter"><span class="label">WHO'S<br>WINNING</span>
           <div><div class="rope"><span class="knot" id="knotHp">🪢</span></div>
@@ -509,7 +518,7 @@
     // ---- the narration log (chat-style, newest at bottom — spec §13) ----
     // The current beat types out in a bright gold-bordered card, then rolls up
     // into dimmed history when the next beat starts. Round dividers separate
-    // rounds; crit/KO/combo lines keep a gold tint so highlights stay findable;
+    // rounds; DEVASTATING/KO/combo lines keep a gold tint so highlights stay findable;
     // speaker chips persist so re-read banter still reads as dialogue. The log
     // stays visible during the deliberation interlude (the full transcript
     // persists server-side to snapshots/<room>/transcript.jsonl).
@@ -531,7 +540,7 @@
       cur.classList.remove('now');
     }
     function beatIsHighlight(b) {
-      return b.type === 'ko' || !!b.combo_name || (b.floats || []).some(f => f.crit);
+      return b.type === 'ko' || !!b.combo_name || b.result === 'devastating';
     }
     function addBeat(b) {
       finishCurrentBeat();
@@ -657,26 +666,41 @@
           arena.swapSprite(b.player_id, pngs[b.player_id]);
           arena.actUp(b.player_id, mult);
         }
-        (b.floats || []).forEach(f => arena.floatNumber(f.player_id, f.amount, f.kind, f.crit, mult));
+        (b.floats || []).forEach(f => arena.floatNumber(f.player_id, f.amount, f.kind, f.devastating, mult));
         if (b.hurt) arena.impact(b.hurt, 'hit', mult);
         if (b.helped) arena.impact(b.helped, 'helped', mult);
+        showReadout(b);
       }
+      // The §13 math lines under the arena. Server-formatted from engine terms,
+      // so they always agree with the HP bars.
+      function showReadout(b) {
+        const box = $('readout');
+        const lines = b.readout || [];
+        box.innerHTML = '';
+        lines.forEach((text, n) => {
+          const el = document.createElement('span');
+          el.className = 'rline' + (n ? ' dim' : '');   // reductions are secondary
+          el.textContent = text;
+          box.appendChild(el);
+        });
+        box.classList.toggle('show', lines.length > 0);
+      }
+      // v4 spike moments are creativity-driven, so replay/stingers key off the
+      // engine's attack RESULT (settings.yaml uses the same vocabulary).
       function wantsReplay(b) {
         if (!REPLAY_CFG.enabled) return false;
         const trig = REPLAY_CFG.triggers || [];
-        return (trig.includes('crit') && (b.floats || []).some(f => f.crit))
-            || (trig.includes('ko') && b.type === 'ko');
+        return (b.result && trig.includes(b.result)) || (trig.includes('ko') && b.type === 'ko');
       }
       // The beat's soundtrack: the move's clip plays as the beat lands, then a
       // stinger (settings.yaml events_sfx) staggered behind it. Stingers derive
-      // from engine event data (type/result/floats), never narration text.
+      // from engine event data (type/result), never narration text.
       function beatSfx(b) {
         if (b.sfx) audio.play(b.sfx);
         if (b.combo_name) audio.play(STING.combo, 120);
         if (b.type === 'ko') audio.play(STING.ko, 250);
         else if (b.type === 'sudden_death') audio.play(STING.sudden_death, 250);
-        else if ((b.floats || []).some(f => f.crit)) audio.play(STING.crit, 250);
-        else if (b.result === 'fumble') audio.play(STING.fumble, 250);
+        else if (b.result && STING[b.result]) audio.play(STING[b.result], 250);
       }
       function comboSplash(name) {
         const sp = $('comboSplash');
@@ -780,7 +804,7 @@
       $('overTitle').textContent = w
         ? '🏆 ' + (p.winner_team_name || teamNames[w] || w) + ' wins!'
         : 'It’s a draw!';
-      audio.play(STING.crit);   // crowd roar for the champions
+      audio.play(STING.devastating);   // crowd roar for the champions
       const awards = p.awards || [];
       let i = 0, timer = null, pending = null;
       function step(next) {

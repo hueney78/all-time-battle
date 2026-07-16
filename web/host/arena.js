@@ -149,13 +149,14 @@
       }, 1200 * m);
     }
 
-    // Floating combat number: red damage / green heal, crit oversized.
-    floatNumber(pid, amount, kind, crit, mult) {
+    // Floating combat number: red damage / green heal, DEVASTATING oversized.
+    floatNumber(pid, amount, kind, devastating, mult) {
       const s = this.sprites[pid]; if (!s) return;
       const ms = FLOAT_MS * (mult || 1);
       const n = document.createElement('span');
-      n.className = 'floatnum' + (kind === 'heal' ? ' heal' : '') + (crit ? ' crit' : '');
-      n.textContent = (kind === 'heal' ? '+' : '−') + amount + (crit ? '!' : '');
+      n.className = 'floatnum' + (kind === 'heal' ? ' heal' : '')
+                  + (devastating ? ' devastating' : '');
+      n.textContent = (kind === 'heal' ? '+' : '−') + amount + (devastating ? '!' : '');
       n.style.animationDuration = (ms / 1000) + 's';
       s.el.appendChild(n);
       setTimeout(() => n.remove(), ms);

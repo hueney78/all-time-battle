@@ -20,7 +20,7 @@
   --sky:#8FD0E8;
   --glitter:#E24FA0;        /* Team A */
   --thunder:#2F6FE0;        /* Team B */
-  --gold:#F2B233;           /* crit / crowns */
+  --gold:#F2B233;           /* DEVASTATING / crowns */
   --dmg:#E23D3D; --heal:#3FB65C; --posit:#6FD4F2;
   --card:#FFF9EC;
 }
@@ -107,16 +107,16 @@ h1,h2,.display{font-family:'Titan One',cursive;letter-spacing:.5px}
 @keyframes shake{25%{transform:translateX(-4px) rotate(-2deg)}75%{transform:translateX(4px) rotate(2deg)}}
 @keyframes pop{30%{transform:scale(1.14)}55%{transform:scale(1)}}
 
-/* floating combat numbers [spec: red dmg / green heal, crits oversized] */
+/* floating combat numbers [spec: red dmg / green heal, DEVASTATING oversized] */
 .floatnum{position:absolute;left:50%;top:-6px;transform:translateX(-50%);
   font-family:'Titan One';font-size:26px;color:var(--dmg);
   -webkit-text-stroke:1.5px #fff;animation:floatup 1.5s ease-out infinite;pointer-events:none}
 .floatnum.heal{color:var(--heal)}
-.floatnum.crit{font-size:36px;color:var(--dmg)}
+.floatnum.devastating{font-size:36px;color:var(--dmg)}
 @keyframes floatup{0%{opacity:0;translate:0 14px}15%{opacity:1}100%{opacity:0;translate:0 -34px}}
 
 /* ---------- NARRATION LOG [spec: running log; current beat highlighted,
-     history dimmed; round dividers; gold tint on crit/KO lines in history;
+     history dimmed; round dividers; gold tint on DEVASTATING/KO lines in history;
      stays visible during deliberation interlude; full transcript to snapshots] ---------- */
 .beatcard{background:var(--card);border:4px solid var(--ink);border-radius:18px;padding:8px 16px 10px;
   font-size:17px;font-weight:800;display:flex;flex-direction:column;gap:5px;
@@ -125,7 +125,7 @@ h1,h2,.display{font-family:'Titan One',cursive;letter-spacing:.5px}
   background:linear-gradient(var(--card),transparent);z-index:1;pointer-events:none} /* top fade mask */
 .beat{display:flex;gap:10px;align-items:baseline}
 .beat.old{opacity:.55;font-size:14px}
-.beat.old.highlight span{color:#8a6a12} /* crit/KO lines keep a gold tint in history */
+.beat.old.highlight span{color:#8a6a12} /* DEVASTATING/KO lines keep a gold tint in history */
 .beat.current{background:#fff;border:3px solid var(--gold);border-radius:12px;padding:5px 10px}
 .divider{text-align:center;font-size:11px;font-weight:900;opacity:.5;letter-spacing:.4px}
 .chip{flex:none;font-family:'Titan One';font-size:11px;border:2.5px solid var(--ink);
@@ -211,9 +211,9 @@ footer{grid-column:1/-1;font-size:11px;font-weight:700;opacity:.6;text-align:cen
           <div class="nametag">Princess Stabby</div>
           <div class="hpbar hp-low"><i style="width:8%"></i></div>
         </div>
-        <!-- Blob: damaged [red border + shake] + red crit float -->
+        <!-- Blob: damaged [red border + shake] + red DEVASTATING float -->
         <div class="fighter hit">
-          <span class="floatnum crit">−12!</span>
+          <span class="floatnum devastating">−12!</span>
           <svg viewBox="0 0 60 60"><path d="M10 34 Q14 12 34 14 Q52 16 50 34 Q48 50 30 50 Q12 50 10 34Z" fill="#B9E27A" stroke="#2B2338" stroke-width="3" stroke-dasharray="4 2"/><circle cx="22" cy="28" r="3" fill="#2B2338"/><circle cx="33" cy="24" r="3" fill="#2B2338"/><circle cx="42" cy="30" r="3" fill="#2B2338"/><path d="M20 42 Q30 47 42 42" stroke="#2B2338" stroke-width="2.5" fill="none" transform="rotate(180 31 44)"/></svg>
           <div class="nametag">The Blob of Doom</div>
           <div class="hpbar hp-low"><i style="width:10%"></i></div>
@@ -264,7 +264,7 @@ footer{grid-column:1/-1;font-size:11px;font-weight:700;opacity:.6;text-align:cen
 
 <footer>
   Mockup notes — “Glitter/Thunder” here are examples of AI-generated team names (labels read Team A/B until the intro reveal). Sprites have NO shadow/card (PNG bg blends into uniform sand floor); name bubbles sit ABOVE sprites. Configs demonstrated: arena_background · reveal_action_zoom_scale/seconds (Stabby) ·
-  impact borders (Blob = red+shake, Gerald = blue+pop) · float_number_seconds (crit oversized) ·
+  impact borders (Blob = red+shake, Gerald = blue+pop) · float_number_seconds (DEVASTATING oversized) ·
   initiative rail w/ stat strips (Lawnmower 💪 pulsing = montage change) · persistent action sprites ·
   speaker-tagged beats · HP + audience meters. Knot positions come from reveal_step meter values.
 </footer>
