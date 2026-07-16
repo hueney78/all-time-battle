@@ -83,7 +83,9 @@ class GalleryConfig(BaseModel):
 
 class InstantReplayConfig(BaseModel):
     enabled: bool = True
-    triggers: list[str] = ["crit", "ko"]
+    # Attack results worth replaying. "devastating" = a hit at creativity tier 3
+    # (v4's spike moment; there are no crits).
+    triggers: list[str] = ["devastating", "ko"]
     slowmo_factor: float = 2.0
 
 
@@ -96,13 +98,72 @@ class AudioConfig(BaseModel):
     pitch_variation: float = 0.10
     sfx_dir: str = "/static/host/assets/sfx"
     events_sfx: dict[str, str] = {
-        "crit": "crowd_roar",
-        "fumble": "sad_trombone",
+        "devastating": "crowd_roar",
+        "dodge": "whoosh",
+        "backfire": "sad_trombone",
         "ko": "ko_bell",
         "combo": "air_horn",
         "sudden_death": "drumroll",
         "replay": "replay",
     }
+
+
+class ReadoutConfig(BaseModel):
+    """The host's plain-language damage readout (GAME_DESIGN §13):
+
+        🎯 SHOOT → 🎲 3 + ⚡ Speed 5 + ⭐⭐ Creative 3 = 11 damage
+
+    Rules baked into the server-side builder: one addition and one total per
+    line, zero terms omitted, reductions on their own line (never a rewrite of
+    the first), and star count == the creativity tier.
+    """
+
+    enabled: bool = True
+    dice_icon: str = "🎲"
+    star_icon: str = "⭐"
+    creative_label: str = "Creative"
+    stat_icons: dict[str, str] = {"power": "💪", "speed": "⚡", "weird": "🌀"}
+    stat_labels: dict[str, str] = {"power": "Power", "speed": "Speed", "weird": "Weird"}
+    # Tier 3 swaps the star chip for a flourish.
+    devastating_chip: str = "⭐⭐⭐ DEVASTATING!"
+    damage_line: str = "{icon} {move} → {terms} = {total} damage"
+    heal_line: str = "{icon} {move} → {terms} = {total} healed"
+    # Reduction lines (second line, never a rewrite of the first).
+    shield_line: str = "🛡️ {shielder}'s shield blocks {blocked} → {total} damage gets through"
+    dodge_line: str = "💨 {target} dodges — no damage!"
+    reflect_line: str = "🛡️ {target}'s shield bounces {total} back at {attacker}!"
+    backfire_line: str = "🃏 {attacker}'s wild card backfires — {total} damage to themselves!"
+
+
+class HowToPlayConfig(BaseModel):
+    """Lobby rules copy (GAME_DESIGN §13). The host lobby shows the full panel
+    (steps + tips) beside the QR/room code; the player waiting screen shows the
+    same numbered steps condensed under "You're in!". Steps carry their own
+    number emoji so the copy is fully editable here with no numbering in code."""
+
+    title: str = "How to Play"
+    steps: list[str] = [
+        "1️⃣ Draw your fighter — the AI sizes it up, names it, and gives it stats.",
+        "2️⃣ Every round: TAP a move, PICK a target, then DRAW how your character does it.",
+        "3️⃣ Your drawing is your power — creative, funny drawings earn big bonuses.",
+        "4️⃣ Scheme with your teammate: drawings that work together trigger a COMBO.",
+        "5️⃣ Knock out the other team to win — and if you're KO'd, "
+        "you become a Gremlin and draw hazards!",
+    ]
+    tips: list[str] = [
+        "Weirder is better",
+        "Watch the Initiative Order — fast fighters act first.",
+    ]
+
+
+class StandsConfig(BaseModel):
+    """The Doodle Crowd stands (GAME_DESIGN §15). The host receives the full
+    gallery roster (up to gallery.cap) and shows a rotating handful of them as
+    tiny spectators in the colosseum stands. These knobs are pure presentation
+    (how many at once, how often the visible set rotates)."""
+
+    max: int = 14              # spectators visible at once (0 disables the stands)
+    rotate_seconds: float = 12.0   # how often the visible handful is reshuffled (0 = never)
 
 
 class UIConfig(BaseModel):
@@ -134,6 +195,9 @@ class UIConfig(BaseModel):
     float_number_seconds: float = 1.5
     audience_recent_rounds: int = 3
     combo_splash_seconds: float = 2.0
+    how_to_play: HowToPlayConfig = HowToPlayConfig()
+    stands: StandsConfig = StandsConfig()
+    readout: ReadoutConfig = ReadoutConfig()
     instant_replay: InstantReplayConfig = InstantReplayConfig()
     audio: AudioConfig = AudioConfig()
 
@@ -159,34 +223,34 @@ def load_settings(config_dir: Path | None = None) -> Settings:
 
 
 class Balance(BaseModel):
-    # HP formula: HP = hp_base + hp_per_power * Power
-    hp_base: int = 20
+    # HP formula: HP = hp_base + hp_per_power * Power + hp_per_weird * Weird
+    hp_base: int = 28
     hp_per_power: int = 2
-    # AC formula: AC = ac_base + Speed
-    ac_base: int = 10
+    hp_per_weird: int = 1
     # Stat budget — AI distributes stats summing to this
     stat_budget: int = 9
     stat_min: int = 0
     stat_max: int = 6
-    # Degrees of success (2d6): crit on natural 12 or beating AC by crit_margin;
-    # fumble on natural 2 (a move's fumble_on_roll_lte can widen the band).
-    crit_margin: int = 5
-    crit_damage_mult: float = 2.0
-    fumble_self_damage: int = 3
-    # Creativity bonuses (added to the 2d6 roll)
+    # COMBAT V4: no AC, no attack roll — every selected move lands. Dodge is the
+    # only thing that negates a hit: dodge_per_speed * Speed, capped at dodge_cap.
+    dodge_per_speed: float = 0.05
+    dodge_cap: float = 0.30
+    # WILD CARD's backfire — the only self-damage (chance is on the move itself)
+    wild_backfire_damage: str = "2d4"
+    # Creativity bonuses (added directly to the effect — there is no roll)
     creativity_tier_0: int = 0
     creativity_tier_1: int = 1
-    creativity_tier_2: int = 2
-    creativity_tier_3: int = 4
-    # Combo rules — both partners gain this on their own rolls (no fusion)
-    combo_bonus: int = 2
+    creativity_tier_2: int = 3
+    creativity_tier_3: int = 5
+    # Combo rules — both partners gain this many creativity TIERS (no fusion)
+    combo_tier_bonus: int = 1
     # Rubber-banding
     underdog_enabled: bool = True
     underdog_hp_share_threshold: int = 2
-    underdog_attack_bonus: int = 1
+    underdog_damage_bonus: int = 1
     # Sudden death
     max_rounds: int = 12
-    sudden_death_attack_bonus: int = 2
+    sudden_death_damage_bonus: int = 2
 
 
 def load_balance(config_dir: Path | None = None) -> Balance:
@@ -200,12 +264,15 @@ def load_balance(config_dir: Path | None = None) -> Balance:
 
 
 class ZoneModifiers(BaseModel):
+    """Zone riders the resolver reads generically (GAME_DESIGN §6). COMBAT V4
+    has no AC, so the v2 `attack_bonus`/`ac_bonus`/`ranged_ac_bonus` keys are
+    gone — a zone's edge is damage or dodge now."""
+
     model_config = {"extra": "allow"}
-    attack_bonus: int = 0
-    ac_bonus: int = 0
-    ranged_ac_bonus: int = 0
-    damage_bonus: int = 0
-    speed_penalty: int = 0
+    damage_bonus: int = 0            # flat damage on hits made FROM this zone
+    incoming_damage_bonus: int = 0   # flat damage on hits landing IN this zone
+    dodge_bonus: float = 0.0         # added to occupants' dodge chance
+    incoming_dodge_penalty: float = 0.0   # subtracted from it
 
 
 class ZoneDef(BaseModel):
@@ -242,29 +309,36 @@ def load_zones(config_dir: Path | None = None) -> ZonesConfig:
 
 
 class MoveDef(BaseModel):
-    """One COMBAT V2 move (GAME_DESIGN §4.1). The catalog owns all math;
-    formulas may reference POW/SPD/WRD (see engine/dice.py)."""
+    """One COMBAT V4 move (GAME_DESIGN §4.1). The catalog owns all math;
+    formulas may reference POW/SPD/WRD (see engine/dice.py) but never spell out
+    creativity — the resolver adds that to every damage/heal as a system rule."""
 
     model_config = {"extra": "allow"}
-    stat: str = "none"       # attack-roll stat: "power" | "speed" | "weird" | "none"
+    # Headline stat — the term the host readout prints and the phone keys off.
+    # "power" | "speed" | "weird" | "max(speed,weird)" | "none". Not a roll:
+    # COMBAT V4 has no attack roll.
+    stat: str = "none"
     range: str = "same_zone"  # "same_zone" | "any"
     # "single_enemy" | "zone_all" | "ally_or_self" | "zone_allies" | "self"
     target: str = "single_enemy"
-    damage: str | None = None     # formula, e.g. "(1 + ceil(POW/2))d4 + 2"
-    heal: str | None = None       # formula, may reference CRE (creativity bonus)
+    damage: str | None = None     # formula, e.g. "2d4 + max(SPD,WRD)"
+    heal: str | None = None       # formula, e.g. "2d6 + 2*WRD + 2"
     same_zone_penalty: str | None = None  # "half" → point-blank damage halved (round up)
-    # Round-scoped defensive buff: SHIELD's +4 to its zone_allies, movement's
-    # +1 dodge. Lasts from when the move resolves until end of round.
-    ac_bonus: int = 0
-    # SHIELD reflect: attacks missing a shielded target by reflect_miss_margin+
-    # deal reflect_damage back to the attacker (0/"" disables).
-    reflect_miss_margin: int = 0
-    reflect_damage: str = ""
+    # SHIELD: flat mitigation formula subtracted from each incoming hit to the
+    # caster's zone allies this round, then reflect_chance_per_power * POW
+    # chance to bounce the mitigated amount back at the attacker.
+    mitigate: str = ""
+    reflect_chance_per_power: float = 0.0
     friendly_fire: bool = False
     auto_step: bool = False       # SMASH: no enemy in zone → step toward target
-    fumble_on_roll_lte: int | None = None     # WILD: natural 2d6 <= this fumbles
+    backfire_chance: float = 0.0  # WILD: chance the move turns on its caster
+    # WILD CARD: the one move where the AI reads the drawing freely and whatever
+    # it sees becomes the flavor (GAME_DESIGN §9). Declared, not inferred from
+    # another rider, so a second chaotic move can't accidentally inherit it.
+    ai_interprets: bool = False
     move: int = 0                 # absolute zone steps (◀ = -1, ▶ = +1)
     button: str = ""              # phone button label
+    icon: str = ""                # emoji shown on the host readout line (§13)
     desc: str = ""
     sfx: str = ""                 # host sound clip (web/host/assets/sfx/<sfx>.wav)
 

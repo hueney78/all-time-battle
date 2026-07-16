@@ -155,7 +155,7 @@ def build_classified_actions(
             continue
 
         wild = None
-        if move is not None and move.fumble_on_roll_lte is not None and a.wild_interpretation:
+        if move is not None and move.ai_interprets and a.wild_interpretation:
             wild = WildInterpretation(description=a.wild_interpretation.description or "")
 
         ca = ClassifiedAction(

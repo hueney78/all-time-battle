@@ -81,7 +81,7 @@ class MatchSummary:
     # {player_id, name, team_id, alive}
     players: list[dict] = field(default_factory=list)
     creativity: dict[str, int] = field(default_factory=dict)   # pid → total tiers
-    fumbles: dict[str, int] = field(default_factory=dict)      # pid → fumble count
+    backfires: dict[str, int] = field(default_factory=dict)    # pid → WILD backfire count
     combos: list[dict] = field(default_factory=list)           # {combo_name, partners}
     round_titles: list[str] = field(default_factory=list)
     best_line: str = ""
@@ -145,6 +145,7 @@ class AIProvider(Protocol):
     def narrate_round(
         self, events: list[Event], characters: dict[str, Character],
         gallery_names: list[str] | None = None,
+        zone_names: dict[str, str] | None = None,
     ) -> Narration: ...
 
     def generate_awards(self, summary: MatchSummary) -> list[Award]: ...
@@ -163,7 +164,7 @@ _MOCK_PERSONALITIES = [
 ]
 # Affectionate superlatives (GAME_DESIGN §10.2) — celebrate the comedy, never mock.
 _AWARD_TITLES = [
-    "Most Creative Doodle", "Fumble of the Match", "Best Combo Name",
+    "Most Creative Doodle", "Backfire of the Match", "Best Combo Name",
     "Crowd Favorite", "Bravest Use of a Household Object", "Heart of a Champion",
 ]
 
@@ -212,7 +213,14 @@ class MockAI:
             png = (sub.png_base64 if sub else "").strip()
             # A blank canvas (auto-submit) still resolves the tapped move — at
             # creativity 0, narrated as maximum-confidence minimum-effort (§9).
-            creativity = random.Random(f"crea:{pid}").randint(0, 2) if png else 0
+            # Seeded by round as well as player so tiers VARY across the match and
+            # span the full 0–3: in v4 creativity is the drawing's entire
+            # mechanical contribution, and tier 3 is the DEVASTATING beat that
+            # drives the replay/stinger/gold-log presentation. A mock game that
+            # never rolls a 3 leaves all of that unreachable without an API key.
+            creativity = (
+                random.Random(f"crea:{pid}:{round_num}").randint(0, 3) if png else 0
+            )
             actions.append(ClassifiedAction(
                 player_id=pid, move_id=move_id, target_id=target_id,
                 creativity_tier=creativity,
@@ -260,10 +268,11 @@ class MockAI:
     def narrate_round(
         self, events: list[Event], characters: dict[str, Character],
         gallery_names: list[str] | None = None,
+        zone_names: dict[str, str] | None = None,
     ) -> Narration:
         beats: list[Beat] = []
         for ev in events:
-            text = _beat_text(ev, characters)
+            text = _beat_text(ev, characters, zone_names)
             if text:
                 beats.append(Beat(event_id=ev.id, text=text, speaker=_mock_speaker(ev)))
         if not beats:
@@ -318,19 +327,21 @@ def _mock_round_title(events: list[Event]) -> str:
     results = {e.data.get("result") for e in events if e.type.value == "attack_resolved"}
     if "ko" in kinds:
         return "Someone Hits the Sand"
-    if "crit" in results:
-        return "Critical Chaos"
-    if "fumble" in results:
+    if "devastating" in results:
+        return "Absolutely Devastating"
+    if "backfire" in results:
         return "A Comedy of Errors"
+    if "dodge" in results:
+        return "Not Even There"
     return "The Doodles Circle"
 
 
 def _mock_speaker(ev: Event) -> str:
     """Split beats between the two announcers so both voices show up every round:
-    the deadpan color commentator handles the whiffs, fizzles, and dry asides;
+    the deadpan color commentator handles the dodges, backfires, and dry asides;
     the play-by-play announcer calls the big swings."""
     t = ev.type.value
-    if t == "attack_resolved" and ev.data.get("result") in ("miss", "fumble"):
+    if t == "attack_resolved" and ev.data.get("result") in ("dodge", "backfire"):
         return "color"
     if t in ("gremlin_hazard", "stumble"):
         return "color"
@@ -343,21 +354,23 @@ def _name(pid: str | None, characters: dict[str, Character]) -> str:
     return "Someone"
 
 
-def _beat_text(ev: Event, characters: dict[str, Character]) -> str:
+def _beat_text(ev: Event, characters: dict[str, Character],
+               zone_names: dict[str, str] | None = None) -> str:
     t = ev.type.value
     who = _name(ev.player_id, characters)
     whom = _name(ev.target_id, characters)
     d = ev.data
+    zn = zone_names or {}
     if t == "attack_resolved":
         res = d.get("result")
-        if res == "crit":
-            return f"{who} lands a spectacular hit on {whom} for {d.get('damage', 0)}!"
+        if res == "devastating":
+            return f"{who} lands an absolutely devastating blow on {whom} for {d.get('damage', 0)}!"
         if res == "hit":
             return f"{who} tags {whom} for {d.get('damage', 0)}."
-        if res == "miss":
-            return f"{who} swings at {whom} and whiffs."
-        if res == "fumble":
-            return f"{who} fumbles catastrophically and hurts themselves."
+        if res == "dodge":
+            return f"{whom} blurs sideways and {who}'s attack sails past."
+        if res == "backfire":
+            return f"{who}'s wild card goes off in their own hands."
         if res == "reflect":
             return f"{who}'s shield flings the blow back at {whom} for {d.get('damage', 0)}!"
         if res == "out_of_reach":
@@ -369,7 +382,8 @@ def _beat_text(ev: Event, characters: dict[str, Character]) -> str:
         return f"{who} is knocked out and becomes an Arena Gremlin!"
     if t == "gremlin_hazard":
         hz = str(d.get("hazard_id", "something")).replace("_", " ")
-        return f"{who} the Gremlin drops {hz} on {d.get('zone', 'the arena')}!"
+        zone = zn.get(d.get("zone"), d.get("zone", "the arena"))
+        return f"{who} the Gremlin drops {hz} on {zone}!"
     if t == "shielded":
         n = len(d.get("protected", []))
         return f"{who} raises a shield over the whole zone ({n} covered)!"

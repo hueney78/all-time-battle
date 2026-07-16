@@ -52,6 +52,48 @@
       }
     }
 
+    // -- the Doodle Crowd: rotating spectators in the stands (GAME_DESIGN §15) --
+    // The host receives the full gallery roster once (bootstrap message); we show
+    // a shuffled handful and reshuffle every stands.rotate_seconds. Purely
+    // cosmetic — the stands band sits ABOVE the zones so it never obscures the
+    // battlefield. Spectators need a drawing, so png-less entries are skipped.
+    setSpectators(list) {
+      this._roster = (list || []).filter(e => e && e.png);
+      if (!this._stands) {
+        this._stands = document.createElement('div');
+        this._stands.className = 'stands';
+        this.root.appendChild(this._stands);
+      }
+      clearInterval(this._standsTimer);
+      const cfg = CFG.stands || {};
+      this._standsMax = cfg.max == null ? 14 : cfg.max;
+      this._drawStands();
+      const every = (cfg.rotate_seconds || 0) * 1000;
+      if (every > 0 && this._roster.length > this._standsMax) {
+        this._standsTimer = setInterval(() => this._drawStands(), every);
+      }
+    }
+
+    _drawStands() {
+      if (!this._stands) return;
+      const pool = (this._roster || []).slice();
+      for (let i = pool.length - 1; i > 0; i--) {        // Fisher–Yates shuffle
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool[i], pool[j]] = [pool[j], pool[i]];
+      }
+      const show = pool.slice(0, Math.max(0, this._standsMax || 0));
+      this._stands.innerHTML = '';
+      show.forEach((e, i) => {
+        const s = document.createElement('div');
+        s.className = 'spectator';
+        s.style.backgroundImage = 'url(' + e.png + ')';
+        s.style.setProperty('--team', e.team_id === 'team_b' ? '#2F6FE0' : '#E24FA0');
+        s.style.animationDelay = (i * 0.18).toFixed(2) + 's';   // staggered idle bob
+        if (e.name) s.title = e.name;
+        this._stands.appendChild(s);
+      });
+    }
+
     // chars: {player_id,name,zone_id,hp,max_hp,team_id,is_ko,png,sprite_png}
     render(chars) {
       if (!this.zoneIds.length) return;
@@ -149,13 +191,14 @@
       }, 1200 * m);
     }
 
-    // Floating combat number: red damage / green heal, crit oversized.
-    floatNumber(pid, amount, kind, crit, mult) {
+    // Floating combat number: red damage / green heal, DEVASTATING oversized.
+    floatNumber(pid, amount, kind, devastating, mult) {
       const s = this.sprites[pid]; if (!s) return;
       const ms = FLOAT_MS * (mult || 1);
       const n = document.createElement('span');
-      n.className = 'floatnum' + (kind === 'heal' ? ' heal' : '') + (crit ? ' crit' : '');
-      n.textContent = (kind === 'heal' ? '+' : '−') + amount + (crit ? '!' : '');
+      n.className = 'floatnum' + (kind === 'heal' ? ' heal' : '')
+                  + (devastating ? ' devastating' : '');
+      n.textContent = (kind === 'heal' ? '+' : '−') + amount + (devastating ? '!' : '');
       n.style.animationDuration = (ms / 1000) + 's';
       s.el.appendChild(n);
       setTimeout(() => n.remove(), ms);

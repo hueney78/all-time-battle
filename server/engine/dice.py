@@ -1,16 +1,20 @@
-"""Seeded RNG wrapper + the COMBAT V2 damage-formula evaluator.
+"""Seeded RNG wrapper + the COMBAT V4 damage-formula evaluator.
 
 Usage:
     rng = Dice(seed=42)
-    atk  = rng.two_d6()                     # 2–12 (the v2 attack roll)
     dmg  = rng.roll("2d6")                  # plain dice specs
-    dmg2 = rng.roll_formula("(1 + ceil(POW/2))d4 + 2", stats)   # catalog formulas
+    dmg2 = rng.roll_formula("2d4 + max(SPD,WRD)", stats)   # catalog formulas
+    hit  = not rng.chance(0.15)             # seeded probability check
+
+COMBAT V4 has no attack roll, so there is no `two_d6`: the only probability
+checks left are dodge, SHIELD's reflect, and WILD CARD's backfire — all of
+which go through `chance()`.
 
 Formulas come straight from config/moves.yaml and may reference the acting
-character's POW / SPD / WRD plus ceil(x/y) / floor(x/y) and integer arithmetic —
-e.g. "(1 + ceil(POW/2))d4 + 2", "1d6 + WRD", "2d8 + floor(WRD/2)".
-`describe_formula` renders the same formula as the live math shown on the
-phone's move buttons ("4d4+2" on the brick's phone).
+character's POW / SPD / WRD plus ceil(x/y) / floor(x/y) / max(a,b) / min(a,b)
+and integer arithmetic — e.g. "2d4 + POW + 2", "2d4 + max(SPD,WRD)",
+"2d6 + 2*WRD + 2". `describe_formula` renders the same formula as the live math
+shown on the phone's move buttons ("2d4+8" on the brick's phone).
 """
 
 from __future__ import annotations
@@ -25,8 +29,8 @@ from typing import TypeVar
 T = TypeVar("T")
 
 # The die token: a lowercase 'd' followed by the number of sides. Stat names
-# (POW/SPD/WRD) and functions (ceil/floor) contain no lowercase d-digit pair,
-# so the first match splits "<count-expr> d<sides> <+/- mod-expr>" reliably.
+# (POW/SPD/WRD) and functions (ceil/floor/max/min) contain no lowercase d-digit
+# pair, so the first match splits "<count-expr> d<sides> <+/- mod-expr>" reliably.
 _DIE_RE = re.compile(r"d(\d+)")
 
 _ALLOWED_NODES = (
@@ -34,7 +38,7 @@ _ALLOWED_NODES = (
     ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.USub, ast.UAdd,
     ast.Load,
 )
-_ALLOWED_FUNCS = {"ceil": math.ceil, "floor": math.floor}
+_ALLOWED_FUNCS = {"ceil": math.ceil, "floor": math.floor, "max": max, "min": min}
 
 
 def _eval_expr(expr: str, stats: dict[str, int]) -> int:
@@ -60,7 +64,7 @@ def _eval_expr(expr: str, stats: dict[str, int]) -> int:
         if isinstance(node, ast.Name):
             return stats[node.id]
         if isinstance(node, ast.Call):
-            return _ALLOWED_FUNCS[node.func.id](ev(node.args[0]))
+            return _ALLOWED_FUNCS[node.func.id](*[ev(a) for a in node.args])
         if isinstance(node, ast.UnaryOp):
             v = ev(node.operand)
             return -v if isinstance(node.op, ast.USub) else +v
@@ -95,6 +99,17 @@ def _parse_formula(spec: str, stats: dict[str, int]) -> tuple[int, int, int]:
     return count, sides, mod
 
 
+def formula_parts(spec: str, stats: dict[str, int]) -> tuple[int, int, int]:
+    """Resolve a formula for one character → (dice_count, sides, flat_mod).
+
+    Public because the host readout (GAME_DESIGN §13) has to split a rolled
+    result back into "🎲 3 + ⚡ Speed 5 + …": subtracting flat_mod from the
+    rolled total recovers the dice portion, and re-resolving with the move's
+    stat zeroed separates the stat term from the move's own constant.
+    """
+    return _parse_formula(spec, stats)
+
+
 def describe_formula(spec: str, stats: dict[str, int]) -> str:
     """Render a formula as one character's live math, e.g. '4d4+2' — the label
     shown on the phone's move buttons."""
@@ -116,9 +131,19 @@ class Dice:
     def seed(self) -> int:
         return self._seed
 
-    def two_d6(self) -> int:
-        """The COMBAT V2 attack roll: 2d6, a bell curve where every +1 counts."""
-        return self._rng.randint(1, 6) + self._rng.randint(1, 6)
+    def chance(self, p: float) -> bool:
+        """A seeded probability check — True with probability `p`.
+
+        COMBAT V4's only random gates: dodge (5%×Speed), SHIELD's reflect
+        (10%×POW), and WILD CARD's backfire (15%). p<=0 never fires and p>=1
+        always does, both WITHOUT consuming a draw, so a Speed-0 character's
+        dodge check can't shift the dice stream for everyone behind them.
+        """
+        if p <= 0:
+            return False
+        if p >= 1:
+            return True
+        return self._rng.random() < p
 
     def roll(self, spec: str) -> int:
         """Roll a plain dice spec: 'd8', '2d6', 'd4', 'none' → 0."""

@@ -210,14 +210,17 @@ class LiveAI:
     def narrate_round(
         self, events: list[Event], characters: dict[str, Character],
         gallery_names: list[str] | None = None,
+        zone_names: dict[str, str] | None = None,
     ) -> Narration:
-        content = [{"type": "text", "text": _narration_text(events, characters, gallery_names)}]
+        content = [{"type": "text",
+                    "text": _narration_text(events, characters, gallery_names,
+                                            zone_names)}]
         parsed = self._call_tool(
             self._sys_narrate, content, S.NarrateResponse,
             "submit_narration", self.ai.narrate_model,
         )
         if parsed is None:
-            return _fallback_narration(events, characters)
+            return _fallback_narration(events, characters, zone_names)
         return V.build_narration(parsed, {e.id for e in events})
 
     def generate_awards(self, summary: MatchSummary) -> list[Award]:
@@ -344,16 +347,29 @@ def _roster_text(state: GameState, round_num: int) -> str:
 
 
 def _narration_text(events: list[Event], characters: dict[str, Character],
-                    gallery_names: list[str] | None = None) -> str:
+                    gallery_names: list[str] | None = None,
+                    zone_names: dict[str, str] | None = None) -> str:
     def nm(pid):
         return characters[pid].name if pid and pid in characters else "someone"
+    # Zone ids (glitter_back, …) are internal — translate every zone field to
+    # its display name (team backlines carry the AI team name) so the
+    # announcers never parrot an id on air.
+    zn = zone_names or {}
+
+    def zdata(data: dict) -> dict:
+        out = dict(data)
+        for key in ("from", "to", "zone"):
+            if out.get(key) in zn:
+                out[key] = zn[out[key]]
+        return out
+
     who = "; ".join(f"{c.name}: {c.personality}" for c in characters.values() if c.personality)
     lines = [f"Fighters — {who}", "",
              "Resolved events (narrate these; tag each beat with its event_id):"]
     for e in events:
         lines.append(json.dumps({
             "event_id": e.id, "type": e.type.value,
-            "actor": nm(e.player_id), "target": nm(e.target_id), "data": e.data,
+            "actor": nm(e.player_id), "target": nm(e.target_id), "data": zdata(e.data),
         }))
     if gallery_names:
         lines += ["", "Spectators in the stands (past fighters — you MAY cameo one): "
@@ -369,7 +385,7 @@ def _awards_text(summary: MatchSummary) -> str:
         lines.append(
             f"- {p.get('name', pid)} ({pid}) team={p.get('team_id')} "
             f"alive={p.get('alive')} creativity={summary.creativity.get(pid, 0)} "
-            f"fumbles={summary.fumbles.get(pid, 0)}"
+            f"backfires={summary.backfires.get(pid, 0)}"
         )
     combo_names = [c.get("combo_name", "") for c in summary.combos if c.get("combo_name")]
     if combo_names:
@@ -381,9 +397,10 @@ def _awards_text(summary: MatchSummary) -> str:
     return "\n".join(lines)
 
 
-def _fallback_narration(events: list[Event], characters: dict[str, Character]) -> Narration:
+def _fallback_narration(events: list[Event], characters: dict[str, Character],
+                        zone_names: dict[str, str] | None = None) -> Narration:
     beats = [Beat(event_id=e.id, text=t, speaker=_mock_speaker(e))
-             for e in events if (t := _beat_text(e, characters))]
+             for e in events if (t := _beat_text(e, characters, zone_names))]
     if not beats:
         beats = [Beat(event_id="filler", text="The crowd blinks. Something happened, probably.")]
     return Narration(beats=beats, round_title=_mock_round_title(events))

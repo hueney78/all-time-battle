@@ -36,19 +36,20 @@ def test_unknown_zone_raises():
 
 def test_modifier_default_zero():
     reg = ZoneRegistry()
-    assert reg.modifier("frontline", "attack_bonus") == 0
-    assert reg.modifier("frontline", "ranged_ac_bonus") == 0
+    assert reg.modifier("frontline", "damage_bonus") == 0
+    assert reg.modifier("frontline", "incoming_dodge_penalty") == 0
 
 
-def test_high_ground_modifiers(tmp_path, monkeypatch):
-    """High Ground zone exposes attack_bonus and ranged_ac_bonus modifiers."""
-    import server.config as cfg_mod
-
-    zones_data = {
+def _high_ground_zones() -> dict:
+    """The GAME_DESIGN §6 High Ground block, on v4's modifier keys."""
+    return {
         "zones": [
-            {"id": "glitter_back", "name": "A", "adjacent": ["frontline"], "tags": [], "modifiers": {}},
-            {"id": "frontline", "name": "Pit", "adjacent": ["glitter_back", "thunder_back"], "tags": [], "modifiers": {}},
-            {"id": "thunder_back", "name": "B", "adjacent": ["frontline"], "tags": [], "modifiers": {}},
+            {"id": "glitter_back", "name": "A", "adjacent": ["frontline"],
+             "tags": [], "modifiers": {}},
+            {"id": "frontline", "name": "Pit",
+             "adjacent": ["glitter_back", "thunder_back"], "tags": [], "modifiers": {}},
+            {"id": "thunder_back", "name": "B", "adjacent": ["frontline"],
+             "tags": [], "modifiers": {}},
             {
                 "id": "high_ground",
                 "name": "High Ground",
@@ -57,9 +58,9 @@ def test_high_ground_modifiers(tmp_path, monkeypatch):
                 "entry_cost": 2,
                 "tags": ["elevated"],
                 "modifiers": {
-                    "attack_bonus": 1,
-                    "ranged_ac_bonus": 1,
-                    "fumble_extra": "prone",
+                    "damage_bonus": 1,
+                    "incoming_dodge_penalty": 0.10,
+                    "some_future_key": "prone",
                 },
             },
         ],
@@ -69,16 +70,62 @@ def test_high_ground_modifiers(tmp_path, monkeypatch):
             "move_buttons": ["move_l", "move_r"],
         },
     }
-    (tmp_path / "zones.yaml").write_text(yaml.dump(zones_data))
+
+
+def test_high_ground_modifiers(tmp_path, monkeypatch):
+    """High Ground exposes v4's damage/dodge modifiers — the "zero Python"
+    test. v4 has no AC, so `attack_bonus`/`ranged_ac_bonus` are gone."""
+    import server.config as cfg_mod
+
+    (tmp_path / "zones.yaml").write_text(yaml.dump(_high_ground_zones()))
     monkeypatch.setattr(cfg_mod, "CONFIG_DIR", tmp_path)
 
     reg = ZoneRegistry()
     assert "high_ground" in reg
-    assert reg.modifier("high_ground", "attack_bonus") == 1
-    assert reg.modifier("high_ground", "ranged_ac_bonus") == 1
-    assert reg.get("high_ground").modifiers.fumble_extra == "prone"
+    assert reg.modifier("high_ground", "damage_bonus") == 1
+    assert reg.modifier("high_ground", "incoming_dodge_penalty") == 0.10
+    # Unknown keys still load (extra="allow") rather than failing the room.
+    assert reg.get("high_ground").modifiers.some_future_key == "prone"
     assert reg.get("high_ground").entry_cost == 2
     assert reg.get("high_ground").capacity == 2
+
+
+def test_high_ground_modifiers_actually_reach_the_resolver(tmp_path, monkeypatch):
+    """The modifiers must change resolution, not just load — otherwise "adding
+    High Ground is a YAML-only change" is a claim nothing checks."""
+    import shutil
+
+    import server.config as cfg_mod
+    from server.config import load_balance
+    from server.engine.dice import Dice
+    from server.engine.models import Character, ClassifiedAction, GameState, Stats, Team
+    from server.engine.resolver import resolve_round
+
+    # The resolver loads the whole rule bundle — only zones.yaml is overridden.
+    for f in ("moves.yaml", "hazards.yaml", "balance.yaml"):
+        shutil.copy(f"config/{f}", tmp_path / f)
+    (tmp_path / "zones.yaml").write_text(yaml.dump(_high_ground_zones()))
+    monkeypatch.setattr(cfg_mod, "CONFIG_DIR", tmp_path)
+    cfg = load_balance()
+
+    def run(attacker_zone: str) -> int:
+        def ch(pid, zone, speed):
+            return Character(player_id=pid, name=pid,
+                             stats=Stats(power=2, speed=speed, weird=0),
+                             hp=40, max_hp=40, zone_id=zone)
+        state = GameState(
+            room_id="T", round=1,
+            characters={"atk": ch("atk", attacker_zone, 4), "def": ch("def", "frontline", 0)},
+            teams=[Team(id="a", name="A", color="p", player_ids=["atk"]),
+                   Team(id="b", name="B", color="b", player_ids=["def"])],
+        )
+        actions = [ClassifiedAction(player_id="atk", move_id="shoot", target_id="def")]
+        result = resolve_round(state, actions, Dice(seed=5), cfg)
+        return next(e for e in result.events
+                    if e.data.get("move_id") == "shoot").data["damage"]
+
+    # Same seed, same dice: shooting FROM the high ground adds its damage_bonus.
+    assert run("high_ground") - run("glitter_back") == 1
 
 
 def test_all_ids_sorted():

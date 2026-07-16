@@ -34,6 +34,20 @@
     #startBtn{font-family:'Titan One'; font-size:1.5rem; padding:1rem 2.4rem;
       background:var(--gold); color:var(--ink); border:4px solid var(--ink); border-radius:16px}
     #startBtn:disabled{opacity:.45}
+    /* lobby "How to Play" panel [spec §13] — beside the QR/room code */
+    .lobbygrid{display:flex; gap:34px; justify-content:center; align-items:flex-start;
+      flex-wrap:wrap; margin-top:2vh}
+    .joincol{display:flex; flex-direction:column; align-items:center}
+    .howto{max-width:440px; text-align:left; background:var(--card);
+      border:4px solid var(--ink); border-radius:18px; padding:16px 24px;
+      box-shadow:7px 7px 0 var(--ink)}
+    .howto h2{font-size:1.5rem; margin:0 0 12px; text-align:center}
+    .howto ul{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:10px}
+    .howto li{font-size:1.08rem; font-weight:700; line-height:1.3}
+    .howto .tips{margin-top:16px; border-top:3px dashed #00000026; padding-top:12px;
+      display:flex; flex-direction:column; gap:7px}
+    .howto .tip{font-size:1.05rem; font-weight:800}
+    .howto .tip::before{content:"💡 "}
 
     /* ---- stage ---- */
     #stage{display:none; grid-template-columns:180px 1fr; gap:14px; align-items:start}
@@ -79,6 +93,15 @@
       background-size:60px 58px; opacity:.55}
     .arena.custombg{background:#0000 center/cover no-repeat}
     .arena.custombg::before{display:none}
+    /* the Doodle Crowd [spec §15]: tiny spectators in the stands band, above
+       the zones so they never obscure the battlefield */
+    .stands{position:absolute; top:4px; left:0; right:0; height:82px; z-index:0;
+      pointer-events:none; display:flex; flex-wrap:wrap; align-content:flex-start;
+      justify-content:center; gap:5px 10px; padding:6px 22px 0; overflow:hidden}
+    .spectator{width:34px; height:34px; flex:none; background:center/contain no-repeat;
+      opacity:.9; border-bottom:3px solid var(--team, #999); border-radius:3px;
+      animation:bob 2.6s ease-in-out infinite}
+    @keyframes bob{50%{transform:translateY(-4px)}}
     .zones{position:absolute; inset:96px 0 0 0; display:grid; grid-template-columns:1fr 1.15fr 1fr}
     .zone{position:relative; border-left:3px dashed #00000022; display:flex;
       align-items:flex-end; justify-content:center; gap:20px; padding-bottom:16px}
@@ -116,12 +139,12 @@
     @keyframes shake{25%{transform:translateX(-4px) rotate(-2deg)}75%{transform:translateX(4px) rotate(2deg)}}
     @keyframes pop{30%{transform:scale(1.14)}55%{transform:scale(1)}}
 
-    /* floating combat numbers [red dmg / green heal, crit oversized] */
+    /* floating combat numbers [red dmg / green heal, DEVASTATING oversized] */
     .floatnum{position:absolute; left:50%; top:-6px; transform:translateX(-50%);
       font-family:'Titan One'; font-size:26px; color:var(--dmg);
       -webkit-text-stroke:1.5px #fff; animation:floatup 1.5s ease-out forwards; pointer-events:none}
     .floatnum.heal{color:var(--heal)}
-    .floatnum.crit{font-size:38px}
+    .floatnum.devastating{font-size:38px}
     @keyframes floatup{0%{opacity:0; translate:0 14px}15%{opacity:1}100%{opacity:0; translate:0 -40px}}
 
     /* deliberation interlude [the latency mask — every drawing side by side,
@@ -180,7 +203,7 @@
 
     /* narration log [spec §13: chat-style running log, newest at bottom;
        current beat bright + gold-bordered with typewriter, history dimmed;
-       round dividers; crit/KO/combo lines keep a gold tint; ~2-3 rounds
+       round dividers; DEVASTATING/KO/combo lines keep a gold tint; ~2-3 rounds
        visible behind a top fade mask; survives the deliberation interlude] */
     .beatcard{background:var(--card); border:4px solid var(--ink); border-radius:18px;
       padding:10px 16px; font-weight:800; display:flex; align-items:flex-end;
@@ -204,6 +227,14 @@
     #nextBtn{background:var(--gold); color:var(--ink); border:3px solid var(--ink);
       border-radius:12px; font-family:'Titan One'; font-size:15px; padding:6px 14px}
 
+    /* damage readout [spec §13: one addition, one total; icons match the phone
+       buttons; reductions on their own line; zero terms omitted] */
+    .readout{display:none; flex-direction:column; gap:3px; align-items:center}
+    .readout.show{display:flex}
+    .rline{font-weight:900; font-size:15px; background:var(--card); border:3px solid var(--ink);
+      border-radius:12px; padding:3px 14px}
+    .rline.dim{font-size:13px; opacity:.75}
+
     /* tug-of-war meters [HP share + crowd favorite] */
     .meters{display:flex; flex-direction:column; gap:8px}
     .meter{display:grid; grid-template-columns:120px 1fr; align-items:center; gap:12px}
@@ -216,9 +247,31 @@
       font-size:14px; left:50%; transition:left 1s cubic-bezier(.5,1.6,.4,1)}
     .ticks{display:flex; justify-content:space-between; font-size:10px; font-weight:900; opacity:.65; padding:0 4px}
 
-    /* ---- over ---- */
-    #over{display:none; text-align:center; margin-top:8vh}
-    #over h1{font-size:4rem; font-family:'Titan One'}
+    /* ---- over: awards ceremony + match poster [GAME_DESIGN §10.2, S3] ---- */
+    #over{display:none; text-align:center; margin-top:4vh}
+    #over h1{font-size:3.4rem; font-family:'Titan One'}
+    #overMsg{font-size:18px; font-weight:800}
+    .award{display:none; margin:18px auto 0; max-width:640px; background:var(--card);
+      border:4px solid var(--ink); border-radius:20px; padding:18px 24px;
+      align-items:center; gap:22px; text-align:left;
+      animation:awardin .5s cubic-bezier(.5,1.6,.4,1)}
+    .award.show{display:flex}
+    @keyframes awardin{from{transform:scale(0) rotate(-6deg)}}
+    .award .apic{width:180px; height:180px; flex:none; background:var(--sand) center/contain no-repeat;
+      border:3px solid var(--ink); border-radius:14px}
+    .award .atitle{font-family:'Titan One'; font-size:26px; color:var(--gold);
+      -webkit-text-stroke:1.2px var(--ink); line-height:1.1}
+    .award .awho{font-weight:900; font-size:18px; margin-top:6px}
+    .award .ablurb{font-style:italic; font-weight:700; opacity:.8; margin-top:6px}
+    #posterWrap{display:none; margin:16px auto 0}
+    #posterWrap.show{display:block}
+    #posterWrap img{max-height:52vh; max-width:88vw; border:5px solid var(--ink);
+      border-radius:16px; background:#fff}
+    #posterWrap a{font-weight:900; color:var(--ink)}
+    #hall{display:none; font-weight:800; font-style:italic; opacity:.75; margin-top:10px}
+    #hall.show{display:block}
+    #overNextBtn{margin-top:14px; background:var(--gold); border:3px solid var(--ink);
+      border-radius:12px; font-family:'Titan One'; font-size:16px; padding:6px 18px; cursor:pointer}
 
     /* phase splash [spec §13: same announcement as the phones, whoosh stinger] */
     #phaseSplash{position:fixed; inset:0; z-index:55; display:none; place-items:center;
@@ -245,13 +298,22 @@
 
   <section id="lobby">
     <h1>Doodle Brawl</h1>
-    <p class="muted">On your phone, open</p>
-    <p id="joinurl" class="muted">…</p>
-    <p class="muted">Room code</p>
-    <div id="code">····</div>
-    <div id="players"></div>
-    <button id="startBtn" disabled>Start Game</button>
-    <p class="muted" id="hint">Need 2–6 players.</p>
+    <div class="lobbygrid">
+      <div class="joincol">
+        <p class="muted">On your phone, open</p>
+        <p id="joinurl" class="muted">…</p>
+        <p class="muted">Room code</p>
+        <div id="code">····</div>
+        <div id="players"></div>
+        <button id="startBtn" disabled>Start Game</button>
+        <p class="muted" id="hint">Need 2–6 players.</p>
+      </div>
+      <aside class="howto" id="howto">
+        <h2 id="howtoTitle">How to Play</h2>
+        <ul id="howtoSteps"></ul>
+        <div class="tips" id="howtoTips"></div>
+      </aside>
+    </div>
   </section>
 
   <section id="stage">
@@ -291,6 +353,7 @@
         <div id="beats"><span class="muted">Get ready…</span></div>
         <button id="nextBtn" class="hidden">Next ▶</button>
       </section>
+      <section class="readout" id="readout"></section>
       <section class="meters">
         <div class="meter"><span class="label">WHO'S<br>WINNING</span>
           <div><div class="rope"><span class="knot" id="knotHp">🪢</span></div>
@@ -305,6 +368,21 @@
   <section id="over">
     <h1 id="overTitle">🏆</h1>
     <p id="overMsg" class="muted"></p>
+    <div class="award" id="awardCard">
+      <div class="apic" id="awardPic"></div>
+      <div>
+        <div class="atitle" id="awardTitle"></div>
+        <div class="awho" id="awardWho"></div>
+        <div class="ablurb" id="awardBlurb"></div>
+      </div>
+    </div>
+    <div id="posterWrap">
+      <img id="posterImg" alt="match poster">
+      <p><a id="posterLink" download>⬇️ Download the match poster</a>
+        <span class="muted" id="posterHint"></span></p>
+    </div>
+    <p id="hall">🖼️ Tonight's fighters join the Hall of Doodles…</p>
+    <button id="overNextBtn" class="hidden">Next ▶</button>
   </section>
 
   <script src="/static/shared/ws.js"></script>
@@ -349,6 +427,7 @@
     document.documentElement.style.setProperty('--zoom', CFG.reveal_action_zoom_scale || 1.8);
 
     let sock, arena, audio, seq = null;
+    let ceremony = null;               // awards-ceremony pacing (Next ▶ on #over)
     let fillerTimer = null;            // deliberation filler line rotation
     let montageActive = false;         // suppress arena_state during the showcase
     let montageHold = null;            //   …and apply the held payload after it
@@ -442,8 +521,10 @@
     }
 
     // ---- team labels (Team A/B until the intro reveal, AI names after) ----
+    const teamNames = {};                  // team_id → latest display name
     function applyTeams(teams) {
       for (const t of teams || []) {
+        teamNames[t.id] = t.name;
         const cls = t.id === 'team_b' ? '.tick-b' : '.tick-a';
         document.querySelectorAll(cls).forEach(el => el.textContent = t.name.toUpperCase());
       }
@@ -469,7 +550,7 @@
     // ---- the narration log (chat-style, newest at bottom — spec §13) ----
     // The current beat types out in a bright gold-bordered card, then rolls up
     // into dimmed history when the next beat starts. Round dividers separate
-    // rounds; crit/KO/combo lines keep a gold tint so highlights stay findable;
+    // rounds; DEVASTATING/KO/combo lines keep a gold tint so highlights stay findable;
     // speaker chips persist so re-read banter still reads as dialogue. The log
     // stays visible during the deliberation interlude (the full transcript
     // persists server-side to snapshots/<room>/transcript.jsonl).
@@ -491,7 +572,7 @@
       cur.classList.remove('now');
     }
     function beatIsHighlight(b) {
-      return b.type === 'ko' || !!b.combo_name || (b.floats || []).some(f => f.crit);
+      return b.type === 'ko' || !!b.combo_name || b.result === 'devastating';
     }
     function addBeat(b) {
       finishCurrentBeat();
@@ -617,26 +698,41 @@
           arena.swapSprite(b.player_id, pngs[b.player_id]);
           arena.actUp(b.player_id, mult);
         }
-        (b.floats || []).forEach(f => arena.floatNumber(f.player_id, f.amount, f.kind, f.crit, mult));
+        (b.floats || []).forEach(f => arena.floatNumber(f.player_id, f.amount, f.kind, f.devastating, mult));
         if (b.hurt) arena.impact(b.hurt, 'hit', mult);
         if (b.helped) arena.impact(b.helped, 'helped', mult);
+        showReadout(b);
       }
+      // The §13 math lines under the arena. Server-formatted from engine terms,
+      // so they always agree with the HP bars.
+      function showReadout(b) {
+        const box = $('readout');
+        const lines = b.readout || [];
+        box.innerHTML = '';
+        lines.forEach((text, n) => {
+          const el = document.createElement('span');
+          el.className = 'rline' + (n ? ' dim' : '');   // reductions are secondary
+          el.textContent = text;
+          box.appendChild(el);
+        });
+        box.classList.toggle('show', lines.length > 0);
+      }
+      // v4 spike moments are creativity-driven, so replay/stingers key off the
+      // engine's attack RESULT (settings.yaml uses the same vocabulary).
       function wantsReplay(b) {
         if (!REPLAY_CFG.enabled) return false;
         const trig = REPLAY_CFG.triggers || [];
-        return (trig.includes('crit') && (b.floats || []).some(f => f.crit))
-            || (trig.includes('ko') && b.type === 'ko');
+        return (b.result && trig.includes(b.result)) || (trig.includes('ko') && b.type === 'ko');
       }
       // The beat's soundtrack: the move's clip plays as the beat lands, then a
       // stinger (settings.yaml events_sfx) staggered behind it. Stingers derive
-      // from engine event data (type/result/floats), never narration text.
+      // from engine event data (type/result), never narration text.
       function beatSfx(b) {
         if (b.sfx) audio.play(b.sfx);
         if (b.combo_name) audio.play(STING.combo, 120);
         if (b.type === 'ko') audio.play(STING.ko, 250);
         else if (b.type === 'sudden_death') audio.play(STING.sudden_death, 250);
-        else if ((b.floats || []).some(f => f.crit)) audio.play(STING.crit, 250);
-        else if (b.result === 'fumble') audio.play(STING.fumble, 250);
+        else if (b.result && STING[b.result]) audio.play(STING[b.result], 250);
       }
       function comboSplash(name) {
         const sp = $('comboSplash');
@@ -726,6 +822,65 @@
       playNext();
     }
 
+    // ---- victory: awards ceremony + match poster (GAME_DESIGN §10.2, S3) ----
+    // One award at a time with the winner's drawing enlarged, paced like the
+    // reveal beats (auto-advance or the Next button), then the match poster
+    // with a download link and the Hall of Doodles flourish.
+    function runCeremony(p) {
+      hideDeliberation();
+      hideIntroCard();
+      if (seq) seq.stop();
+      view('over');
+      (p.characters || []).forEach(upsert);
+      const w = p.winner_team_id;
+      $('overTitle').textContent = w
+        ? '🏆 ' + (p.winner_team_name || teamNames[w] || w) + ' wins!'
+        : 'It’s a draw!';
+      audio.play(STING.devastating);   // crowd roar for the champions
+      const awards = p.awards || [];
+      let i = 0, timer = null, pending = null;
+      function step(next) {
+        clearTimeout(timer); pending = next;
+        if (!MANUAL_BEATS) timer = setTimeout(next, BEAT_MS);
+      }
+      function playNext() {
+        if (i >= awards.length) return finale();
+        const a = awards[i++];
+        const c = charById[a.player_id] || {};
+        $('overMsg').textContent = '🎖️ The awards ceremony! (' + i + '/' + awards.length + ')';
+        const pic = c.png || c.sprite_png || arena.spriteUrl(a.player_id) || '';
+        $('awardPic').style.backgroundImage = pic ? 'url(' + pic + ')' : 'none';
+        $('awardTitle').textContent = a.title || 'Award';
+        $('awardWho').textContent = c.name || '???';
+        $('awardBlurb').textContent = a.blurb || '';
+        const card = $('awardCard');
+        card.classList.remove('show'); void card.offsetWidth;   // restart pop-in
+        card.classList.add('show');
+        audio.play('sparkle');
+        step(playNext);
+      }
+      function finale() {
+        clearTimeout(timer); pending = null;
+        $('awardCard').classList.remove('show');
+        $('overNextBtn').classList.add('hidden');
+        $('overMsg').textContent = 'Thanks for playing Doodle Brawl!';
+        if (p.poster_url) {
+          $('posterImg').src = p.poster_url;
+          $('posterLink').href = p.poster_url;
+          $('posterHint').textContent = ' — or open ' + joinBase() + p.poster_url + ' on your phone';
+          $('posterWrap').classList.add('show');
+        }
+        $('hall').classList.add('show');
+      }
+      ceremony = { advance: () => { clearTimeout(timer); if (pending) pending(); } };
+      if (awards.length) {
+        $('overNextBtn').classList.remove('hidden');
+        playNext();
+      } else {
+        finale();
+      }
+    }
+
     // Arena snapshots re-render the battlefield + rail; the montage showcase
     // holds them back so the final state doesn't spoil the beat-by-beat play.
     function applyArena(payload) {
@@ -787,11 +942,10 @@
       } else if (m.type === 'reveal_step') {
         runReveal(m.payload);
       } else if (m.type === 'game_over') {
-        hideDeliberation();
-        view('over');
-        const w = m.payload.winner_team_id;
-        $('overTitle').textContent = w ? '🏆 ' + w + ' wins!' : 'Draw!';
-        $('overMsg').textContent = 'Thanks for playing Doodle Brawl.';
+        runCeremony(m.payload);
+      } else if (m.type === 'gallery_roster') {
+        // The Doodle Crowd (S4/§15): past characters fill the stands.
+        arena.setSpectators(m.payload.spectators || []);
       } else if (m.type === 'toast') {
         const t = $('toast');
         t.textContent = m.payload.message || '';
@@ -800,8 +954,29 @@
       }
     }
 
+    // ---- lobby "How to Play" panel (§13) — copy from settings.yaml ----
+    function renderHowTo() {
+        const h = CFG.how_to_play || {};
+        if (h.title) $('howtoTitle').textContent = h.title;
+        $('howtoSteps').innerHTML = '';
+        (h.steps || []).forEach(s => {
+            const li = document.createElement('li');
+            li.textContent = s;
+            $('howtoSteps').appendChild(li);
+        });
+        $('howtoTips').innerHTML = '';
+        (h.tips || []).forEach(t => {
+            const d = document.createElement('div');
+            d.className = 'tip';
+            d.textContent = t;
+            $('howtoTips').appendChild(d);
+        });
+        $('howto').classList.toggle('hidden', !(h.steps || []).length);
+    }
+
     // ---- boot ----
     arena = new Arena($('arena'));
+    renderHowTo();
     audio = DoodleAudio(CFG.audio || {});
     $('vol').value = Math.round(audio.volume * 100);
     $('muteBtn').textContent = audio.muted ? '🔇' : '🔊';
@@ -809,6 +984,7 @@
     $('vol').oninput = (e) => audio.setVolume(e.target.value / 100);
     $('startBtn').onclick = () => sock.send('start_game');
     $('nextBtn').onclick = () => { if (seq) seq.advance(); };
+    $('overNextBtn').onclick = () => { if (ceremony) ceremony.advance(); };
     sock = DoodleSocket({
       onStatus: (s) => $('banner').classList.toggle('show', s === 'offline'),
       onOpen: (api) => api.send('join', {

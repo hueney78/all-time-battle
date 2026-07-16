@@ -29,7 +29,9 @@ class ZoneRegistry:
     def adjacent(self, zone_id: str) -> list[str]:
         return self.get(zone_id).adjacent
 
-    def modifier(self, zone_id: str, key: str, default: int = 0) -> int:
+    def modifier(self, zone_id: str, key: str, default: float = 0) -> float:
+        """Read a zone rider generically (GAME_DESIGN §6). Returns the value as
+        declared: int for the damage keys, float for the dodge keys."""
         zone = self.get(zone_id)
         return getattr(zone.modifiers, key, default) or default
 
