@@ -1,32 +1,41 @@
-"""Tests for the seeded dice wrapper + the COMBAT V2 formula evaluator."""
+"""Tests for the seeded dice wrapper + the COMBAT V4 formula evaluator."""
 
 import pytest
 
-from server.engine.dice import Dice, describe_formula
+from server.engine.dice import Dice, describe_formula, formula_parts
 
 
-def test_two_d6_range():
-    rng = Dice(seed=0)
-    for _ in range(200):
-        r = rng.two_d6()
-        assert 2 <= r <= 12
+def test_there_is_no_attack_roll():
+    """COMBAT V4 removed 2d6-vs-AC entirely — every move lands (§5)."""
+    assert not hasattr(Dice(seed=0), "two_d6")
 
 
-def test_two_d6_is_a_bell_curve_not_flat():
-    """2d6 should produce 7 far more often than 2 — the point of the redesign."""
-    rng = Dice(seed=1)
-    rolls = [rng.two_d6() for _ in range(3000)]
-    assert rolls.count(7) > 3 * rolls.count(2)
-
-
-def test_seeded_reproducible():
-    r1 = Dice(seed=42).two_d6()
-    r2 = Dice(seed=42).two_d6()
+def test_chance_is_seeded_and_reproducible():
+    r1 = [Dice(seed=42).chance(0.5) for _ in range(1)]
+    r2 = [Dice(seed=42).chance(0.5) for _ in range(1)]
     assert r1 == r2
 
 
+def test_chance_matches_its_probability():
+    rng = Dice(seed=3)
+    hits = sum(rng.chance(0.30) for _ in range(4000))
+    assert 0.27 <= hits / 4000 <= 0.33
+
+
+def test_chance_short_circuits_without_consuming_a_draw():
+    """p<=0 / p>=1 must not touch the stream: a Speed-0 target's dodge check
+    can't be allowed to shift the dice for everyone behind it (resolver relies
+    on this for seed stability)."""
+    a = Dice(seed=11)
+    assert a.chance(0) is False
+    assert a.chance(1) is True
+    assert a.chance(-0.5) is False
+    baseline = Dice(seed=11)
+    assert a.roll("2d6") == baseline.roll("2d6")
+
+
 def test_different_seeds_differ():
-    results = {Dice(seed=i).two_d6() for i in range(20)}
+    results = {Dice(seed=i).roll("2d6") for i in range(20)}
     assert len(results) > 1  # not all the same
 
 
@@ -71,7 +80,7 @@ def test_seed_property():
 
 
 # ---------------------------------------------------------------------------
-# Formula evaluator — the catalog's stat-parameterized dice (moves.yaml v2)
+# Formula evaluator — the catalog's stat-parameterized dice (moves.yaml v4)
 # ---------------------------------------------------------------------------
 
 
@@ -122,3 +131,46 @@ def test_formula_rejects_disallowed_code():
         rng.roll_formula("__import__('os')d6", _env())
     with pytest.raises(ValueError):
         rng.roll_formula("1d6 + unknown_name", _env())
+
+
+# --- v4: multi-argument max()/min(), needed by SHOOT's shared ranged stat ---
+
+
+def test_describe_formula_max_takes_the_better_stat():
+    """SHOOT — "the better of Speed/Weird" guarantees every build a ranged option."""
+    spec = "2d4 + max(SPD,WRD)"
+    assert describe_formula(spec, _env(spd=5, wrd=3)) == "2d4+5"
+    assert describe_formula(spec, _env(spd=1, wrd=6)) == "2d4+6"
+    assert describe_formula(spec, _env(spd=4, wrd=4)) == "2d4+4"
+    assert describe_formula(spec, _env()) == "2d4"
+
+
+def test_formula_min_and_nested_functions():
+    assert describe_formula("1d6 + min(SPD,WRD)", _env(spd=5, wrd=2)) == "1d6+2"
+    assert describe_formula("1d6 + max(POW, ceil(WRD/2))", _env(pow_=1, wrd=6)) == "1d6+3"
+
+
+def test_roll_formula_with_max_bounds():
+    rng = Dice(seed=3)
+    for _ in range(200):
+        v = rng.roll_formula("2d4 + max(SPD,WRD)", _env(spd=5, wrd=3))
+        assert 7 <= v <= 13          # 2d4 + 5
+
+
+# --- formula_parts: the split behind the host's §13 readout ---
+
+
+def test_formula_parts_splits_dice_from_flat():
+    assert formula_parts("2d4 + POW + 2", _env(pow_=6)) == (2, 4, 8)
+    assert formula_parts("2d6 + 2*WRD + 2", _env(wrd=4)) == (2, 6, 10)
+    assert formula_parts("4 + POW", _env(pow_=3)) == (0, 0, 7)   # flat, no dice
+
+
+def test_formula_parts_recovers_the_dice_portion_of_a_roll():
+    """The readout subtracts flat_mod from a rolled total to get "🎲 N"."""
+    spec = "2d4 + POW + 2"
+    env = _env(pow_=6)
+    _, _, mod = formula_parts(spec, env)
+    for seed in range(30):
+        rolled = Dice(seed=seed).roll_formula(spec, env)
+        assert 2 <= rolled - mod <= 8      # a real 2d4 result

@@ -149,7 +149,7 @@ async def test_resync_replays_current_state_to_reconnecting_player():
     room.machine = machine
 
     ch = Character(player_id=p.id, name="Alice", stats=Stats(power=2, speed=2, weird=4),
-                   hp=20, max_hp=20, ac=13, zone_id="glitter_back")
+                   hp=20, max_hp=20, zone_id="glitter_back")
     machine.state = GameState(room_id="TEST", characters={p.id: ch}, teams=room.teams)
     machine._phase, machine._round = "draw_action", 3
 
@@ -171,7 +171,7 @@ async def test_reveal_beats_carry_acting_player_for_sprite_swap():
     machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
 
     ch = Character(player_id=p.id, name="Alice", stats=Stats(power=2, speed=2, weird=4),
-                   hp=20, max_hp=20, ac=13, zone_id="glitter_back")
+                   hp=20, max_hp=20, zone_id="glitter_back")
     machine.state = GameState(room_id="TEST", characters={p.id: ch}, teams=room.teams)
 
     ev = Event(id="e1", type=EventType.ATTACK_RESOLVED, round=1,
@@ -211,9 +211,9 @@ async def test_reveal_step_carries_initiative_meters_and_floats():
     machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
 
     ca = Character(player_id=a.id, name="A", stats=Stats(power=2, speed=3, weird=2),
-                   hp=24, max_hp=24, ac=14, zone_id="glitter_back")
+                   hp=24, max_hp=24, zone_id="glitter_back")
     cb = Character(player_id=b.id, name="B", stats=Stats(power=2, speed=1, weird=2),
-                   hp=4, max_hp=24, ac=12, zone_id="thunder_back")   # nearly dead
+                   hp=4, max_hp=24, zone_id="thunder_back")   # nearly dead
     machine.state = GameState(room_id="TEST", characters={a.id: ca, b.id: cb},
                               teams=room.teams)
     # team_a drew the creative move this round; team_b was bland.
@@ -222,13 +222,13 @@ async def test_reveal_step_carries_initiative_meters_and_floats():
         ClassifiedAction(player_id=b.id, move_id="blast", creativity_tier=0),
     ])
 
-    crit = Event(id="e1", type=EventType.ATTACK_RESOLVED, round=1, player_id=a.id,
-                 target_id=b.id, data={"result": "crit", "damage": 12})
+    devastating = Event(id="e1", type=EventType.ATTACK_RESOLVED, round=1, player_id=a.id,
+                        target_id=b.id, data={"result": "devastating", "damage": 12})
     heal = Event(id="e2", type=EventType.HEALED, round=1, player_id=a.id,
                  target_id=a.id, data={"amount": 6})
     narration = Narration(beats=[Beat(event_id="e1", text="zap"), Beat(event_id="e2", text="heal")])
 
-    await machine._reveal(1, narration, [crit, heal], [a.id, b.id])
+    await machine._reveal(1, narration, [devastating, heal], [a.id, b.id])
 
     reveal = None
     for _ in range(6):
@@ -246,7 +246,7 @@ async def test_reveal_step_carries_initiative_meters_and_floats():
     beats = {bt["event_id"]: bt for bt in pay["beats"]}
     assert beats["e1"]["hurt"] == b.id
     assert beats["e1"]["floats"] == [
-        {"player_id": b.id, "amount": 12, "kind": "damage", "crit": True}
+        {"player_id": b.id, "amount": 12, "kind": "damage", "devastating": True}
     ]
     assert beats["e2"]["helped"] == a.id
     assert beats["e2"]["floats"][0]["kind"] == "heal"
@@ -255,7 +255,7 @@ async def test_reveal_step_carries_initiative_meters_and_floats():
 async def test_reveal_beats_carry_sfx_and_result():
     """Each beat ships its move's sound clip (moves.yaml sfx key, looked up
     from the event's move_id) and the attack result, so the host's audio
-    manager can play move sounds and fire the fumble stinger from engine data."""
+    manager can play move sounds and fire the backfire stinger from engine data."""
     from server.ai.provider import Beat, Narration
     from server.engine.models import Event, EventType
 
@@ -266,11 +266,12 @@ async def test_reveal_beats_carry_sfx_and_result():
     machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
 
     ch = Character(player_id=p.id, name="Alice", stats=Stats(power=2, speed=2, weird=4),
-                   hp=20, max_hp=20, ac=13, zone_id="glitter_back")
+                   hp=20, max_hp=20, zone_id="glitter_back")
     machine.state = GameState(room_id="TEST", characters={p.id: ch}, teams=room.teams)
 
     zap = Event(id="e1", type=EventType.ATTACK_RESOLVED, round=1, player_id=p.id,
-                target_id=p.id, data={"result": "fumble", "move_id": "wild"})
+                target_id=p.id, data={"result": "backfire", "move_id": "wild",
+                                      "self_damage": 5})
     ko = Event(id="e2", type=EventType.KO, round=1, player_id=p.id, data={})
     narration = Narration(beats=[Beat(event_id="e1", text="zap!"),
                                  Beat(event_id="e2", text="down!")])
@@ -286,9 +287,111 @@ async def test_reveal_beats_carry_sfx_and_result():
     assert reveal is not None
     beats = {bt["event_id"]: bt for bt in reveal.payload["beats"]}
     assert beats["e1"]["sfx"] == rules.moves.moves["wild"].sfx  # "zap"
-    assert beats["e1"]["result"] == "fumble"
+    assert beats["e1"]["result"] == "backfire"
     assert beats["e2"]["sfx"] is None        # KO has no catalog move — stinger only
     assert beats["e2"]["result"] is None
+
+
+async def test_reveal_beats_carry_the_plain_language_readout():
+    """GAME_DESIGN §13's damage readout: one addition, one total, per line;
+    zero terms omitted; reductions on their own line, never a rewrite of the
+    first. Terms come from the engine, so the line can't disagree with the HP bar.
+    """
+    from server.ai.provider import Beat, Narration
+    from server.engine.models import Event, EventType
+
+    rules = _rules()
+    room = Room("TEST", rules)
+    sock = FakeSocket()
+    a = room.add_player("Stabby", "player", sock, None)
+    b = room.add_player("Gerald", "player", FakeSocket(), None)
+    machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
+
+    ca = Character(player_id=a.id, name="Stabby", stats=Stats(power=1, speed=5, weird=3),
+                   hp=33, max_hp=33, zone_id="glitter_back")
+    cb = Character(player_id=b.id, name="Gerald", stats=Stats(power=3, speed=1, weird=5),
+                   hp=39, max_hp=39, zone_id="thunder_back")
+    machine.state = GameState(room_id="TEST", characters={a.id: ca, b.id: cb},
+                              teams=room.teams)
+
+    # The §13 worked example: SHOOT, 2d4 showing 3, Speed 5, creativity tier 2,
+    # then Gerald's shield swallows 7 of the 11.
+    shot = Event(id="e1", type=EventType.ATTACK_RESOLVED, round=1, player_id=a.id,
+                 target_id=b.id,
+                 data={"result": "hit", "move_id": "shoot", "damage": 4, "raw": 11,
+                       "dice": 3, "stat": "speed", "stat_value": 5, "riders": 0,
+                       "creativity_tier": 2, "creativity_bonus": 3,
+                       "blocked": 7, "shielder_id": b.id})
+    dodged = Event(id="e2", type=EventType.ATTACK_RESOLVED, round=1, player_id=b.id,
+                   target_id=a.id, data={"result": "dodge", "move_id": "smash"})
+    narration = Narration(beats=[Beat(event_id="e1", text="zap"),
+                                 Beat(event_id="e2", text="whiff")])
+
+    await machine._reveal(1, narration, [shot, dodged])
+
+    reveal = None
+    for _ in range(6):
+        env = await asyncio.wait_for(sock.client_recv(), 1.0)
+        if env.type == "reveal_step":
+            reveal = env
+            break
+    assert reveal is not None
+    beats = {bt["event_id"]: bt for bt in reveal.payload["beats"]}
+
+    assert beats["e1"]["readout"] == [
+        "🎯 SHOOT → 🎲 3 + ⚡ Speed 5 + ⭐⭐ Creative 3 = 11 damage",
+        "🛡️ Gerald's shield blocks 7 → 4 damage gets through",
+    ]
+    # A dodge adds up to nothing, so it gets only its reduction line.
+    assert beats["e2"]["readout"] == ["💨 Stabby dodges — no damage!"]
+
+
+async def test_readout_omits_zero_terms_and_flags_devastating():
+    """Creativity 0 simply doesn't appear; tier 3 swaps the star chip for the
+    DEVASTATING flourish (§13)."""
+    from server.ai.provider import Beat, Narration
+    from server.engine.models import Event, EventType
+
+    rules = _rules()
+    room = Room("TEST", rules)
+    sock = FakeSocket()
+    a = room.add_player("Brick", "player", sock, None)
+    b = room.add_player("Foe", "player", FakeSocket(), None)
+    machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
+    ca = Character(player_id=a.id, name="Brick", stats=Stats(power=6, speed=2, weird=1),
+                   hp=41, max_hp=41, zone_id="frontline")
+    cb = Character(player_id=b.id, name="Foe", stats=Stats(power=0, speed=0, weird=0),
+                   hp=28, max_hp=28, zone_id="frontline")
+    machine.state = GameState(room_id="TEST", characters={a.id: ca, b.id: cb},
+                              teams=room.teams)
+
+    bland = Event(id="e1", type=EventType.ATTACK_RESOLVED, round=1, player_id=a.id,
+                  target_id=b.id,
+                  data={"result": "hit", "move_id": "smash", "damage": 11, "raw": 11,
+                        "dice": 5, "stat": "power", "stat_value": 6, "riders": 0,
+                        "creativity_tier": 0, "creativity_bonus": 0})
+    huge = Event(id="e2", type=EventType.ATTACK_RESOLVED, round=1, player_id=a.id,
+                 target_id=b.id,
+                 data={"result": "devastating", "move_id": "smash", "damage": 16,
+                       "raw": 16, "dice": 5, "stat": "power", "stat_value": 6,
+                       "riders": 0, "creativity_tier": 3, "creativity_bonus": 5})
+    narration = Narration(beats=[Beat(event_id="e1", text="thud"),
+                                 Beat(event_id="e2", text="BOOM")])
+
+    await machine._reveal(1, narration, [bland, huge])
+    reveal = None
+    for _ in range(6):
+        env = await asyncio.wait_for(sock.client_recv(), 1.0)
+        if env.type == "reveal_step":
+            reveal = env
+            break
+    beats = {bt["event_id"]: bt for bt in reveal.payload["beats"]}
+
+    # Creativity 0 → the term is simply absent, and there's exactly one total.
+    assert beats["e1"]["readout"] == ["💥 SMASH → 🎲 5 + 💪 Power 6 = 11 damage"]
+    assert beats["e2"]["readout"] == [
+        "💥 SMASH → 🎲 5 + 💪 Power 6 + ⭐⭐⭐ DEVASTATING! 5 = 16 damage"
+    ]
 
 
 async def test_reveal_beats_carry_combo_name_for_splash():
@@ -304,7 +407,7 @@ async def test_reveal_beats_carry_combo_name_for_splash():
     machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
 
     ch = Character(player_id=p.id, name="Alice", stats=Stats(power=2, speed=2, weird=4),
-                   hp=20, max_hp=20, ac=13, zone_id="glitter_back")
+                   hp=20, max_hp=20, zone_id="glitter_back")
     machine.state = GameState(room_id="TEST", characters={p.id: ch}, teams=room.teams)
 
     combo = Event(id="e1", type=EventType.COMBO, round=1, player_id=p.id,
@@ -336,7 +439,7 @@ def test_arena_deltas_expose_stats_and_persistent_sprite():
     p = room.add_player("A", "player", FakeSocket(), None)
     machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
     ch = Character(player_id=p.id, name="A", stats=Stats(power=3, speed=2, weird=4),
-                   hp=20, max_hp=20, ac=13, zone_id="glitter_back",
+                   hp=20, max_hp=20, zone_id="glitter_back",
                    character_png_b64="ORIG")
     machine.state = GameState(room_id="TEST", characters={p.id: ch}, teams=room.teams)
 
@@ -464,9 +567,9 @@ async def test_submit_action_validates_no_repeat_edge_and_dead_target():
     machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
 
     ca = Character(player_id=p.id, name="Alice", stats=Stats(power=2, speed=2, weird=4),
-                   hp=20, max_hp=20, ac=13, zone_id="glitter_back", last_move_id="smash")
+                   hp=20, max_hp=20, zone_id="glitter_back", last_move_id="smash")
     cb = Character(player_id=o.id, name="Bob", stats=Stats(power=2, speed=2, weird=4),
-                   hp=0, max_hp=20, ac=13, zone_id="thunder_back",
+                   hp=0, max_hp=20, zone_id="thunder_back",
                    is_ko=True, is_gremlin=True)
     machine.state = GameState(room_id="TEST", characters={p.id: ca, o.id: cb},
                               teams=room.teams)
@@ -519,7 +622,7 @@ async def test_player_state_ships_move_buttons_with_live_math():
     machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
 
     ch = Character(player_id=p.id, name="Alice", stats=Stats(power=6, speed=2, weird=1),
-                   hp=32, max_hp=32, ac=12, zone_id="glitter_back", last_move_id="smash")
+                   hp=32, max_hp=32, zone_id="glitter_back", last_move_id="smash")
     machine.state = GameState(room_id="TEST", characters={p.id: ch}, teams=room.teams)
 
     await machine._send_player_state(p.id)
@@ -529,10 +632,14 @@ async def test_player_state_ships_move_buttons_with_live_math():
     moves = {m["id"]: m for m in env.payload["moves"]}
     assert set(moves) == {"smash", "blast", "shoot", "shield", "rally", "wild",
                           "move_l", "move_r"}
-    assert moves["smash"]["math"] == "4d4+2"        # POW 6 → live math on the label
-    assert moves["shoot"]["math"] == "2d4+1"        # WRD 1 → (1+ceil(1/2))d4+1
-    assert moves["rally"]["math"] == "♥ 1d6+✨"      # heal scales with creativity
-    assert moves["shield"]["math"] == "+4 AC"       # zone-wide protection
+    assert moves["smash"]["math"] == "2d4+8"        # POW 6 → live math on the label
+    assert moves["shoot"]["math"] == "2d4+2"        # max(SPD 2, WRD 1) = 2
+    assert moves["rally"]["math"] == "♥ 2d6+4"      # 2d6 + 2*WRD 1 + 2
+    assert moves["wild"]["math"] == "3d6+1"         # 3d6 + WRD 1
+    assert moves["shield"]["math"] == "block 10"    # 4 + POW 6, zone-wide
+    # The label promises the base; creativity is unknowable until the drawing
+    # is judged, so it never appears on a button.
+    assert not any("✨" in m["math"] for m in moves.values())
     assert moves["smash"]["disabled"] and moves["smash"]["disabled_reason"] == "no_repeat"
     assert moves["move_l"]["disabled"] and moves["move_l"]["disabled_reason"] == "edge"
     assert not moves["move_r"]["disabled"]
@@ -552,9 +659,9 @@ async def test_taps_flow_through_to_classification():
     machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.05))
 
     ca = Character(player_id=a.id, name="A", stats=Stats(power=2, speed=3, weird=4),
-                   hp=24, max_hp=24, ac=13, zone_id="glitter_back")
+                   hp=24, max_hp=24, zone_id="glitter_back")
     cb = Character(player_id=b.id, name="B", stats=Stats(power=2, speed=1, weird=4),
-                   hp=24, max_hp=24, ac=11, zone_id="thunder_back")
+                   hp=24, max_hp=24, zone_id="thunder_back")
     machine.state = GameState(room_id="TEST", characters={a.id: ca, b.id: cb},
                               teams=room.teams)
 
@@ -653,7 +760,7 @@ async def test_team_names_revealed_as_final_intro_beat_then_used_everywhere():
     assert [t.name for t in room.teams] == ["Team A", "Team B"]   # pre-reveal
 
     ch = Character(player_id=p.id, name="Alice", stats=Stats(power=2, speed=2, weird=4),
-                   hp=24, max_hp=24, ac=13, zone_id="glitter_back",
+                   hp=24, max_hp=24, zone_id="glitter_back",
                    announcer_intro="ALICE!")
     machine.state = GameState(room_id="TEST", characters={p.id: ch}, teams=room.teams)
     machine._team_names = {"team_a": "The Sparkle Snacks",
@@ -686,9 +793,9 @@ def test_mock_respects_taps_and_blank_canvas_scores_zero():
     from server.engine.models import Team
 
     a = Character(player_id="a", name="A", stats=Stats(power=2, speed=2, weird=4),
-                  hp=20, max_hp=20, ac=13, zone_id="glitter_back")
+                  hp=20, max_hp=20, zone_id="glitter_back")
     b = Character(player_id="b", name="B", stats=Stats(power=2, speed=2, weird=4),
-                  hp=20, max_hp=20, ac=13, zone_id="thunder_back")
+                  hp=20, max_hp=20, zone_id="thunder_back")
     state = GameState(room_id="T", characters={"a": a, "b": b}, teams=[
         Team(id="team_a", name="A", color="#f0f", player_ids=["a"]),
         Team(id="team_b", name="B", color="#0ff", player_ids=["b"]),
@@ -888,11 +995,11 @@ async def test_gremlin_draws_a_hazard_into_the_round():
     machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
 
     fa = Character(player_id=a.id, name="A", stats=Stats(power=2, speed=2, weird=2),
-                   hp=24, max_hp=24, ac=13, zone_id="glitter_back")
+                   hp=24, max_hp=24, zone_id="glitter_back")
     fb = Character(player_id=b.id, name="B", stats=Stats(power=2, speed=2, weird=2),
-                   hp=24, max_hp=24, ac=13, zone_id="thunder_back")
+                   hp=24, max_hp=24, zone_id="thunder_back")
     grem = Character(player_id=c.id, name="Imp", stats=Stats(power=2, speed=2, weird=2),
-                     hp=0, max_hp=24, ac=13, zone_id="glitter_back",
+                     hp=0, max_hp=24, zone_id="glitter_back",
                      is_ko=True, is_gremlin=True)
     state = GameState(room_id="GREM",
                       characters={a.id: fa, b.id: fb, c.id: grem}, teams=room.teams)
@@ -927,7 +1034,7 @@ async def test_reveal_beats_carry_speaker_for_both_announcers():
     p = room.add_player("Alice", "player", FakeSocket(), None)
     machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
     ch = Character(player_id=p.id, name="Alice", stats=Stats(power=2, speed=2, weird=4),
-                   hp=20, max_hp=20, ac=13, zone_id="glitter_back")
+                   hp=20, max_hp=20, zone_id="glitter_back")
     machine.state = GameState(room_id="SPKR", characters={p.id: ch}, teams=room.teams)
 
     ev = Event(id="e1", type=EventType.ATTACK_RESOLVED, round=1, player_id=p.id,
@@ -971,7 +1078,7 @@ async def test_montage_applies_stat_and_becomes_new_original():
     p = room.add_player("A", "player", FakeSocket(), None)
     machine = GameStateMachine(room, rules, ai=_MontageAI("power"), timers=Timers(1, 1, 0.01))
     ch = Character(player_id=p.id, name="A", stats=Stats(power=2, speed=2, weird=2),
-                   hp=18, max_hp=22, ac=13, zone_id="glitter_back", character_png_b64="OLD")
+                   hp=18, max_hp=22, zone_id="glitter_back", character_png_b64="OLD")
     machine.state = GameState(room_id="MTG", characters={p.id: ch}, teams=room.teams)
     machine._latest_action_png[p.id] = "STALE_SPRITE"
 
@@ -1000,7 +1107,9 @@ async def test_montage_applies_stat_and_becomes_new_original():
     assert seen["canvas_init"].payload["png"] == "UPGRADED"
 
 
-def test_apply_montage_speed_recomputes_ac_and_noops_without_results():
+def test_apply_montage_speed_grants_no_hp_and_noops_without_results():
+    """v4: Speed feeds initiative and the passive dodge, neither of which is
+    stored — so a Speed montage moves the stat and nothing else (AC is gone)."""
     from server.ai.provider import MontageResult
 
     rules = _rules()
@@ -1008,18 +1117,44 @@ def test_apply_montage_speed_recomputes_ac_and_noops_without_results():
     p = room.add_player("A", "player", FakeSocket(), None)
     machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
     ch = Character(player_id=p.id, name="A", stats=Stats(power=2, speed=2, weird=2),
-                   hp=20, max_hp=22, ac=13, zone_id="glitter_back", character_png_b64="OLD")
+                   hp=20, max_hp=22, zone_id="glitter_back", character_png_b64="OLD")
     state = GameState(room_id="MTG2", characters={p.id: ch}, teams=room.teams)
 
     machine._apply_montage(state, [MontageResult(p.id, "speed", "zoom")], {p.id: "NEW"})
     assert ch.stats.speed == 3
-    assert ch.ac == rules.balance.ac_base + 3     # AC = ac_base + Speed
+    assert (ch.hp, ch.max_hp) == (20, 22)         # Speed has no HP term
     assert ch.character_png_b64 == "NEW"
 
     # a blank montage (no results) changes nothing
-    before = (ch.stats.speed, ch.ac, ch.character_png_b64)
+    before = (ch.stats.speed, ch.max_hp, ch.character_png_b64)
     machine._apply_montage(state, [], {})
-    assert (ch.stats.speed, ch.ac, ch.character_png_b64) == before
+    assert (ch.stats.speed, ch.max_hp, ch.character_png_b64) == before
+
+
+def test_apply_montage_weird_now_raises_max_hp_too():
+    """v4's HP formula is 28 + 2*POW + WRD, so a Weird montage must move max HP
+    the same way a Power one does — v2's formula had no Weird term."""
+    from server.ai.provider import MontageResult
+
+    rules = _rules()
+    room = Room("MTG3", rules)
+    p = room.add_player("A", "player", FakeSocket(), None)
+    machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
+
+    def fresh():
+        ch = Character(player_id=p.id, name="A", stats=Stats(power=2, speed=2, weird=2),
+                       hp=20, max_hp=34, zone_id="glitter_back")
+        return ch, GameState(room_id="MTG3", characters={p.id: ch}, teams=room.teams)
+
+    ch, state = fresh()
+    machine._apply_montage(state, [MontageResult(p.id, "weird", "eyes")], {})
+    assert ch.stats.weird == 3
+    assert ch.max_hp == 34 + rules.balance.hp_per_weird
+    assert ch.hp == 20 + rules.balance.hp_per_weird     # healed by the gain
+
+    ch, state = fresh()
+    machine._apply_montage(state, [MontageResult(p.id, "power", "spikes")], {})
+    assert ch.max_hp == 34 + rules.balance.hp_per_power
 
 
 # ---------------------------------------------------------------------------
@@ -1037,9 +1172,9 @@ async def test_game_over_carries_awards_and_poster(tmp_path):
     b = room.add_player("B", "player", FakeSocket(), None)
     machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
     ca = Character(player_id=a.id, name="A", stats=Stats(power=2, speed=2, weird=2),
-                   hp=20, max_hp=20, ac=13, zone_id="glitter_back")
+                   hp=20, max_hp=20, zone_id="glitter_back")
     cb = Character(player_id=b.id, name="B", stats=Stats(power=2, speed=2, weird=2),
-                   hp=0, max_hp=20, ac=13, zone_id="thunder_back", is_ko=True)
+                   hp=0, max_hp=20, zone_id="thunder_back", is_ko=True)
     machine.state = GameState(room_id="FIN", characters={a.id: ca, b.id: cb},
                               teams=room.teams, winner_team_id="team_a")
 
@@ -1131,9 +1266,9 @@ async def test_gallery_names_are_sampled_into_narration():
     spy = _CameoSpyAI()
     machine = GameStateMachine(room, rules, ai=spy, timers=Timers(1, 1, 0.01))
     ca = Character(player_id=a.id, name="Stabby", stats=Stats(power=2, speed=2, weird=2),
-                   hp=24, max_hp=24, ac=13, zone_id="glitter_back")
+                   hp=24, max_hp=24, zone_id="glitter_back")
     cb = Character(player_id=b.id, name="Blob", stats=Stats(power=2, speed=2, weird=2),
-                   hp=24, max_hp=24, ac=13, zone_id="thunder_back")
+                   hp=24, max_hp=24, zone_id="thunder_back")
     state = GameState(room_id="CAM", characters={a.id: ca, b.id: cb}, teams=room.teams)
     machine.state = state
     machine._gallery_names = ["Old Timer", "Grandpa Doodle", "Stabby"]   # Stabby also in ring
@@ -1160,9 +1295,9 @@ async def test_game_over_persists_characters_to_gallery(tmp_path):
     machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01),
                                gallery=gallery)
     ca = Character(player_id=a.id, name="Winner", stats=Stats(power=2, speed=2, weird=2),
-                   hp=20, max_hp=20, ac=13, zone_id="glitter_back")
+                   hp=20, max_hp=20, zone_id="glitter_back")
     cb = Character(player_id=b.id, name="Loser", stats=Stats(power=2, speed=2, weird=2),
-                   hp=0, max_hp=20, ac=13, zone_id="thunder_back", is_ko=True)
+                   hp=0, max_hp=20, zone_id="thunder_back", is_ko=True)
     machine.state = GameState(room_id="GAL", characters={a.id: ca, b.id: cb},
                               teams=room.teams, winner_team_id="team_a")
 

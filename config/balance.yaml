@@ -2,44 +2,56 @@
 # Change a value → start a new room → new rules apply immediately.
 # See GAME_DESIGN.md §3–8 and §14 for the tuning guide.
 
-# --- Character stats (COMBAT V2: 0–6 on a budget of 9) ---
-# HP = hp_base + hp_per_power * Power   (20–32)
-hp_base: 20          # want faster games? lower this
+# --- Character stats (COMBAT V4: 0–6 on a budget of 9) ---
+# HP = hp_base + hp_per_power * Power + hp_per_weird * Weird   (28–43)
+hp_base: 28          # want faster games? lower this
 hp_per_power: 2
-# AC = ac_base + Speed                  (10–16)
-ac_base: 10
+hp_per_weird: 1
 # AI distributes stats summing to stat_budget; each stat clamped to [stat_min, stat_max]
 stat_budget: 9
 stat_min: 0          # a stat of 0 is characterful, not broken
 stat_max: 6
 
-# --- Degrees of success (2d6 + stat + creativity + modifiers vs AC) ---
-crit_margin: 5       # beat AC by >= this (or natural 12) → crit; too swingy? raise
-crit_damage_mult: 2.0
-# Fumble: natural 2 (WILD CARD widens the band via its fumble_on_roll_lte).
-fumble_self_damage: 3    # flat self-damage on a fumble — the narrator handles the shame
+# --- Resolution (COMBAT V4: there is no AC and no attack roll) ---
+# Every selected move lands. effect = the move's stat base + a flat creativity
+# bonus. Only two things can reduce a hit: the target's passive DODGE, and
+# SHIELD's mitigation (config lives on the move itself in moves.yaml).
 
-# --- Creativity bonuses (added to the 2d6 roll) ---
-# Judge idea creativity, not drawing skill. Under 2d6, +2 is enormous.
+# --- Dodge (passive, target's Speed) — the ONLY thing that negates a hit ---
+# chance = dodge_per_speed * Speed, capped at dodge_cap. Checked per incoming
+# hit, including each BLAST target separately. Speed feeling too strong? Lower
+# the cap (0.30 → 0.25).
+dodge_per_speed: 0.05
+dodge_cap: 0.30
+
+# --- WILD CARD backfire ---
+# The only self-damage in the game (chance lives on the move: backfire_chance).
+# Matches scripts/balance_sim.py, which models the backfire as 2d4.
+wild_backfire_damage: "2d4"
+
+# --- Creativity bonuses (added DIRECTLY to the effect — there is no roll) ---
+# Judge idea creativity, not drawing skill. Tier 3 is the "DEVASTATING" beat.
 creativity_tier_0: 0
 creativity_tier_1: 1
-creativity_tier_2: 2
-creativity_tier_3: 4   # "table losing it" — lower to 3 to reduce variance
+creativity_tier_2: 3
+creativity_tier_3: 5   # "table losing it" — lower to 4 to reduce variance
+
 # A stale drawing (similar_to_previous) scores creativity 0 — no extra penalty.
 
 # --- Combo rules ---
-# Both partners keep their own tapped moves; each gains this roll bonus and the
-# narrator merges their beats into one named spectacle.
-combo_bonus: 2
+# Both partners keep their own tapped moves; each gains this many creativity
+# TIERS (so a tier-2 combo escalates to tier 3 and earns the DEVASTATING beat),
+# and the narrator merges their beats into one named spectacle.
+combo_tier_bonus: 1
 
 # --- Rubber-banding (kids mode, on by default) ---
-# Losing team gets underdog_attack_bonus when down >= underdog_hp_share_threshold
+# Losing team gets underdog_damage_bonus when down >= underdog_hp_share_threshold
 # characters' worth of HP share.
 underdog_enabled: true
 underdog_hp_share_threshold: 2   # kids losing? lower to 1
-underdog_attack_bonus: 1
+underdog_damage_bonus: 1
 
 # --- Sudden death ---
-# After max_rounds rounds: all attacks gain sudden_death_attack_bonus, healing disabled.
+# After max_rounds rounds: all attacks gain sudden_death_damage_bonus, healing disabled.
 max_rounds: 12
-sudden_death_attack_bonus: 2
+sudden_death_damage_bonus: 2

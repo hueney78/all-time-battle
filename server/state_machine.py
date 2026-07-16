@@ -53,6 +53,10 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("doodle.state_machine")
 
+# Attack results that put damage on the target (COMBAT V4 — see EventType).
+# "devastating" is a hit at creativity tier 3; "dodge" lands nothing at all.
+_DAMAGING_RESULTS = ("hit", "devastating", "reflect", "hazard")
+
 
 @dataclass
 class Timers:
@@ -168,7 +172,7 @@ class GameStateMachine:
 
         # Match-wide tallies for the victory awards ceremony (GAME_DESIGN §10.2).
         self._creativity_totals: dict[str, int] = {}
-        self._fumble_counts: dict[str, int] = {}
+        self._backfire_counts: dict[str, int] = {}
         self._combos_seen: list[dict] = []
         self._round_titles: list[str] = []
         self._best_line: str = ""
@@ -408,12 +412,16 @@ class GameStateMachine:
                 continue
             new_val = min(self.balance.stat_max, getattr(ch.stats, r.stat) + 1)
             setattr(ch.stats, r.stat, new_val)
+            # Stat formula deltas (v4: Power AND Weird both feed HP; Speed feeds
+            # initiative and the passive dodge, neither of which is stored).
+            gain = 0
             if r.stat == "power":
                 gain = self.balance.hp_per_power
+            elif r.stat == "weird":
+                gain = self.balance.hp_per_weird
+            if gain:
                 ch.max_hp += gain
                 ch.hp = min(ch.max_hp, ch.hp + gain)     # +max HP, healed by the gain
-            elif r.stat == "speed":
-                ch.ac = self.balance.ac_base + ch.stats.speed
             png = montage_pngs.get(r.player_id)
             if png:
                 ch.character_png_b64 = png               # the new original everywhere
@@ -435,7 +443,9 @@ class GameStateMachine:
         chars: dict[str, Character] = {}
         for p in self.room.players:
             g = generated[p.id]
-            hp = self.balance.hp_base + self.balance.hp_per_power * g.stats.power
+            hp = (self.balance.hp_base
+                  + self.balance.hp_per_power * g.stats.power
+                  + self.balance.hp_per_weird * g.stats.weird)
             chars[p.id] = Character(
                 player_id=p.id,
                 name=g.name,
@@ -444,7 +454,6 @@ class GameStateMachine:
                 announcer_intro=g.announcer_intro,
                 hp=hp,
                 max_hp=hp,
-                ac=self.balance.ac_base + g.stats.speed,
                 zone_id=self.room.zone_for_team(p.team_id or "team_a"),
                 character_png_b64=p.character_png,
                 flagged=getattr(g, "flagged", False),
@@ -622,9 +631,11 @@ class GameStateMachine:
                 # manager plays it when the beat lands. Event stingers map
                 # client-side from ui.audio.events_sfx using type/result.
                 "sfx": self._beat_sfx(ev) if ev else None,
-                # Attack outcome (hit/crit/miss/fumble) so the host can fire
-                # the fumble stinger without parsing narration text.
+                # Attack outcome (hit/devastating/dodge/backfire/...) so the host
+                # can fire the right stinger without parsing narration text.
                 "result": (ev.data.get("result") or None) if ev else None,
+                # The plain-language math lines under the arena (§13).
+                "readout": self._readout(ev) if ev else [],
             })
         await self.room.broadcast(S2C.REVEAL_STEP, {
             "round": round_num,
@@ -659,16 +670,81 @@ class GameStateMachine:
         move = self.rules.moves.moves.get(ev.data.get("move_id", ""))
         return (move.sfx or None) if move else None
 
+    def _readout(self, ev) -> list[str]:
+        """The host's plain-language math for this beat (GAME_DESIGN §13):
+
+            🎯 SHOOT → 🎲 3 + ⚡ Speed 5 + ⭐⭐ Creative 3 = 11 damage
+            🛡️ Gerald's shield blocks 7 → 4 damage gets through
+
+        One addition and one total per line; zero terms omitted; reductions get
+        their own line rather than rewriting the first. All terms come from the
+        engine's own arithmetic, so the line always matches the HP bars.
+        """
+        cfg = self.rules.settings.ui.readout
+        if not cfg.enabled or self.state is None:
+            return []
+        d = ev.data
+        t = ev.type.value
+        result = d.get("result")
+        if t not in ("attack_resolved", "healed"):
+            return []
+
+        def name_of(pid: str | None) -> str:
+            ch = self.state.characters.get(pid or "")
+            return ch.name if ch else "Someone"
+
+        # Reduction-only lines: nothing was added up, so there is no first line.
+        if result == "dodge":
+            return [cfg.dodge_line.format(target=name_of(ev.target_id))]
+        if result == "reflect":
+            return [cfg.reflect_line.format(
+                target=name_of(ev.player_id), attacker=name_of(ev.target_id),
+                total=d.get("damage", 0))]
+        if result == "backfire":
+            return [cfg.backfire_line.format(
+                attacker=name_of(ev.player_id), total=d.get("self_damage", 0))]
+        if "raw" not in d:
+            return []      # hazards and other events carry no addition to show
+
+        move = self.rules.moves.moves.get(d.get("move_id", ""))
+        if move is None:
+            return []
+
+        # The addition — omit any zero term (§13).
+        terms = [f"{cfg.dice_icon} {d['dice']}"]
+        if d.get("stat") and d.get("stat_value"):
+            terms.append(f"{cfg.stat_icons.get(d['stat'], '')} "
+                         f"{cfg.stat_labels.get(d['stat'], d['stat'])} {d['stat_value']}")
+        if d.get("creativity_bonus"):
+            tier = d.get("creativity_tier", 0)
+            chip = (cfg.devastating_chip if tier >= 3
+                    else f"{cfg.star_icon * tier} {cfg.creative_label}")
+            terms.append(f"{chip} {d['creativity_bonus']}")
+        if d.get("riders"):
+            terms.append(str(d["riders"]))
+
+        template = cfg.heal_line if t == "healed" else cfg.damage_line
+        lines = [template.format(
+            icon=move.icon, move=move.button, terms=" + ".join(terms),
+            total=d["raw"],
+        )]
+        # Reductions, each on their own line, never a rewrite of the first.
+        if d.get("blocked"):
+            lines.append(cfg.shield_line.format(
+                shielder=name_of(d.get("shielder_id")), blocked=d["blocked"],
+                total=d.get("damage", 0)))
+        return lines
+
     def _hurt_target(self, ev) -> str | None:
         """The player negatively impacted by an event (damaged, KO'd),
         or None for neutral/positive events."""
         t = ev.type.value
         d = ev.data
         if t == "attack_resolved":
-            if d.get("result") in ("hit", "crit", "reflect", "hazard"):
+            if d.get("result") in _DAMAGING_RESULTS:
                 return ev.target_id
-            if d.get("result") == "fumble":
-                return ev.player_id      # hurt themselves
+            if d.get("result") == "backfire":
+                return ev.player_id      # WILD CARD turned on its caster
         elif t == "ko":
             return ev.player_id
         return None
@@ -685,21 +761,21 @@ class GameStateMachine:
 
     def _floats(self, ev) -> list[dict]:
         """Floating combat numbers for this event: damage (red) / heal (green),
-        crits flagged oversized. Amounts come from engine events so they always
-        match the HP bars."""
+        DEVASTATING flagged oversized. Amounts come from engine events so they
+        always match the HP bars."""
         t = ev.type.value
         d = ev.data
         if t == "attack_resolved":
             res = d.get("result")
-            if res in ("hit", "crit", "reflect", "hazard") and d.get("damage"):
+            if res in _DAMAGING_RESULTS and d.get("damage"):
                 return [{"player_id": ev.target_id, "amount": d["damage"],
-                         "kind": "damage", "crit": res == "crit"}]
-            if res == "fumble" and d.get("self_damage"):
+                         "kind": "damage", "devastating": res == "devastating"}]
+            if res == "backfire" and d.get("self_damage"):
                 return [{"player_id": ev.player_id, "amount": d["self_damage"],
-                         "kind": "damage", "crit": False}]
+                         "kind": "damage", "devastating": False}]
         elif t == "healed" and d.get("amount"):
             return [{"player_id": ev.target_id or ev.player_id, "amount": d["amount"],
-                     "kind": "heal", "crit": False}]
+                     "kind": "heal", "devastating": False}]
         return []
 
     # -- tug-of-war meters ------------------------------------------------
@@ -717,7 +793,7 @@ class GameStateMachine:
 
     # -- awards ceremony match summary (GAME_DESIGN §10.2) ----------------
     def _accumulate_match(self, actions, events, narration) -> None:
-        """Tally match-wide highlights (creativity, fumbles, combos, titles, a
+        """Tally match-wide highlights (creativity, backfires, combos, titles, a
         best line) as rounds resolve, so the finale can hand out awards."""
         for a in actions:
             self._creativity_totals[a.player_id] = (
@@ -728,20 +804,23 @@ class GameStateMachine:
                     "combo_name": a.combo_name,
                     "partners": [a.player_id, *a.combo_partners],
                 })
-        crit_ids = set()
+        highlight_ids = set()
         for e in events:
             if e.type.value == "attack_resolved":
                 res = e.data.get("result")
-                if res == "fumble" and e.player_id:
-                    self._fumble_counts[e.player_id] = self._fumble_counts.get(e.player_id, 0) + 1
-                elif res == "crit":
-                    crit_ids.add(e.id)
+                if res == "backfire" and e.player_id:
+                    self._backfire_counts[e.player_id] = (
+                        self._backfire_counts.get(e.player_id, 0) + 1
+                    )
+                elif res == "devastating":
+                    highlight_ids.add(e.id)
         if narration is not None:
             if narration.round_title:
                 self._round_titles.append(narration.round_title)
-            # The highlight line is the latest crit beat; fall back to the first beat.
+            # The highlight line is the latest DEVASTATING beat (v4's spike
+            # moment); fall back to the first beat.
             for b in narration.beats:
-                if b.event_id in crit_ids:
+                if b.event_id in highlight_ids:
                     self._best_line = b.text
                     break
             if not self._best_line and narration.beats:
@@ -761,7 +840,7 @@ class GameStateMachine:
             winner_team_id=self.state.winner_team_id if self.state else None,
             players=players,
             creativity=dict(self._creativity_totals),
-            fumbles=dict(self._fumble_counts),
+            backfires=dict(self._backfire_counts),
             combos=list(self._combos_seen),
             round_titles=list(self._round_titles),
             best_line=self._best_line,
@@ -936,17 +1015,20 @@ class GameStateMachine:
         if ch is None:
             return
         payload = _char_payload(ch, self.room.team_of(player_id))
-        # COMBAT V2: the phone's button grid — each move with this character's
+        # COMBAT V4: the phone's button grid — each move with this character's
         # live math and its disabled state (no-repeat / arena edge).
         payload["last_move_id"] = ch.last_move_id
         payload["moves"] = self._moves_payload(ch)
         await self.room.send(player_id, S2C.PLAYER_STATE, payload)
 
     def _moves_payload(self, ch: Character) -> list[dict]:
-        """The eight buttons for one character: label, live math ("4d4+2"),
-        targeting mode for the picker, and why a button is greyed out."""
-        env = {"POW": ch.stats.power, "SPD": ch.stats.speed, "WRD": ch.stats.weird,
-               "CRE": 0}  # heal formulas may reference the creativity bonus
+        """The eight buttons for one character: label, live math ("2d4+8"),
+        targeting mode for the picker, and why a button is greyed out.
+
+        The math is the move's base only — creativity is unknowable at draw time,
+        which is the point: the button promises the floor, the drawing raises it.
+        """
+        env = _formula_env(ch)
         out = []
         for move_id, move in self.rules.moves.moves.items():
             math = ""
@@ -954,10 +1036,8 @@ class GameStateMachine:
                 math = describe_formula(move.damage, env)
             elif move.heal:
                 math = "♥ " + describe_formula(move.heal, env)
-                if "CRE" in move.heal:
-                    math += "+✨"    # the creativity bonus tops up the heal
-            elif move.ac_bonus:
-                math = f"+{move.ac_bonus} AC"
+            elif move.mitigate:
+                math = f"block {describe_formula(move.mitigate, env)}"
             disabled_reason = None
             if move.is_movement:
                 if self._zone_reg.step(ch.zone_id, move.move) is None:
@@ -967,6 +1047,7 @@ class GameStateMachine:
             out.append({
                 "id": move_id,
                 "button": move.button,
+                "icon": move.icon,
                 "desc": move.desc,
                 "math": math,
                 "target": move.target,
@@ -1026,13 +1107,32 @@ class GameStateMachine:
         return out
 
 
+def _formula_env(ch: Character) -> dict[str, int]:
+    """The formula-evaluation environment for one character (see engine/dice.py)."""
+    return {"POW": ch.stats.power, "SPD": ch.stats.speed, "WRD": ch.stats.weird}
+
+
+def _stat_term(move_stat: str, ch: Character) -> tuple[str, int]:
+    """Resolve a move's headline stat for one character → (stat name, value).
+
+    SHOOT's "max(speed,weird)" picks whichever is higher (Speed on a tie, so the
+    readout matches the initiative rail's ordering stat).
+    """
+    if move_stat == "max(speed,weird)":
+        if ch.stats.weird > ch.stats.speed:
+            return "weird", ch.stats.weird
+        return "speed", ch.stats.speed
+    if move_stat in ("power", "speed", "weird"):
+        return move_stat, getattr(ch.stats, move_stat)
+    return "", 0
+
+
 def _char_payload(ch: Character, team_id: str | None) -> dict:
     return {
         "player_id": ch.player_id,
         "name": ch.name,
         "hp": ch.hp,
         "max_hp": ch.max_hp,
-        "ac": ch.ac,
         # Stats are the rail's / phone status card's home (💪 Power / ⚡ Speed / 🌀 Weird).
         "stats": {"power": ch.stats.power, "speed": ch.stats.speed, "weird": ch.stats.weird},
         "zone_id": ch.zone_id,

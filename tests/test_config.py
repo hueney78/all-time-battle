@@ -92,7 +92,8 @@ def test_settings_ui_replay_and_splash_knobs():
     s = load_settings()
     assert s.ui.combo_splash_seconds == 2.0
     assert s.ui.instant_replay.enabled is True
-    assert s.ui.instant_replay.triggers == ["crit", "ko"]
+    # v4's spike moment is creativity tier 3, not a random crit.
+    assert s.ui.instant_replay.triggers == ["devastating", "ko"]
     assert s.ui.instant_replay.slowmo_factor == 2.0
 
 
@@ -130,53 +131,78 @@ def test_settings_ui_defaults_when_block_missing(tmp_path: Path, monkeypatch):
 
 
 def test_balance_hp_formula():
-    """COMBAT V2: HP = 20 + 2×POW (20–32), AC = 10 + SPD (10–16)."""
+    """COMBAT V4: HP = 28 + 2×POW + WRD (28–43). There is no AC."""
     b = load_balance()
-    assert b.hp_base == 20
+    assert b.hp_base == 28
     assert b.hp_per_power == 2
-    assert b.ac_base == 10
+    assert b.hp_per_weird == 1
+    assert not hasattr(b, "ac_base")
+
+    # The budget caps the top end at POW 6 / WRD 3, not POW 6 / WRD 6.
+    def hp(power, weird):
+        return b.hp_base + b.hp_per_power * power + b.hp_per_weird * weird
+
+    assert hp(0, 0) == 28
+    assert hp(6, 3) == 43
 
 
 def test_balance_stat_budget():
-    """COMBAT V2: stats 0–6 on a budget of 9."""
+    """COMBAT V4: stats 0–6 on a budget of 9."""
     b = load_balance()
     assert b.stat_budget == 9
     assert b.stat_min == 0
     assert b.stat_max == 6
 
 
-def test_balance_degrees_of_success():
-    """2d6 resolution: crit at +5/nat-12, fumble at nat-2 (+3 self-damage)."""
+def test_balance_has_no_attack_roll_knobs():
+    """v4 deleted AC, to-hit, crits, and attacker fumbles outright (§5)."""
     b = load_balance()
-    assert b.crit_margin == 5
-    assert b.crit_damage_mult == 2.0
-    assert b.fumble_self_damage == 3
+    for gone in ("ac_base", "crit_margin", "crit_damage_mult",
+                 "fumble_self_damage", "combo_bonus"):
+        assert not hasattr(b, gone), f"{gone} should be gone in v4"
 
 
-def test_balance_combo_bonus():
-    """Combos no longer fuse — both partners gain a flat roll bonus."""
+def test_balance_dodge():
+    """Dodge is the only thing that negates a hit: 5% x Speed, capped."""
     b = load_balance()
-    assert b.combo_bonus == 2
+    assert b.dodge_per_speed == 0.05
+    assert b.dodge_cap == 0.30
+    # Speed 6 would be 30% uncapped — the cap binds exactly at the stat ceiling.
+    assert b.dodge_per_speed * b.stat_max == pytest.approx(b.dodge_cap)
+
+
+def test_balance_wild_backfire():
+    """WILD CARD's self-damage — the only self-damage in the game."""
+    b = load_balance()
+    assert b.wild_backfire_damage == "2d4"
+
+
+def test_balance_combo_tier_bonus():
+    """Combos no longer fuse, and no longer touch a roll — they escalate the
+    creativity TIER, which is how they reach DEVASTATING (§8)."""
+    b = load_balance()
+    assert b.combo_tier_bonus == 1
 
 
 def test_balance_creativity_tiers():
+    """Flat bonuses added straight to the effect — there is no roll to add to."""
     b = load_balance()
     assert b.creativity_tier_0 == 0
     assert b.creativity_tier_1 == 1
-    assert b.creativity_tier_2 == 2
-    assert b.creativity_tier_3 == 4
+    assert b.creativity_tier_2 == 3
+    assert b.creativity_tier_3 == 5
 
 
 def test_balance_underdog():
     b = load_balance()
     assert b.underdog_enabled is True
-    assert b.underdog_attack_bonus == 1
+    assert b.underdog_damage_bonus == 1
 
 
 def test_balance_sudden_death():
     b = load_balance()
     assert b.max_rounds == 12
-    assert b.sudden_death_attack_bonus == 2
+    assert b.sudden_death_damage_bonus == 2
 
 
 # ---------------------------------------------------------------------------
@@ -243,8 +269,8 @@ def test_high_ground_zone_modifiers(tmp_path: Path, monkeypatch):
                 "entry_cost": 2,
                 "tags": ["elevated"],
                 "modifiers": {
-                    "attack_bonus": 1,
-                    "ranged_ac_bonus": 1,
+                    "damage_bonus": 1,
+                    "incoming_dodge_penalty": 0.10,
                 },
             },
         ],
@@ -264,8 +290,9 @@ def test_high_ground_zone_modifiers(tmp_path: Path, monkeypatch):
     assert "high_ground" in zone_map, "High Ground zone not found after loading"
     hg = zone_map["high_ground"]
 
-    assert hg.modifiers.attack_bonus == 1
-    assert hg.modifiers.ranged_ac_bonus == 1
+    # v4's modifier keys — there is no AC, so no attack_bonus/ranged_ac_bonus.
+    assert hg.modifiers.damage_bonus == 1
+    assert hg.modifiers.incoming_dodge_penalty == 0.10
     assert hg.entry_cost == 2
     assert hg.capacity == 2
     assert "frontline" in hg.adjacent
@@ -277,49 +304,80 @@ def test_high_ground_zone_modifiers(tmp_path: Path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_moves_loads_the_eight_v2_moves():
-    """COMBAT V2.1: exactly eight tapped moves — six combat + ◀/▶ movement."""
+def test_moves_loads_the_eight_v4_moves():
+    """COMBAT V4: exactly eight tapped moves — six combat + ◀/▶ movement."""
     m = load_moves()
     assert set(m.moves) == {"smash", "blast", "shoot", "shield", "rally", "wild",
                             "move_l", "move_r"}
 
 
-def test_moves_roll_stats():
+def test_moves_headline_stats():
+    """`stat` is the readout's term, not a roll — v4 has no attack roll."""
     m = load_moves()
     assert m.moves["smash"].stat == "power"
     assert m.moves["blast"].stat == "weird"
-    assert m.moves["shoot"].stat == "weird"
     assert m.moves["wild"].stat == "weird"
-    assert m.moves["shield"].stat == "none"
-    assert m.moves["rally"].stat == "none"
+    assert m.moves["shield"].stat == "power"
+    assert m.moves["rally"].stat == "weird"
+    # SHOOT's shared ranged stat: the better of Speed/Weird (§3).
+    assert m.moves["shoot"].stat == "max(speed,weird)"
+    assert m.moves["move_l"].stat == "none"
 
 
-def test_moves_v2_mechanics():
+def test_moves_v4_mechanics():
     m = load_moves()
     assert m.moves["smash"].range == "same_zone" and m.moves["smash"].auto_step is True
+    assert m.moves["smash"].damage == "2d4 + POW + 2"
     assert m.moves["blast"].friendly_fire is True and m.moves["blast"].target == "zone_all"
-    # SHOOT: ranged anywhere, half damage point-blank (v2.1)
+    assert m.moves["blast"].damage == "1d6 + WRD"
+    # SHOOT: ranged anywhere, half damage point-blank
     assert m.moves["shoot"].range == "any"
     assert m.moves["shoot"].same_zone_penalty == "half"
-    # SHIELD: +4 AC to every ally in the caster's zone, reflect on big misses
+    assert m.moves["shoot"].damage == "2d4 + max(SPD,WRD)"
+    # SHIELD: flat `4 + POW` mitigation for every ally in the caster's zone,
+    # then a 10% x POW chance to reflect what it swallowed.
     assert m.moves["shield"].target == "zone_allies"
-    assert m.moves["shield"].ac_bonus == 4
-    assert m.moves["shield"].reflect_miss_margin == 3
-    assert m.moves["shield"].reflect_damage == "1d6"
-    # RALLY: the drawing IS the medicine
-    assert m.moves["rally"].heal == "1d6 + CRE"
-    assert m.moves["wild"].fumble_on_roll_lte == 3
+    assert m.moves["shield"].mitigate == "4 + POW"
+    assert m.moves["shield"].reflect_chance_per_power == 0.10
+    # RALLY: the drawing IS the medicine (creativity is added by the resolver).
+    assert m.moves["rally"].heal == "2d6 + 2*WRD + 2"
+    # WILD CARD: the only move that can backfire, and the only one whose
+    # drawing the AI reads freely (§9).
+    assert m.moves["wild"].backfire_chance == 0.15
+    assert m.moves["wild"].ai_interprets is True
+    assert [mid for mid, d in m.moves.items() if d.ai_interprets] == ["wild"]
+    assert [mid for mid, d in m.moves.items() if d.backfire_chance] == ["wild"]
     assert m.moves["move_l"].move == -1 and m.moves["move_r"].move == 1
-    assert m.moves["move_l"].ac_bonus == 1        # dodging on the move
     assert m.moves["move_l"].is_movement and not m.moves["smash"].is_movement
 
 
-def test_moves_have_buttons_and_descriptions():
-    """Every move ships a phone button label and a description."""
+def test_moves_have_no_ac_or_fumble_riders():
+    """v4 deleted AC, so SHIELD's ac_bonus, movement's dodge AC, and WILD's
+    fumble band are gone from the catalog schema."""
+    m = load_moves()
+    for gone in ("ac_bonus", "reflect_miss_margin", "reflect_damage",
+                 "fumble_on_roll_lte"):
+        assert not hasattr(m.moves["shield"], gone), f"{gone} should be gone in v4"
+        assert not hasattr(m.moves["move_l"], gone)
+
+
+def test_moves_never_spell_out_creativity():
+    """§5 makes creativity a system rule the resolver applies to every
+    damage/heal — a formula that names it would double-count."""
+    m = load_moves()
+    for name, move in m.moves.items():
+        for spec in (move.damage, move.heal, move.mitigate):
+            assert "CRE" not in (spec or ""), f"{name} spells out creativity"
+
+
+def test_moves_have_buttons_icons_and_descriptions():
+    """Every move ships a phone button label, a readout icon, and a description."""
     m = load_moves()
     for name, move in m.moves.items():
         assert move.desc, f"Move {name!r} is missing a description"
         assert move.button, f"Move {name!r} is missing a button label"
+        if not move.is_movement:
+            assert move.icon, f"Move {name!r} is missing a readout icon"
 
 
 def test_move_formulas_evaluate_for_every_stat_line():
@@ -350,8 +408,12 @@ def test_settings_ui_audio_block():
     assert audio.enabled is True
     assert audio.volume == 0.8
     assert audio.pitch_variation == 0.10
-    assert audio.events_sfx["crit"] == "crowd_roar"
-    assert audio.events_sfx["fumble"] == "sad_trombone"
+    # v4 stingers: DEVASTATING replaces the crit roar, and the sad trombone
+    # follows the fumble → WILD CARD backfire.
+    assert audio.events_sfx["devastating"] == "crowd_roar"
+    assert audio.events_sfx["dodge"] == "whoosh"
+    assert audio.events_sfx["backfire"] == "sad_trombone"
+    assert "crit" not in audio.events_sfx and "fumble" not in audio.events_sfx
     assert audio.events_sfx["ko"] == "ko_bell"
     assert audio.events_sfx["combo"] == "air_horn"
     assert audio.events_sfx["sudden_death"] == "drumroll"
@@ -415,7 +477,7 @@ def test_novel_hazard_added_to_yaml(tmp_path: Path, monkeypatch):
 
 def test_load_game_rules_bundle():
     rules = load_game_rules()
-    assert rules.balance.hp_base == 20
+    assert rules.balance.hp_base == 28
     assert len(rules.zones.zones) == 3
     assert "smash" in rules.moves.moves
     assert rules.hazards.hazards["bees"].damage == "1d4"

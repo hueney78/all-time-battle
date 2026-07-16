@@ -2,9 +2,13 @@
 # Adding a new zone (e.g. High Ground) requires ONLY this file — zero Python changes.
 # The resolver reads `modifiers` generically; the AI prompts receive this zone list automatically.
 #
-# Known modifier keys: attack_bonus, ac_bonus, ranged_ac_bonus, damage_bonus,
-#                      speed_penalty
+# Known modifier keys (COMBAT V4 — no AC, so no ac_bonus/attack_bonus):
+#   damage_bonus            flat damage added to hits made FROM this zone
+#   incoming_damage_bonus   flat damage added to hits landing IN this zone
+#   dodge_bonus             added to the dodge chance of anyone standing here
+#   incoming_dodge_penalty  subtracted from it — exposed ground is hard to dodge on
 # Zone-level keys:     capacity (optional int), entry_cost (default 1)
+# Unknown keys log a warning rather than failing the room (GAME_DESIGN §6).
 #
 # Uncomment the high_ground block below to enable it:
 #
@@ -15,8 +19,8 @@
 #   entry_cost: 2
 #   tags: [elevated]
 #   modifiers:
-#     attack_bonus: 1
-#     ranged_ac_bonus: 1
+#     damage_bonus: 1                  # it's over, Anakin
+#     incoming_dodge_penalty: 0.10     # exposed up here: harder to dodge
 
 zones:
   - id: glitter_back

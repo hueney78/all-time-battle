@@ -132,6 +132,13 @@ h1,h2,.display{font-family:'Titan One',cursive;letter-spacing:.5px}
   border-radius:9px;padding:1px 8px;background:var(--gold)}
 .chip.color{background:var(--posit)}
 
+/* ---------- DAMAGE READOUT ---------- */
+.readout{display:flex;flex-direction:column;gap:3px;align-items:center}
+.rline{font-weight:900;font-size:15px;background:var(--card);border:3px solid var(--ink);
+  border-radius:12px;padding:3px 14px}
+.rline b{font-family:'Titan One';font-weight:400}
+.rline.dim{font-size:13px;opacity:.75}
+
 /* ---------- TUG-OF-WAR METERS [spec: HP share + crowd favorite] ---------- */
 .meters{display:flex;flex-direction:column;gap:8px}
 .meter{display:grid;grid-template-columns:120px 1fr;align-items:center;gap:12px}
@@ -230,9 +237,16 @@ footer{grid-column:1/-1;font-size:11px;font-weight:700;opacity:.6;text-align:cen
       <span>The lawnmower has now stalled more times than it has mowed.</span></div>
     <div class="divider">— ROUND 4: “THE FISH LEARNS TO SURF” —</div>
     <div class="beat old highlight"><span class="chip">PLAY-BY-PLAY</span>
-      <span>PRINCESS STABBY FIRES THE RAINBOW LASER FROM <em>INSIDE THE BLOB!</em> CRITICAL HIT!</span></div>
+      <span>PRINCESS STABBY'S RAINBOW LASER LANDS — an <em>absolutely DEVASTATING</em> blow!</span></div>
     <div class="beat current"><span class="chip color">COLOR</span>
       <span>Statistically, being eaten remains a poor defensive strategy.</span></div>
+  </section>
+
+  <!-- damage readout [spec: one addition, one total; icons match phone buttons;
+       reductions on their own line; zero terms omitted; ⭐⭐⭐ = DEVASTATING] -->
+  <section class="readout">
+    <span class="rline"><b>🎯 SHOOT</b> → 🎲 3 + ⚡ Speed 5 + ⭐⭐ Creative 3 = <b>11 damage</b></span>
+    <span class="rline dim">🛡️ Gerald's shield blocks 7 → <b>4 damage</b> gets through</span>
   </section>
 
   <!-- tug-of-war meters -->

@@ -1,27 +1,36 @@
-"""Pure game engine — resolves one round of COMBAT V2 actions into events.
+"""Pure game engine — resolves one round of COMBAT V4 actions into events.
 
-Resolution (GAME_DESIGN §5):
-    roll = 2d6 + move's stat + creativity bonus + modifiers(zones, combos,
-           underdog, sudden death)   vs   AC (10 + Speed) + shield/dodge
-    crit   = natural 12, or beat AC by >= crit_margin  → double damage
-    hit    = roll >= AC                                → move's damage formula
-             (SHOOT: half damage, rounded up, at point-blank)
-    miss   = roll < AC   (a SHIELDed target missed by 3+ reflects 1d6)
-    fumble = natural 2 (WILD CARD: natural <= fumble_on_roll_lte)
-             → fumble_self_damage, no target effects
+Resolution (GAME_DESIGN §5). There is **no AC and no attack roll**: a selected
+move always takes effect. Only the magnitude varies.
 
-SHIELD's +4 AC (all allies in the caster's zone) and movement's +1 dodge are
-round-scoped buffs: they exist only inside this function's round state and
-vanish when the round ends — there is no condition system (v2.1).
+    effect = move's damage/heal formula + creativity bonus (+0/+1/+3/+5)
+             + zone/underdog/sudden-death damage riders
+    dodge  = the target's passive Speed check (5% x Speed, cap 30%), rolled per
+             incoming hit — the ONLY thing that can negate a hit
+    shield = if the target is covered, subtract `4 + POW` mitigation, then a
+             10% x POW chance to reflect the mitigated amount at the attacker;
+             resolved AFTER dodge
+    backfire = WILD CARD only (15%): self-damage, no target effects
+
+Spike moments come from the drawing, not the dice: creativity tier 3 lands as
+result="devastating" (replay + stinger + gold log line), replacing v2's crit.
+
+SHIELD's mitigation covers every ally in the caster's zone and is round-scoped:
+it exists only inside this function's round state and vanishes when the round
+ends — there is no condition system (v2.1). Because it applies when the caster
+acts, a slow shielder protects nobody from faster attackers; that is intended
+(GAME_DESIGN §12) and the initiative rail shows the couch why.
 
 Dice consumption order (deterministic, seed-stable):
     1. Initiative tie-break shuffles (per tied-speed group, speed desc).
     2. For each actor (initiative order):
-       a. attack 2d6 (if the move's stat != "none")
-       b. one shared damage-formula roll if any target was hit
-       c. reflect rolls per qualifying miss (target order)
+       a. WILD CARD backfire check, then its self-damage roll if it fires
+       b. one shared damage-formula roll if the move has any target
+       c. per target (sorted): dodge check, then reflect check if mitigated
        d. heal-formula roll (RALLY)
     3. Gremlin hazard zone choice, then damage roll / forced-move choices.
+    Note: Dice.chance() short-circuits at p<=0 and p>=1 without consuming a
+    draw, so a Speed-0 target's dodge check never shifts the stream.
 """
 
 from __future__ import annotations
@@ -29,7 +38,7 @@ from __future__ import annotations
 import uuid
 
 from server.config import Balance, MoveDef
-from server.engine.dice import Dice
+from server.engine.dice import Dice, formula_parts
 from server.engine.hazards import HazardRegistry
 from server.engine.models import (
     Character,
@@ -49,16 +58,12 @@ from server.engine.zones import ZoneRegistry
 
 
 class _RoundBuffs:
-    """Round-scoped defensive state: SHIELD/dodge AC bonuses and SHIELD's
-    reflect rider. Created fresh each round — nothing persists."""
+    """Round-scoped defensive state: SHIELD's mitigation and reflect rider,
+    keyed by protected player. Created fresh each round — nothing persists."""
 
     def __init__(self) -> None:
-        self.ac: dict[str, int] = {}
-        # pid → (reflect_miss_margin, reflect_damage spec)
-        self.reflect: dict[str, tuple[int, str]] = {}
-
-    def add_ac(self, pid: str, bonus: int) -> None:
-        self.ac[pid] = self.ac.get(pid, 0) + bonus
+        # protected pid → (mitigation amount, reflect chance, shielder pid)
+        self.mitigate: dict[str, tuple[int, float, str]] = {}
 
 
 def resolve_round(
@@ -69,9 +74,10 @@ def resolve_round(
 ) -> RoundResult:
     """No I/O, no AI, no globals. Same inputs → same outputs.
 
-    Handles: initiative, the eight v2 moves, combo roll bonuses, 2d6 attack
-    resolution with degrees of success, round-scoped shield/dodge buffs,
-    absolute movement, KO → Gremlin conversion, victory detection, sudden death.
+    Handles: initiative, the eight v4 moves, combo creativity escalation, damage
+    and healing (every move lands), passive dodge, round-scoped SHIELD
+    mitigation/reflect, WILD CARD backfire, absolute movement, KO → Gremlin
+    conversion, victory detection, sudden death.
 
     Returns an ordered list of Events (input to the narrator) and the new GameState.
     """
@@ -216,7 +222,7 @@ def _resolve_action(
     attacker = chars[pid]
     move = move_reg.get(action.move_id)
 
-    # ------ Movement (◀/▶: absolute, edge-checked, dodge AC) ------
+    # ------ Movement (◀/▶: absolute, edge-checked) ------
     if move.is_movement:
         dest = zone_reg.step(attacker.zone_id, move.move)
         if dest is None:
@@ -225,13 +231,11 @@ def _resolve_action(
                                 round=round_num, player_id=pid,
                                 data={"reason": "arena_edge"}))
             return
-        _do_move(pid, attacker, dest, events, round_num, dodge_ac=move.ac_bonus)
-        if move.ac_bonus:
-            buffs.add_ac(pid, move.ac_bonus)
+        _do_move(pid, attacker, dest, events, round_num)
         return
 
-    # ------ Support moves (stat: none — SHIELD / RALLY) ------
-    if move.stat == "none":
+    # ------ Support moves (SHIELD / RALLY) ------
+    if move.mitigate or move.heal:
         _resolve_support(pid, action, move, attacker, chars, events, round_num,
                          rng, cfg, buffs, state)
         return
@@ -249,101 +253,109 @@ def _resolve_action(
         ))
         return
 
-    # Attack roll: 2d6 + stat + creativity + modifiers. A stale drawing scores
-    # creativity 0 (§8) — variety in art enforced by the judge, not a penalty.
-    natural = rng.two_d6()
-    tier = 0 if action.similar_to_previous else action.creativity_tier
-    total_atk = (
-        natural
-        + _get_stat(attacker, move.stat)
-        + _creativity_bonus(tier, cfg)
-        + zone_reg.modifier(attacker.zone_id, "attack_bonus")
-        + (cfg.combo_bonus if action.combo_partners else 0)
-        + _underdog_bonus(pid, chars, state, cfg)
-        + (cfg.sudden_death_attack_bonus if state.sudden_death else 0)
-    )
+    tier = _effective_tier(action, cfg)
 
-    # Fumble is decided on the shared natural roll, before any target math.
-    fumble_band = max(2, move.fumble_on_roll_lte or 2)
-    if natural <= fumble_band:
-        _apply_fumble(pid, action, attacker, events, round_num, cfg, natural)
+    # WILD CARD is the only move that can turn on its caster (§4.1). Checked
+    # before any target math: a backfire has no target effects at all.
+    if move.backfire_chance and rng.chance(move.backfire_chance):
+        _apply_backfire(pid, action, attacker, events, round_num, rng, cfg)
         return
 
-    # Per-target degrees on the shared roll; damage rolled once, crits double it.
-    ranged = move.range == "any"
-    base_damage: int | None = None
+    # One shared damage roll: the swarm stings everyone alike (BLAST). Dodge is
+    # still checked per target, so victims still differ.
+    rolled = rng.roll_formula(move.damage or "0", _stat_env(attacker))
+    attacker_riders = (
+        int(zone_reg.modifier(attacker.zone_id, "damage_bonus"))
+        + _underdog_bonus(pid, chars, state, cfg)
+        + (cfg.sudden_death_damage_bonus if state.sudden_death else 0)
+    )
+
     for target_id in targets:
         target = chars.get(target_id)
         if target is None or target.is_ko:
             continue
-        effective_ac = _effective_ac(target_id, target, ranged, buffs, zone_reg)
-        margin = total_atk - effective_ac
 
-        if natural == 12 or margin >= cfg.crit_margin:
-            degree = "crit"
-        elif margin >= 0:
-            degree = "hit"
-        else:
-            degree = "miss"
-
-        if degree == "miss":
+        # 1. DODGE — the only thing that negates a hit.
+        if rng.chance(_dodge_chance(target, cfg, zone_reg)):
             events.append(Event(
                 id=_eid("atk"), type=EventType.ATTACK_RESOLVED, round=round_num,
                 player_id=pid, target_id=target_id,
-                data={"result": "miss", "move_id": action.move_id, "natural": natural,
-                      "total_atk": total_atk, "ac": effective_ac,
+                data={"result": "dodge", "move_id": action.move_id,
+                      "creativity_tier": tier,
                       "adaptation_note": action.adaptation_note},
             ))
-            _maybe_reflect(pid, attacker, target_id, margin, events,
-                           round_num, rng, buffs)
             continue
 
-        if base_damage is None:
-            base_damage = rng.roll_formula(move.damage or "0", _stat_env(attacker))
-        dmg = base_damage
-        # SHOOT's point-blank penalty: half damage (rounded up) in the same
-        # zone; a crit doubles the already-halved number (matches the sim).
+        riders = attacker_riders + int(
+            zone_reg.modifier(target.zone_id, "incoming_damage_bonus")
+        )
+        # The arithmetic, split for the host's plain-language readout (§13).
+        # `raw` is the addition's total — reductions below get their own line
+        # rather than rewriting it.
+        breakdown = _breakdown(move, attacker, rolled, tier, riders, cfg)
+        dmg = max(0, breakdown["raw"])
+
+        # SHOOT's point-blank penalty: half damage (rounded up) in the same zone.
         point_blank = (
             move.same_zone_penalty == "half"
             and target.zone_id == attacker.zone_id
         )
         if point_blank:
             dmg = (dmg + 1) // 2
-        if degree == "crit":
-            dmg = int(dmg * cfg.crit_damage_mult)
-        dmg = max(0, dmg)
+
+        # 2. SHIELD — flat mitigation, then a chance to bounce it back.
+        blocked = 0
+        shielder_id = ""
+        cover = buffs.mitigate.get(target_id)
+        if cover is not None:
+            amount, reflect_chance, shielder_id = cover
+            blocked = min(amount, dmg)
+            dmg -= blocked
+
         target.hp = max(0, target.hp - dmg)
+        data = {
+            "result": "devastating" if tier >= 3 else "hit",
+            "move_id": action.move_id, "damage": dmg,
+            "point_blank": point_blank, "creativity_tier": tier,
+            "adaptation_note": action.adaptation_note,
+            **breakdown,
+        }
+        if blocked:
+            data["blocked"] = blocked
+            data["shielder_id"] = shielder_id
         events.append(Event(
             id=_eid("atk"), type=EventType.ATTACK_RESOLVED, round=round_num,
-            player_id=pid, target_id=target_id,
-            data={"result": degree, "move_id": action.move_id, "natural": natural,
-                  "total_atk": total_atk, "ac": effective_ac, "damage": dmg,
-                  "point_blank": point_blank,
-                  "creativity_tier": tier,
-                  "adaptation_note": action.adaptation_note},
+            player_id=pid, target_id=target_id, data=data,
         ))
 
         if target.hp <= 0 and not target.is_ko:
             _ko(target_id, target, events, round_num)
 
+        if blocked:
+            _maybe_reflect(pid, attacker, target_id, blocked, reflect_chance,
+                           events, round_num, rng)
+
     del auto_stepped  # informational only; the MOVED event already tells the story
 
 
-def _apply_fumble(
+def _apply_backfire(
     pid: str,
     action: ClassifiedAction,
     attacker: Character,
     events: list[Event],
     round_num: int,
+    rng: Dice,
     cfg: Balance,
-    natural: int,
 ) -> None:
-    attacker.hp = max(0, attacker.hp - cfg.fumble_self_damage)
+    """WILD CARD's opt-in chaos: the only self-damage in the game. Creativity
+    does not soften it — the comedy is the point (§4.1)."""
+    dmg = rng.roll(cfg.wild_backfire_damage or "0")
+    attacker.hp = max(0, attacker.hp - dmg)
     events.append(Event(
         id=_eid("atk"), type=EventType.ATTACK_RESOLVED, round=round_num,
         player_id=pid, target_id=action.target_id,
-        data={"result": "fumble", "move_id": action.move_id, "natural": natural,
-              "self_damage": cfg.fumble_self_damage,
+        data={"result": "backfire", "move_id": action.move_id,
+              "self_damage": dmg,
               "adaptation_note": action.adaptation_note},
     ))
     if attacker.hp <= 0 and not attacker.is_ko:
@@ -354,28 +366,24 @@ def _maybe_reflect(
     pid: str,
     attacker: Character,
     target_id: str,
-    margin: int,
+    blocked: int,
+    reflect_chance: float,
     events: list[Event],
     round_num: int,
     rng: Dice,
-    buffs: _RoundBuffs,
 ) -> None:
-    """SHIELD's rider: an attack missing a shielded target by the reflect
-    margin bounces damage back at the attacker."""
-    reflect = buffs.reflect.get(target_id)
-    if reflect is None:
+    """SHIELD's rider: a 10% x POW chance that the damage the shield swallowed
+    bounces straight back at the attacker (§4.1). Tanks punish attackers."""
+    if blocked <= 0 or not rng.chance(reflect_chance):
         return
-    miss_margin, damage_spec = reflect
-    if miss_margin > 0 and margin <= -miss_margin:
-        dmg = rng.roll(damage_spec or "0")
-        attacker.hp = max(0, attacker.hp - dmg)
-        events.append(Event(
-            id=_eid("rfl"), type=EventType.ATTACK_RESOLVED, round=round_num,
-            player_id=target_id, target_id=pid,
-            data={"result": "reflect", "move_id": "shield", "damage": dmg},
-        ))
-        if attacker.hp <= 0 and not attacker.is_ko:
-            _ko(pid, attacker, events, round_num)
+    attacker.hp = max(0, attacker.hp - blocked)
+    events.append(Event(
+        id=_eid("rfl"), type=EventType.ATTACK_RESOLVED, round=round_num,
+        player_id=target_id, target_id=pid,
+        data={"result": "reflect", "move_id": "shield", "damage": blocked},
+    ))
+    if attacker.hp <= 0 and not attacker.is_ko:
+        _ko(pid, attacker, events, round_num)
 
 
 # ---------------------------------------------------------------------------
@@ -397,20 +405,20 @@ def _resolve_support(
     state: GameState,
 ) -> None:
     # SHIELD: protect every living teammate (and self) in the caster's zone.
-    if move.target == "zone_allies":
+    if move.mitigate:
+        amount = rng.roll_formula(move.mitigate, _stat_env(attacker))
+        reflect_chance = move.reflect_chance_per_power * attacker.stats.power
         protected = sorted(
             p for p, c in chars.items()
             if not c.is_ko and c.zone_id == attacker.zone_id
             and (p == pid or _same_team_bool(pid, p, state))
         )
         for p in protected:
-            buffs.add_ac(p, move.ac_bonus)
-            if move.reflect_miss_margin > 0:
-                buffs.reflect[p] = (move.reflect_miss_margin, move.reflect_damage)
+            buffs.mitigate[p] = (amount, reflect_chance, pid)
         events.append(Event(
             id=_eid("shl"), type=EventType.SHIELDED, round=round_num,
             player_id=pid,
-            data={"protected": protected, "ac_bonus": move.ac_bonus},
+            data={"protected": protected, "mitigate": amount},
         ))
         return
 
@@ -425,23 +433,25 @@ def _resolve_support(
         target_id = action.target_id
     target = chars[target_id]
 
-    if move.heal:
-        if state.sudden_death:
-            events.append(Event(
-                id=_eid("heal"), type=EventType.HEALED, round=round_num,
-                player_id=pid, target_id=target_id,
-                data={"amount": 0, "blocked": "sudden_death"},
-            ))
-        else:
-            # The heal formula may reference CRE — the drawing IS the medicine.
-            tier = 0 if action.similar_to_previous else action.creativity_tier
-            env = _stat_env(attacker) | {"CRE": _creativity_bonus(tier, cfg)}
-            amount = rng.roll_formula(move.heal, env)
-            target.hp = min(target.max_hp, target.hp + amount)
-            events.append(Event(
-                id=_eid("heal"), type=EventType.HEALED, round=round_num,
-                player_id=pid, target_id=target_id, data={"amount": amount},
-            ))
+    if state.sudden_death:
+        events.append(Event(
+            id=_eid("heal"), type=EventType.HEALED, round=round_num,
+            player_id=pid, target_id=target_id,
+            data={"amount": 0, "blocked": "sudden_death"},
+        ))
+        return
+
+    # A better drawing heals more — the creativity bonus is the medicine (§8).
+    tier = _effective_tier(action, cfg)
+    rolled = rng.roll_formula(move.heal or "0", _stat_env(attacker))
+    breakdown = _breakdown(move, attacker, rolled, tier, 0, cfg)
+    amount = max(0, breakdown["raw"])
+    target.hp = min(target.max_hp, target.hp + amount)
+    events.append(Event(
+        id=_eid("heal"), type=EventType.HEALED, round=round_num,
+        player_id=pid, target_id=target_id,
+        data={"amount": amount, "creativity_tier": tier, **breakdown},
+    ))
 
 
 # ---------------------------------------------------------------------------
@@ -587,13 +597,82 @@ def _eid(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:8]}"
 
 
-def _get_stat(ch: Character, stat_name: str) -> int:
-    return getattr(ch.stats, stat_name, 0) if stat_name != "none" else 0
-
-
 def _stat_env(ch: Character) -> dict[str, int]:
     """The formula-evaluation environment for one character (see dice.py)."""
     return {"POW": ch.stats.power, "SPD": ch.stats.speed, "WRD": ch.stats.weird}
+
+
+def _effective_tier(action: ClassifiedAction, cfg: Balance) -> int:
+    """The creativity tier that actually applies: a stale drawing scores 0 (§8),
+    and a combo escalates both partners by combo_tier_bonus — which is how a
+    tier-2 combo earns the DEVASTATING beat."""
+    if action.similar_to_previous:
+        tier = 0
+    else:
+        tier = action.creativity_tier
+    if action.combo_partners:
+        tier += cfg.combo_tier_bonus
+    return max(0, min(tier, 3))
+
+
+_STAT_KEYS = {"power": "POW", "speed": "SPD", "weird": "WRD"}
+
+
+def headline_stat(move_stat: str, ch: Character) -> tuple[str, set[str]]:
+    """A move's headline stat resolved for one character → (name, formula keys).
+
+    The keys are every stat the expression reads, which is what the readout has
+    to zero out to isolate the stat's contribution — for SHOOT's
+    "max(speed,weird)" that's BOTH, since zeroing only Speed would just leave
+    Weird as the max and understate the term.
+
+    SHOOT names whichever is higher (Speed on a tie, so the readout names the
+    same stat the initiative rail is ordered by).
+    """
+    if move_stat == "max(speed,weird)":
+        name = "weird" if ch.stats.weird > ch.stats.speed else "speed"
+        return name, {"SPD", "WRD"}
+    if move_stat in _STAT_KEYS:
+        return move_stat, {_STAT_KEYS[move_stat]}
+    return "", set()
+
+
+def _breakdown(
+    move: MoveDef,
+    attacker: Character,
+    rolled: int,
+    tier: int,
+    riders: int,
+    cfg: Balance,
+) -> dict:
+    """Split a rolled effect into the terms the host readout adds up (§13):
+
+        🎯 SHOOT → 🎲 3 + ⚡ Speed 5 + ⭐⭐ Creative 3 = 11 damage
+
+    The formula's flat mod already folds in the stat, so re-resolving it with
+    that stat's inputs zeroed isolates the stat term without the catalog having
+    to declare it separately. `dice` carries the move's own constant along with
+    the roll (SMASH's "+2" rides inside 🎲) — that keeps the line to one
+    addition of three readable terms, as both §13 examples show.
+    """
+    env = _stat_env(attacker)
+    spec = move.damage or move.heal or "0"
+    _, _, mod = formula_parts(spec, env)
+    stat_name, stat_keys = headline_stat(move.stat, attacker)
+    if stat_keys:
+        _, _, mod_without_stat = formula_parts(spec, env | dict.fromkeys(stat_keys, 0))
+    else:
+        mod_without_stat = mod
+    stat_value = mod - mod_without_stat
+    creativity = _creativity_bonus(tier, cfg)
+    return {
+        "dice": rolled - stat_value,          # the roll + the move's own constant
+        "stat": stat_name,
+        "stat_value": stat_value,
+        "riders": riders,                     # zone/underdog/sudden-death; usually 0
+        "creativity_bonus": creativity,
+        "raw": rolled + creativity + riders,  # the addition's total
+    }
 
 
 def _creativity_bonus(tier: int, cfg: Balance) -> int:
@@ -601,19 +680,12 @@ def _creativity_bonus(tier: int, cfg: Balance) -> int:
             cfg.creativity_tier_2, cfg.creativity_tier_3][max(0, min(tier, 3))]
 
 
-def _effective_ac(
-    target_id: str,
-    target: Character,
-    is_ranged: bool,
-    buffs: _RoundBuffs,
-    zone_reg: ZoneRegistry,
-) -> int:
-    ac = target.ac
-    ac += buffs.ac.get(target_id, 0)
-    ac += zone_reg.modifier(target.zone_id, "ac_bonus")
-    if is_ranged:
-        ac += zone_reg.modifier(target.zone_id, "ranged_ac_bonus")
-    return ac
+def _dodge_chance(target: Character, cfg: Balance, zone_reg: ZoneRegistry) -> float:
+    """Passive, Speed-driven, capped — the one way a hit is negated (§5)."""
+    chance = cfg.dodge_per_speed * target.stats.speed
+    chance += zone_reg.modifier(target.zone_id, "dodge_bonus")
+    chance -= zone_reg.modifier(target.zone_id, "incoming_dodge_penalty")
+    return min(chance, cfg.dodge_cap)
 
 
 def _team_of(pid: str, state: GameState) -> str | None:
@@ -637,16 +709,12 @@ def _do_move(
     target_zone: str,
     events: list[Event],
     round_num: int,
-    dodge_ac: int = 0,
 ) -> None:
     old_zone = ch.zone_id
     ch.zone_id = target_zone
-    data = {"from": old_zone, "to": target_zone}
-    if dodge_ac:
-        data["dodge_ac"] = dodge_ac
     events.append(Event(
         id=_eid("mv"), type=EventType.MOVED, round=round_num, player_id=pid,
-        data=data,
+        data={"from": old_zone, "to": target_zone},
     ))
 
 
@@ -694,7 +762,7 @@ def _underdog_bonus(
         team_max_hp.get(my_team.id, 1) / max(1, len(my_team.player_ids))
     )
     if best_opp - my_share >= threshold_hp:
-        return cfg.underdog_attack_bonus
+        return cfg.underdog_damage_bonus
     return 0
 
 

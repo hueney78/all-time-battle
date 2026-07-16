@@ -48,18 +48,34 @@ ui:
   float_number_seconds: 2.5            # floating damage/heal number lifetime
   audience_recent_rounds: 3            # Crowd Favorite meter recency window (rounds)
   combo_splash_seconds: 2.0            # how long the COMBO! splash holds on screen
-  instant_replay:                      # crit/KO beats replay once in slow-mo
+  readout:                             # the plain-language damage line (§13):
+                                       # 🎯 SHOOT → 🎲 3 + ⚡ Speed 5 + ⭐⭐ Creative 3 = 11 damage
     enabled: true
-    triggers: [crit, ko]               # which beat events earn a replay
+    dice_icon: "🎲"
+    star_icon: "⭐"                    # repeated once per creativity tier
+    creative_label: "Creative"
+    stat_icons: {power: "💪", speed: "⚡", weird: "🌀"}
+    stat_labels: {power: "Power", speed: "Speed", weird: "Weird"}
+    devastating_chip: "⭐⭐⭐ DEVASTATING!"   # tier 3 swaps the star chip for this
+    damage_line: "{icon} {move} → {terms} = {total} damage"
+    heal_line: "{icon} {move} → {terms} = {total} healed"
+    shield_line: "🛡️ {shielder}'s shield blocks {blocked} → {total} damage gets through"
+    dodge_line: "💨 {target} dodges — no damage!"
+    reflect_line: "🛡️ {target}'s shield bounces {total} back at {attacker}!"
+    backfire_line: "🃏 {attacker}'s wild card backfires — {total} damage to themselves!"
+  instant_replay:                      # DEVASTATING/KO beats replay once in slow-mo
+    enabled: true
+    triggers: [devastating, ko]        # which attack results earn a replay
     slowmo_factor: 2.0                 # replay plays this many times slower
   audio:                               # host-page Web Audio manager (audio.js)
     enabled: true
     volume: 0.8                        # master volume 0..1 (host UI can override)
     pitch_variation: 0.10              # ±10% random playback rate so repeats vary
     sfx_dir: "/static/host/assets/sfx" # clips referenced by moves.yaml sfx keys
-    events_sfx:                        # engine event type → stinger clip
-      crit: crowd_roar
-      fumble: sad_trombone
+    events_sfx:                        # engine event/result → stinger clip
+      devastating: crowd_roar          # creativity tier 3 — v4's spike moment
+      dodge: whoosh
+      backfire: sad_trombone           # WILD CARD turning on its caster
       ko: ko_bell
       combo: air_horn
       sudden_death: drumroll

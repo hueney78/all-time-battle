@@ -254,11 +254,11 @@ def test_mock_narration_uses_both_announcers():
     against AI_MODE=mock (the S1 mock fixtures)."""
     hit = Event(id="hit", type=EventType.ATTACK_RESOLVED, round=1, player_id="p1",
                 target_id="p2", data={"result": "hit", "damage": 5})
-    miss = Event(id="miss", type=EventType.ATTACK_RESOLVED, round=1, player_id="p2",
-                 target_id="p1", data={"result": "miss"})
-    n = MockAI().narrate_round([hit, miss], _two_player_state().characters)
+    dodge = Event(id="dodge", type=EventType.ATTACK_RESOLVED, round=1, player_id="p2",
+                  target_id="p1", data={"result": "dodge"})
+    n = MockAI().narrate_round([hit, dodge], _two_player_state().characters)
     by = {b.event_id: b.speaker for b in n.beats}
-    assert by["hit"] == "pbp" and by["miss"] == "color"
+    assert by["hit"] == "pbp" and by["dodge"] == "color"
 
 
 def test_narration_never_leaks_zone_ids():

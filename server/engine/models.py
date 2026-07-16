@@ -32,7 +32,6 @@ class Character(BaseModel):
     announcer_intro: str = ""
     hp: int
     max_hp: int
-    ac: int
     zone_id: str
     # Last tapped combat move — the no-repeat rule greys it out next round
     # (movement is exempt). Server-owned, validated at submit time.
@@ -74,15 +73,24 @@ class ClassifiedAction(BaseModel):
     wild_interpretation: WildInterpretation | None = None  # WILD CARD only
     adaptation_note: str | None = None
     flagged: bool = False
-    combo_partners: list[str] = []      # both partners gain the combo roll bonus
+    combo_partners: list[str] = []      # both partners gain +combo_tier_bonus creativity tiers
     combo_name: str = ""
     action_png_b64: str = ""            # the player's drawing this round
 
 
 class EventType(str, Enum):
+    # data["result"] is one of (COMBAT V4 — there is no "miss": every move lands):
+    #   hit          the move landed
+    #   devastating  it landed at creativity tier 3 — v4's spike moment (replay,
+    #                stinger, gold log line). Replaces v2's crit.
+    #   dodge        the target's passive Speed dodge negated it outright
+    #   backfire     WILD CARD turned on its caster (the only self-damage)
+    #   reflect      a SHIELD bounced mitigated damage back at the attacker
+    #   hazard       an Arena Gremlin's zone hazard
+    #   no_target / out_of_reach
     ATTACK_RESOLVED = "attack_resolved"
-    # SHIELD resolved: data carries the protected player ids + ac_bonus, so the
-    # narrator and the host's "helped" pop know who got covered.
+    # SHIELD resolved: data carries the protected player ids + the mitigation
+    # amount, so the narrator and the host's "helped" pop know who got covered.
     SHIELDED = "shielded"
     MOVED = "moved"
     HEALED = "healed"

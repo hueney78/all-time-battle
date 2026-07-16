@@ -81,7 +81,7 @@ class MatchSummary:
     # {player_id, name, team_id, alive}
     players: list[dict] = field(default_factory=list)
     creativity: dict[str, int] = field(default_factory=dict)   # pid → total tiers
-    fumbles: dict[str, int] = field(default_factory=dict)      # pid → fumble count
+    backfires: dict[str, int] = field(default_factory=dict)    # pid → WILD backfire count
     combos: list[dict] = field(default_factory=list)           # {combo_name, partners}
     round_titles: list[str] = field(default_factory=list)
     best_line: str = ""
@@ -320,19 +320,21 @@ def _mock_round_title(events: list[Event]) -> str:
     results = {e.data.get("result") for e in events if e.type.value == "attack_resolved"}
     if "ko" in kinds:
         return "Someone Hits the Sand"
-    if "crit" in results:
-        return "Critical Chaos"
-    if "fumble" in results:
+    if "devastating" in results:
+        return "Absolutely Devastating"
+    if "backfire" in results:
         return "A Comedy of Errors"
+    if "dodge" in results:
+        return "Not Even There"
     return "The Doodles Circle"
 
 
 def _mock_speaker(ev: Event) -> str:
     """Split beats between the two announcers so both voices show up every round:
-    the deadpan color commentator handles the whiffs, fizzles, and dry asides;
+    the deadpan color commentator handles the dodges, backfires, and dry asides;
     the play-by-play announcer calls the big swings."""
     t = ev.type.value
-    if t == "attack_resolved" and ev.data.get("result") in ("miss", "fumble"):
+    if t == "attack_resolved" and ev.data.get("result") in ("dodge", "backfire"):
         return "color"
     if t in ("gremlin_hazard", "stumble"):
         return "color"
@@ -354,14 +356,14 @@ def _beat_text(ev: Event, characters: dict[str, Character],
     zn = zone_names or {}
     if t == "attack_resolved":
         res = d.get("result")
-        if res == "crit":
-            return f"{who} lands a spectacular hit on {whom} for {d.get('damage', 0)}!"
+        if res == "devastating":
+            return f"{who} lands an absolutely devastating blow on {whom} for {d.get('damage', 0)}!"
         if res == "hit":
             return f"{who} tags {whom} for {d.get('damage', 0)}."
-        if res == "miss":
-            return f"{who} swings at {whom} and whiffs."
-        if res == "fumble":
-            return f"{who} fumbles catastrophically and hurts themselves."
+        if res == "dodge":
+            return f"{whom} blurs sideways and {who}'s attack sails past."
+        if res == "backfire":
+            return f"{who}'s wild card goes off in their own hands."
         if res == "reflect":
             return f"{who}'s shield flings the blow back at {whom} for {d.get('damage', 0)}!"
         if res == "out_of_reach":

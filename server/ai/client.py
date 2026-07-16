@@ -385,7 +385,7 @@ def _awards_text(summary: MatchSummary) -> str:
         lines.append(
             f"- {p.get('name', pid)} ({pid}) team={p.get('team_id')} "
             f"alive={p.get('alive')} creativity={summary.creativity.get(pid, 0)} "
-            f"fumbles={summary.fumbles.get(pid, 0)}"
+            f"backfires={summary.backfires.get(pid, 0)}"
         )
     combo_names = [c.get("combo_name", "") for c in summary.combos if c.get("combo_name")]
     if combo_names:
