@@ -135,6 +135,37 @@ class ReadoutConfig(BaseModel):
     backfire_line: str = "🃏 {attacker}'s wild card backfires — {total} damage to themselves!"
 
 
+class HowToPlayConfig(BaseModel):
+    """Lobby rules copy (GAME_DESIGN §13). The host lobby shows the full panel
+    (steps + tips) beside the QR/room code; the player waiting screen shows the
+    same numbered steps condensed under "You're in!". Steps carry their own
+    number emoji so the copy is fully editable here with no numbering in code."""
+
+    title: str = "How to Play"
+    steps: list[str] = [
+        "1️⃣ Draw your fighter — the AI sizes it up, names it, and gives it stats.",
+        "2️⃣ Every round: TAP a move, PICK a target, then DRAW how your character does it.",
+        "3️⃣ Your drawing is your power — creative, funny drawings earn big bonuses.",
+        "4️⃣ Scheme with your teammate: drawings that work together trigger a COMBO.",
+        "5️⃣ Knock out the other team to win — and if you're KO'd, "
+        "you become a Gremlin and draw hazards!",
+    ]
+    tips: list[str] = [
+        "Weirder is better",
+        "Watch the Initiative Order — fast fighters act first.",
+    ]
+
+
+class StandsConfig(BaseModel):
+    """The Doodle Crowd stands (GAME_DESIGN §15). The host receives the full
+    gallery roster (up to gallery.cap) and shows a rotating handful of them as
+    tiny spectators in the colosseum stands. These knobs are pure presentation
+    (how many at once, how often the visible set rotates)."""
+
+    max: int = 14              # spectators visible at once (0 disables the stands)
+    rotate_seconds: float = 12.0   # how often the visible handful is reshuffled (0 = never)
+
+
 class UIConfig(BaseModel):
     """Presentation knobs handed to the browser as window.DOODLE_CONFIG.
 
@@ -164,6 +195,8 @@ class UIConfig(BaseModel):
     float_number_seconds: float = 1.5
     audience_recent_rounds: int = 3
     combo_splash_seconds: float = 2.0
+    how_to_play: HowToPlayConfig = HowToPlayConfig()
+    stands: StandsConfig = StandsConfig()
     readout: ReadoutConfig = ReadoutConfig()
     instant_replay: InstantReplayConfig = InstantReplayConfig()
     audio: AudioConfig = AudioConfig()

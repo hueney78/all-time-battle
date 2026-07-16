@@ -108,6 +108,46 @@ def test_settings_phase_splash_knobs():
     assert "montage" in s.ui.splash_text
 
 
+def test_settings_how_to_play():
+    """Lobby rules copy (§13): a title, the five numbered steps, and two tips —
+    all editable in settings.yaml, shipped to both pages via DOODLE_CONFIG."""
+    s = load_settings()
+    h = s.ui.how_to_play
+    assert h.title == "How to Play"
+    assert len(h.steps) == 5
+    assert h.steps[0].startswith("1️⃣")
+    assert "Draw your fighter" in h.steps[0]
+    assert "COMBO" in h.steps[3]
+    assert "Gremlin" in h.steps[4]
+    assert len(h.tips) == 2
+    assert any("Initiative" in t for t in h.tips)
+
+
+def test_settings_how_to_play_defaults_when_block_missing(tmp_path: Path, monkeypatch):
+    """A settings.yaml without a how_to_play block still loads sensible rules."""
+    minimal = {
+        "server": {"host": "0.0.0.0", "port": 8000},
+        "game": {"max_players": 6, "min_players": 2, "room_code_length": 4},
+        "timers": {"draw_characters_seconds": 90, "draw_action_seconds": 75,
+                   "warning_seconds": 10, "beat_seconds": 6},
+        "ai": {"classify_model": "m", "narrate_model": "n"},
+        "snapshots": {"enabled": False, "dir": "snapshots"},
+        "ui": {},
+    }
+    (tmp_path / "settings.yaml").write_text(yaml.dump(minimal), encoding="utf-8")
+    monkeypatch.setattr(cfg_mod, "CONFIG_DIR", tmp_path)
+    s = cfg_mod.load_settings()
+    assert len(s.ui.how_to_play.steps) == 5   # UIConfig default
+
+
+def test_settings_stands():
+    """Doodle Crowd stands (§15): how many spectators show at once and how often
+    the visible handful rotates — presentation knobs shipped via DOODLE_CONFIG."""
+    s = load_settings()
+    assert s.ui.stands.max == 14
+    assert s.ui.stands.rotate_seconds == 12
+
+
 def test_settings_ui_defaults_when_block_missing(tmp_path: Path, monkeypatch):
     """A settings.yaml without a ui: block still loads (UIConfig defaults)."""
     minimal = {

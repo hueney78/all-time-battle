@@ -72,6 +72,44 @@ def test_host_battlefield_matches_mockup():
     assert "order:-1" in nametag, f"name bubble must sit above the sprite (order:-1): {nametag!r}"
 
 
+def test_host_lobby_has_how_to_play_panel():
+    """§13: the host lobby shows a "How to Play" panel beside the QR/room code,
+    populated at boot from CFG.how_to_play (shipped via DOODLE_CONFIG)."""
+    with TestClient(app) as client:
+        body = client.get("/host").text
+    assert 'id="howto"' in body
+    assert 'id="howtoSteps"' in body
+    assert 'id="howtoTips"' in body
+    # the copy itself travels in DOODLE_CONFIG, not hardcoded markup
+    assert "how_to_play" in body
+    assert "Weirder is better" in body
+
+
+def test_player_status_card_hidden_until_character_exists():
+    """§13: the phone status card is hidden until the character exists; the
+    condensed lobby rules render on the waiting screen."""
+    with TestClient(app) as client:
+        body = client.get("/play").text
+    # the status card ships hidden (revealed on the first player_state)
+    assert re.search(r'id="statusCard"[^>]*class="[^"]*hidden', body) or \
+        re.search(r'class="[^"]*hidden[^"]*"[^>]*id="statusCard"', body), \
+        "status card must start hidden"
+    assert 'id="statusCard"' in body
+    assert 'id="waitRules"' in body
+
+
+def test_host_renders_the_doodle_crowd_stands():
+    """§15/S4: the host consumes the gallery_roster message and renders past
+    characters as tiny spectators in a .stands band above the battlefield."""
+    with TestClient(app) as client:
+        host = client.get("/host").text
+        arena = client.get("/static/host/arena.js").text
+    assert "gallery_roster" in host, "host must handle the gallery roster message"
+    assert "setSpectators" in host and "setSpectators" in arena
+    # the stands live in their own band, above the zones (never obscuring play)
+    assert ".stands" in host and ".spectator" in host
+
+
 def test_static_assets_available():
     with TestClient(app) as client:
         for path in [

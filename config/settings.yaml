@@ -48,6 +48,22 @@ ui:
   float_number_seconds: 2.5            # floating damage/heal number lifetime
   audience_recent_rounds: 3            # Crowd Favorite meter recency window (rounds)
   combo_splash_seconds: 2.0            # how long the COMBO! splash holds on screen
+  how_to_play:                         # lobby rules (§13): host lobby panel beside the QR,
+                                       # + condensed on the player waiting screen. Fully editable.
+    title: "How to Play"
+    steps:                             # each line carries its own number emoji
+      - "1️⃣ Draw your fighter — the AI sizes it up, names it, and gives it stats."
+      - "2️⃣ Every round: TAP a move, PICK a target, then DRAW how your character does it."
+      - "3️⃣ Your drawing is your power — creative, funny drawings earn big bonuses."
+      - "4️⃣ Scheme with your teammate: drawings that work together trigger a COMBO."
+      - "5️⃣ Knock out the other team to win — and if you're KO'd, you become a Gremlin and draw hazards!"
+    tips:
+      - "Weirder is better"
+      - "Watch the Initiative Order — fast fighters act first."
+  stands:                              # the Doodle Crowd (§15): past characters as
+                                       # tiny spectators in the colosseum stands
+    max: 14                            # how many show at once (0 disables the stands)
+    rotate_seconds: 12                 # how often the visible handful reshuffles (0 = never)
   readout:                             # the plain-language damage line (§13):
                                        # 🎯 SHOOT → 🎲 3 + ⚡ Speed 5 + ⭐⭐ Creative 3 = 11 damage
     enabled: true

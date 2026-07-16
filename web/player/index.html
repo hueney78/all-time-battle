@@ -50,6 +50,12 @@
     @keyframes statp{50%{background:var(--gold)}}
     .hearts{font-size:13px}
 
+    /* condensed lobby rules on the waiting screen [spec §13] */
+    #waitRules{list-style:none; margin:12px 0 0; padding:0; text-align:left;
+      display:flex; flex-direction:column; gap:8px}
+    #waitRules li{font-weight:700; font-size:13px; line-height:1.3;
+      background:#F1EADB; border-radius:10px; padding:7px 10px}
+
     /* COMBAT V2 move grid [spec: 8 big buttons, live per-character math,
        no-repeat greying, edge-disabled movement] */
     #moveGrid{display:grid; grid-template-columns:repeat(2, 1fr); gap:6px; margin:.5rem 0}
@@ -132,8 +138,8 @@
       <span class="timer" id="timerBox"><span id="timer">–</span>s</span>
     </header>
 
-    <!-- status card -->
-    <section class="status card">
+    <!-- status card [spec §13: hidden until the character exists] -->
+    <section class="status card hidden" id="statusCard">
       <div class="avatar" id="avatar"></div>
       <div class="sinfo">
         <strong class="display" id="pname" style="font-size:14px">…</strong>
@@ -184,6 +190,8 @@
     <section id="waitUI" class="card hidden">
       <h2 id="waitTitle">Submitted! ✓</h2>
       <p class="muted" id="waitMsg">Look at the TV…</p>
+      <!-- condensed rules, shown only in the pre-game lobby wait (§13) -->
+      <ul id="waitRules" class="hidden"></ul>
     </section>
 
     <section id="overUI" class="card hidden">
@@ -461,6 +469,7 @@
         show('wait');
         $('waitTitle').textContent = 'You’re in!';
         $('waitMsg').textContent = 'Waiting for the host to start…';
+        showWaitRules(true);        // read the rules while others join
       } else if (m.type === 'lobby_state') {
         const t = (m.payload.teams || []).find(t => t.id === teamId);
         if (t) { document.documentElement.style.setProperty('--team', t.color); $('teamName').textContent = t.name.toUpperCase(); }
@@ -475,6 +484,7 @@
         });
       } else if (m.type === 'phase_change') {
         phase = m.payload.phase; round = m.payload.round;
+        showWaitRules(false);       // the game has started — drop the lobby rules
         $('roundLbl').textContent = phase === 'montage' ? '🎵 Montage!'
           : phase === 'intros' ? '🥁 Meet the Fighters!'
           : round ? ('Drawing for Round ' + round) : 'Draw your fighter';
@@ -502,6 +512,9 @@
         if ((phase === 'draw_action' || phase === 'montage') && pad && !pad.dirty) loadCharacter(true);
       } else if (m.type === 'player_state') {
         isKo = !!m.payload.is_ko;
+        // The server only sends player_state once the character exists, so this
+        // is the signal to reveal the status card (§13: hidden until then).
+        $('statusCard').classList.remove('hidden');
         renderStatus(m.payload);
         if (m.payload.moves) {
           movesList = m.payload.moves;   // live math + no-repeat/edge greying
@@ -545,8 +558,24 @@
       }
     }
 
+    // ---- lobby rules on the waiting screen (§13); shown only pre-game ----
+    function renderWaitRules() {
+      const steps = (CFG.how_to_play || {}).steps || [];
+      const ul = $('waitRules');
+      ul.innerHTML = '';
+      steps.forEach(s => {
+        const li = document.createElement('li');
+        li.textContent = s;
+        ul.appendChild(li);
+      });
+    }
+    function showWaitRules(on) {
+      $('waitRules').classList.toggle('hidden', !on || !$('waitRules').children.length);
+    }
+
     // ---- boot ----
     buildTools();
+    renderWaitRules();
     $('splash').onclick = hideSplash;   // tap-to-skip
     $('joinBtn').onclick = () => {
       const room = $('room').value.toUpperCase().trim();
