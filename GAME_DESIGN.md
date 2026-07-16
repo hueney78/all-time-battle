@@ -30,7 +30,20 @@ Three stats, each **0–6**, assigned by the AI from the character drawing on a 
 | **Speed** | Initiative, DODGE chance, ranged attack (SHOOT uses the **better of Speed/Weird**) | Legs, wheels, wings, streamlines |
 | **Weird** | HEAL, BLAST, ranged attack (SHOOT uses the **better of Speed/Weird**), HP contribution | Extra eyes, auras, impossible anatomy, glitter |
 
-Derived (formulas in `balance.yaml`): `HP = 28 + 2 × Power + Weird` (28–43, the budget capping the top end at Power 6 / Weird 3). There is **no AC and no attack roll** (§5). Each stat point is a felt difference, and **the phone shows the math**: each move button displays that character's live effectiveness ("SMASH — 2d4 + 8" on the brick's phone), so stat identity is visible every round. The shared ranged stat (`max(Speed, Weird)`) guarantees every build has a viable ranged option. Balance note (v4 sim): no stat is a dump stat, and lopsided builds lose to balanced ones — being a 6/2/1 brick beats a 2/1/6 glass cannon only ~56% of the time, and a 3/3/3 generalist beats both. The AI also returns a one-line personality and an announcer intro.
+Derived (formulas in `balance.yaml`): `HP = 28 + 2 × Power + Weird` (28–43, the budget capping the top end at Power 6 / Weird 3). There is **no AC and no attack roll** (§5). Each stat point is a felt difference, and **the phone shows the math**: each move button displays that character's live effectiveness ("SMASH — 2d4 + 8" on the brick's phone), so stat identity is visible every round. The shared ranged stat (`max(Speed, Weird)`) guarantees every build has a viable ranged option. The AI also returns a one-line personality and an announcer intro.
+
+> ⚠️ **Balance note — v4 is NOT balanced yet (open playtest item).** Both sims agree, and they disagree with the aspiration above. Measured through the real engine (`python scripts/balance_engine.py`, 3v3 specialist round-robin, row's win% vs column):
+>
+> | | vs Power(6/2/1) | vs Speed(1/6/2) | vs Weird(2/1/6) | vs Balanced(3/3/3) |
+> |---|---|---|---|---|
+> | **Power(6/2/1)** | — | .216 | .660 | .212 |
+> | **Speed(1/6/2)** | **.784** | — | **.556** | **.724** |
+> | **Weird(2/1/6)** | .384 | .424 | — | .448 |
+> | **Balanced(3/3/3)** | .804 | .348 | .620 | — |
+>
+> **Speed is a god stat** — it beats every other build, including the generalist (72%). It does three jobs at once: initiative, the passive dodge (up to 30% of *all* incoming), and ranged attack via `max(Speed, Weird)`. **Weird is the weakest**, losing every matchup, because Weird 6 implies Speed ~1 — acting last with no dodge. Power buys SMASH damage, HP, and SHIELD, and SHIELD is a trap (§4.1).
+>
+> Levers, in the order worth trying (all one line in `balance.yaml`, see §14): lower `dodge_cap` (0.30 → 0.20/0.25) so Speed's third job shrinks; give SHOOT its own stat or drop the shared `max()` so Speed isn't also a full attack stat; make SHIELD worth its action (below). Retest with `balance_engine.py` after each.
 
 **Example character generation (input: drawing + `hint: "unicorn knight"` → AI output for one player):**
 ```json
@@ -89,7 +102,13 @@ Rules (action costs, banking, and the whole PF2e chassis are **gone**):
 - **SHIELD** mitigates a flat `4 + POW` off each incoming hit to zone allies, then a `10% × POW` chance reflects the mitigated amount; resolved *after* dodge.
 - **WILD CARD** is the only move that can backfire (15%), taking self-damage — opt-in chaos preserves the comedy without punishing normal moves.
 - **Spike moments come from drawings, not luck:** a **creativity tier 3** result is the "DEVASTATING!" beat (replay + stinger + gold log line). Earned by creativity, which fits the game better than a random crit.
-- Verified in `scripts/balance_sim.py` (v4): six moves within a healthy ablation band, and the specialist round-robin confirms no dump stat.
+- **Move ablation — measured, not yet healthy (open item).** `python scripts/balance_engine.py` pits the full catalog against a team missing one move; >0.5 means the move earns its slot, <0.5 means it's a *trap* that costs you the game:
+
+  | wild | rally | blast | shoot | smash | shield |
+  |---|---|---|---|---|---|
+  | .688 | .616 | .580 | .556 | **.496** | **.432** |
+
+  **SHIELD is a trap.** It spends your whole action on `4 + POW` mitigation that only covers attackers who act *after* you — so the Speed-1 tank most likely to want it protects nobody (this is exactly what §12's worked round shows on the rail). Fixes worth playtesting: apply mitigation at round start regardless of initiative; scale it up; or let it ride alongside a move rather than replacing one. **SMASH is borderline** (.496) — it's melee-locked while SHOOT hits any zone for comparable damage off a stat that also grants initiative and dodge.
 
 The **draw-on-top canvas** is unchanged (prefilled at ~50% on the team side, orientation ribbon, restore, erasers, sand background). Gremlin hazards and the montage are unchanged.
 

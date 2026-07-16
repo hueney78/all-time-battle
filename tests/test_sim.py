@@ -143,3 +143,21 @@ def test_random_battles_hold_engine_invariants():
 
     for move_id in COMBAT:
         assert report["uses"][move_id] > 0, f"{move_id} never came up in {_N} battles"
+
+
+def test_engine_demo_runs(capsys):
+    """`python -m server.engine.demo` is a documented command (CLAUDE.md) with a
+    hand-written event printer — it reads the resolver's event data directly, so
+    it rots silently whenever the schema moves. It broke on the v4 rewrite
+    exactly this way. Smoke-run it so the next change can't."""
+    from server.engine.demo import main
+
+    main()
+    out = capsys.readouterr().out
+    assert "COMBAT V4" in out
+    assert "every move lands" in out
+    # The §12 fixture's opening lineup, straight from the v4 HP formula.
+    assert "HP=33/33" in out and "HP=41/41" in out
+    # v2 vocabulary must never reappear in the play-by-play.
+    for gone in ("2d6", "vs AC", "FUMBLE", "MISS", "CRIT"):
+        assert gone not in out, f"demo still prints v2 concept {gone!r}"
