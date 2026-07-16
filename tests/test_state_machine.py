@@ -633,7 +633,7 @@ async def test_player_state_ships_move_buttons_with_live_math():
     assert set(moves) == {"smash", "blast", "shoot", "shield", "rally", "wild",
                           "move_l", "move_r"}
     assert moves["smash"]["math"] == "2d4+8"        # POW 6 → live math on the label
-    assert moves["shoot"]["math"] == "2d4+2"        # max(SPD 2, WRD 1) = 2
+    assert moves["shoot"]["math"] == "2d4+1"        # WRD 1
     assert moves["rally"]["math"] == "♥ 2d6+4"      # 2d6 + 2*WRD 1 + 2
     assert moves["wild"]["math"] == "3d6+1"         # 3d6 + WRD 1
     assert moves["shield"]["math"] == "block 10"    # 4 + POW 6, zone-wide

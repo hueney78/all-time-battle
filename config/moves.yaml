@@ -17,8 +17,8 @@
 # is the one effect creativity does not touch.
 #
 # `stat` names the move's headline stat — the term the host readout prints
-# ("⚡ Speed 5") and the phone button keys off. "none" = no stat term.
-# SHOOT's "max(speed,weird)" resolves per character to whichever is higher.
+# ("🌀 Weird 5") and the phone button keys off. "none" = no stat term.
+# SHOOT keys off Weird only, so ranged damage no longer rides on Speed too.
 # `same_zone_penalty: half` (SHOOT) halves damage point-blank.
 # `sfx` names the clip (web/host/assets/sfx/<name>.wav) the host plays when
 # the move resolves; event stingers live in settings.yaml ui.audio.events_sfx.
@@ -39,10 +39,11 @@ moves:
     sfx: punch
 
   shoot:
-    stat: "max(speed,weird)"          # the shared ranged stat: every build has one
+    stat: weird                       # ranged keys off Weird only (balance lever:
+                                      # Speed no longer doubles as a full attack stat)
     range: any
     target: single_enemy
-    damage: "2d4 + max(SPD,WRD)"
+    damage: "2d4 + WRD"
     same_zone_penalty: half           # point-blank = half damage (round up)
     button: "SHOOT"
     icon: "🎯"

@@ -19,10 +19,13 @@ stat_max: 6
 
 # --- Dodge (passive, target's Speed) — the ONLY thing that negates a hit ---
 # chance = dodge_per_speed * Speed, capped at dodge_cap. Checked per incoming
-# hit, including each BLAST target separately. Speed feeling too strong? Lower
-# the cap (0.30 → 0.25).
-dodge_per_speed: 0.05
-dodge_cap: 0.30
+# hit, including each BLAST target separately.
+# Balance lever: once ranged moved off Speed onto Weird, Speed did too little,
+# so its one remaining job (dodge) was strengthened 0.05 → 0.07 to flatten the
+# archetypes (3v3 round-robin spread .276 → .074). At the stat ceiling (Speed 6)
+# that is 0.42; the cap 0.45 only binds for montage-boosted Speed 7+.
+dodge_per_speed: 0.07
+dodge_cap: 0.45
 
 # --- WILD CARD backfire ---
 # The only self-damage in the game (chance lives on the move: backfire_chance).

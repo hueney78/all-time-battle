@@ -137,7 +137,8 @@ def test_formula_rejects_disallowed_code():
 
 
 def test_describe_formula_max_takes_the_better_stat():
-    """SHOOT — "the better of Speed/Weird" guarantees every build a ranged option."""
+    """The formula evaluator supports max() generically (no shipped move uses it
+    now that SHOOT keys off Weird, but a future catalog formula can)."""
     spec = "2d4 + max(SPD,WRD)"
     assert describe_formula(spec, _env(spd=5, wrd=3)) == "2d4+5"
     assert describe_formula(spec, _env(spd=1, wrd=6)) == "2d4+6"

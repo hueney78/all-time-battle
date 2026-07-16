@@ -1115,8 +1115,9 @@ def _formula_env(ch: Character) -> dict[str, int]:
 def _stat_term(move_stat: str, ch: Character) -> tuple[str, int]:
     """Resolve a move's headline stat for one character → (stat name, value).
 
-    SHOOT's "max(speed,weird)" picks whichever is higher (Speed on a tie, so the
-    readout matches the initiative rail's ordering stat).
+    A "max(speed,weird)" move picks whichever is higher (Speed on a tie). No
+    shipped move uses it now that SHOOT keys off Weird, but the branch stays for
+    a future catalog formula.
     """
     if move_stat == "max(speed,weird)":
         if ch.stats.weird > ch.stats.speed:

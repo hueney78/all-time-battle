@@ -17,12 +17,14 @@ result="devastating" (replay + stinger + gold log line), replacing v2's crit.
 
 SHIELD's mitigation covers every ally in the caster's zone and is round-scoped:
 it exists only inside this function's round state and vanishes when the round
-ends — there is no condition system (v2.1). Because it applies when the caster
-acts, a slow shielder protects nobody from faster attackers; that is intended
-(GAME_DESIGN §12) and the initiative rail shows the couch why.
+ends — there is no condition system (v2.1). It is applied in a PRE-PASS at the
+start of the round, before any attack, so a slow shielder still protects the
+whole zone for the entire round (GAME_DESIGN §4.1 balance lever). The flat
+`4 + POW` mitigation consumes no dice, so the pre-pass never shifts the stream.
 
 Dice consumption order (deterministic, seed-stable):
     1. Initiative tie-break shuffles (per tied-speed group, speed desc).
+    1b. SHIELD pre-pass — flat `4 + POW`, no draws consumed.
     2. For each actor (initiative order):
        a. WILD CARD backfire check, then its self-damage roll if it fires
        b. one shared damage-formula roll if the move has any target
@@ -105,6 +107,21 @@ def resolve_round(
     # 2. Build action map (default missing actions to a stumble)
     # ------------------------------------------------------------------
     action_map: dict[str, ClassifiedAction] = {a.player_id: a for a in actions}
+
+    # ------------------------------------------------------------------
+    # 2b. SHIELD pre-pass — shields go up at the START of the round, before any
+    # attack, regardless of the caster's initiative, so a slow tank still covers
+    # the whole zone for the round (GAME_DESIGN §4.1 lever). Flat 4+POW consumes
+    # no dice, so this never shifts the seeded stream.
+    # ------------------------------------------------------------------
+    for pid in order:
+        action = action_map.get(pid)
+        ch = chars.get(pid)
+        if ch is None or ch.is_ko or action is None or action.move_id not in move_reg:
+            continue
+        if move_reg.get(action.move_id).mitigate:
+            _apply_shield(pid, move_reg.get(action.move_id), ch, chars, events,
+                          round_num, rng, buffs, state)
 
     # ------------------------------------------------------------------
     # 3. Process actions in initiative order
@@ -235,9 +252,13 @@ def _resolve_action(
         return
 
     # ------ Support moves (SHIELD / RALLY) ------
-    if move.mitigate or move.heal:
-        _resolve_support(pid, action, move, attacker, chars, events, round_num,
-                         rng, cfg, buffs, state)
+    # SHIELD was already resolved in the round-start pre-pass; its actor's turn
+    # here is a no-op (the combo announcement above still fires for it).
+    if move.mitigate:
+        return
+    if move.heal:
+        _resolve_heal(pid, action, move, attacker, chars, events, round_num,
+                      rng, cfg, state)
         return
 
     # ------ Attack moves (SMASH / BLAST / SHOOT / WILD) ------
@@ -391,7 +412,38 @@ def _maybe_reflect(
 # ---------------------------------------------------------------------------
 
 
-def _resolve_support(
+def _apply_shield(
+    pid: str,
+    move: MoveDef,
+    attacker: Character,
+    chars: dict[str, Character],
+    events: list[Event],
+    round_num: int,
+    rng: Dice,
+    buffs: _RoundBuffs,
+    state: GameState,
+) -> None:
+    """SHIELD, resolved in the round-start pre-pass: protect every living
+    teammate (and self) in the caster's zone for the whole round. Because it
+    lands before any attack, a slow shielder still covers faster-hit allies
+    (GAME_DESIGN §4.1 lever). Flat `4 + POW` mitigation → no dice consumed."""
+    amount = rng.roll_formula(move.mitigate, _stat_env(attacker))
+    reflect_chance = move.reflect_chance_per_power * attacker.stats.power
+    protected = sorted(
+        p for p, c in chars.items()
+        if not c.is_ko and c.zone_id == attacker.zone_id
+        and (p == pid or _same_team_bool(pid, p, state))
+    )
+    for p in protected:
+        buffs.mitigate[p] = (amount, reflect_chance, pid)
+    events.append(Event(
+        id=_eid("shl"), type=EventType.SHIELDED, round=round_num,
+        player_id=pid,
+        data={"protected": protected, "mitigate": amount},
+    ))
+
+
+def _resolve_heal(
     pid: str,
     action: ClassifiedAction,
     move: MoveDef,
@@ -401,27 +453,8 @@ def _resolve_support(
     round_num: int,
     rng: Dice,
     cfg: Balance,
-    buffs: _RoundBuffs,
     state: GameState,
 ) -> None:
-    # SHIELD: protect every living teammate (and self) in the caster's zone.
-    if move.mitigate:
-        amount = rng.roll_formula(move.mitigate, _stat_env(attacker))
-        reflect_chance = move.reflect_chance_per_power * attacker.stats.power
-        protected = sorted(
-            p for p, c in chars.items()
-            if not c.is_ko and c.zone_id == attacker.zone_id
-            and (p == pid or _same_team_bool(pid, p, state))
-        )
-        for p in protected:
-            buffs.mitigate[p] = (amount, reflect_chance, pid)
-        events.append(Event(
-            id=_eid("shl"), type=EventType.SHIELDED, round=round_num,
-            player_id=pid,
-            data={"protected": protected, "mitigate": amount},
-        ))
-        return
-
     # RALLY (ally_or_self): the tapped target if it's a living teammate, else self.
     target_id = pid
     if (
@@ -622,12 +655,10 @@ def headline_stat(move_stat: str, ch: Character) -> tuple[str, set[str]]:
     """A move's headline stat resolved for one character → (name, formula keys).
 
     The keys are every stat the expression reads, which is what the readout has
-    to zero out to isolate the stat's contribution — for SHOOT's
-    "max(speed,weird)" that's BOTH, since zeroing only Speed would just leave
-    Weird as the max and understate the term.
-
-    SHOOT names whichever is higher (Speed on a tie, so the readout names the
-    same stat the initiative rail is ordered by).
+    to zero out to isolate the stat's contribution — for a "max(speed,weird)"
+    move that's BOTH, since zeroing only Speed would just leave Weird as the max
+    and understate the term. (No shipped move uses max() now that SHOOT keys off
+    Weird, but the branch stays so a future catalog formula can.)
     """
     if move_stat == "max(speed,weird)":
         name = "weird" if ch.stats.weird > ch.stats.speed else "speed"

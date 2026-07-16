@@ -1,322 +1,300 @@
-"""Balance simulator that drives the REAL engine (server.engine.resolver).
+"""Doodle Brawl COMBAT V4 — no AC, no attack rolls, no misses/fumbles.
 
-COMBAT V2 Monte-Carlo harness (the v2 port of the old balance sim, run
-against the real configs). Every round is resolved by the actual
-``resolve_round`` pipeline, so the numbers reflect the real game — any
-divergence from expectation is a real bug.
+Every move lands. Effectiveness = base(stat) + creativity(flat 0/1/3/5).
+Randomness lives in: damage magnitude dice, passive DODGE (Speed), passive
+REFLECT on defend (Power), and WILD CARD backfire.
 
-Jobs:
-  1. Per-move win attribution + per-move ablation (all six combat moves
-     should sit within a tight band — no move dominant or dead weight).
-  2. A stat-budget experiment: a +2 budget edge should win ~77% of games —
-     stats matter (GAME_DESIGN §4.1).
-  3. An INVARIANT / ISSUE REPORT: negative HP, KO bookkeeping, HP>max.
+Stats 0-6, budget 9.
+  Power: SMASH dmg, SHIELD mitigation+reflect, HP (28 + 2*POW + WRD)
+  Speed: initiative, DODGE %
+  Weird: HEAL, BLAST, SHOOT (ranged now keys off Weird only)
 
-Policy: taps are uniform-random over the legal buttons (no-repeat rule
-honored, edge-illegal movement excluded), targets random over living enemies.
-This measures intrinsic move power, not player skill.
+Balance levers under test (vs the shipped v4):
+  - SHOOT ranged tied to WEIRD only (was max(Speed,Weird)) — Speed stops
+    doubling as a full attack stat.
+  - SHIELD applied at the START of the round, before any attack, so a slow
+    tank still protects the whole zone (was: applied on the caster's turn).
 
-Run:
-    python scripts/balance_sim.py                 # default N
-    python scripts/balance_sim.py 3000 400        # N_attr N_abl
+Spike moments (replace crit/fumble): creativity tier 3 = DEVASTATING;
+full dodge = highlight; WILD CARD can backfire.
+
+Checks: attribution, ablation, and SPECIALIST ARCHETYPE round-robin to test
+whether Speed is still a god stat.
 """
 
-from __future__ import annotations
-
 import random
-import sys
 from collections import defaultdict
-from pathlib import Path
 
-# Allow running as a plain script (python scripts/balance_sim.py).
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from server.config import load_balance  # noqa: E402
-from server.engine.dice import Dice  # noqa: E402
-from server.engine.models import (  # noqa: E402
-    Character,
-    ClassifiedAction,
-    GameState,
-    Stats,
-    Team,
-)
-from server.engine.moves import MoveRegistry  # noqa: E402
-from server.engine.resolver import resolve_round  # noqa: E402
-from server.engine.zones import ZoneRegistry  # noqa: E402
-
-CFG = load_balance()
-MOVE_REG = MoveRegistry()
-ZONE_REG = ZoneRegistry()
-COMBAT = MOVE_REG.combat_ids           # the six no-repeat combat moves
-MOVEMENT = [m for m in MOVE_REG.ordered_ids if MOVE_REG.get(m).is_movement]
-CATALOG = COMBAT + MOVEMENT
-
-TEAM_IDS = (["a0", "a1", "a2"], ["b0", "b1", "b2"])
-ALL_IDS = TEAM_IDS[0] + TEAM_IDS[1]
-TEAM_OF = {pid: (0 if pid in TEAM_IDS[0] else 1) for pid in ALL_IDS}
-START_ZONE = {0: "glitter_back", 1: "thunder_back"}
-
-CREATIVITY_WEIGHTS = [0.40, 0.35, 0.20, 0.05]
-MAX_ROUNDS = 40
+ZONES = ["back_a", "front", "back_b"]
+ZIDX = {z: i for i, z in enumerate(ZONES)}
+COMBAT = ["smash", "shoot", "blast", "shield", "rally", "wild"]
+MOVES = COMBAT + ["move_l", "move_r"]
+CRE = [0, 1, 3, 5]
+CRE_W = [0.35, 0.35, 0.22, 0.08]  # flat creativity bonus + tier weights
+DODGE_PER_SPD = 0.07  # Speed's rebalance after ranged moved to Weird (see balance.yaml)
+DODGE_CAP = 0.45  # binds only for montage-boosted Speed 7+ (Speed 6 = 0.42)
+REFLECT_PER_POW = 0.10  # defend reflect chance
+MAXR = 30
+SUDDEN = 12
 
 
-# ---------------------------------------------------------------------------
-# Character construction
-# ---------------------------------------------------------------------------
-def _budget_stats(prng: random.Random, budget: int) -> tuple[int, int, int]:
-    """Random distribution of `budget` points, each stat in [stat_min, stat_max]."""
-    lo, hi = CFG.stat_min, CFG.stat_max
-    while True:
-        p, s = prng.randint(lo, hi), prng.randint(lo, hi)
-        w = budget - p - s
-        if lo <= w <= hi:
-            return p, s, w
+def d(n, s, rng):
+    return sum(rng.randint(1, s) for _ in range(n))
 
 
-def _make_char(pid: str, prng: random.Random, budget: int) -> Character:
-    p, s, w = _budget_stats(prng, budget)
-    hp = CFG.hp_base + CFG.hp_per_power * p
-    return Character(
-        player_id=pid,
-        name=pid,
-        stats=Stats(power=p, speed=s, weird=w),
-        hp=hp,
-        max_hp=hp,
-        ac=CFG.ac_base + s,
-        zone_id=START_ZONE[TEAM_OF[pid]],
+class C:
+    __slots__ = (
+        "cid",
+        "team",
+        "pow",
+        "spd",
+        "wrd",
+        "hp",
+        "maxhp",
+        "zone",
+        "last",
+        "shield",
+        "shield_pow",
     )
 
+    def __init__(s, cid, team, rng, stats=None):
+        s.cid, s.team = cid, team
+        if stats:
+            s.pow, s.spd, s.wrd = stats
+        else:
+            while True:
+                p = rng.randint(0, 6)
+                sp = rng.randint(0, 6)
+                w = 9 - p - sp
+                if 0 <= w <= 6:
+                    break
+            s.pow, s.spd, s.wrd = p, sp, w
+        s.maxhp = s.hp = 28 + 2 * s.pow + s.wrd
+        s.zone = "back_a" if team == 0 else "back_b"
+        s.last = None
+        s.shield = 0
+        s.shield_pow = 0
 
-# ---------------------------------------------------------------------------
-# Policy: pick a random legal tap for one character
-# ---------------------------------------------------------------------------
-def _choose_action(
-    pid: str,
-    chars: dict[str, Character],
-    catalog: list[str],
-    prng: random.Random,
-) -> ClassifiedAction:
-    me = chars[pid]
-    legal = [m for m in catalog if m != me.last_move_id]      # no-repeat rule
-    # Edge-illegal movement is disabled on the phone.
-    legal = [m for m in legal
-             if not MOVE_REG.get(m).is_movement
-             or ZONE_REG.step(me.zone_id, MOVE_REG.get(m).move) is not None]
-    mv = prng.choice(legal)
-    spec = MOVE_REG.get(mv)
-
-    living = {p: c for p, c in chars.items() if not c.is_ko}
-    team_ids = TEAM_IDS[TEAM_OF[pid]]
-    allies = [p for p in team_ids if p in living and p != pid]
-    enemies = sorted(p for p in living if p not in team_ids)
-
-    target: str | None = None
-    if spec.target == "ally_or_self":
-        target = prng.choice(allies + [pid])
-    elif spec.target in ("single_enemy", "zone_all") and enemies:
-        target = prng.choice(enemies)
-
-    tier = prng.choices(range(4), weights=CREATIVITY_WEIGHTS)[0]
-    return ClassifiedAction(
-        player_id=pid,
-        move_id=mv,
-        target_id=target,
-        creativity_tier=tier,
-    )
+    def alive(s):
+        return s.hp > 0
 
 
-# ---------------------------------------------------------------------------
-# Per-battle stats + invariant checks
-# ---------------------------------------------------------------------------
-class BattleStats:
-    def __init__(self) -> None:
-        self.uses: list[tuple[int, str]] = []          # (team_idx, move)
-        self.impact: dict[str, float] = defaultdict(float)
-        self.use_count: dict[str, int] = defaultdict(int)
-        self.fumbles: dict[str, int] = defaultdict(int)
-        # issue counters
-        self.negative_hp = 0
-        self.ko_hp_mismatch = 0
-        self.over_max_hp = 0
+def smash_dmg(p, c, rng):
+    return d(2, 4, rng) + p + 2 + c  # melee bonus for closing in
 
 
-def _run_battle(seed: int, cat_a: list[str], cat_b: list[str], bs: BattleStats,
-                budgets: tuple[int, int] | None = None):
-    prng = random.Random(seed)
-    dice = Dice(seed=(seed * 2654435761) & 0xFFFFFFFF)
-    budget_a, budget_b = budgets or (CFG.stat_budget, CFG.stat_budget)
+def shoot_dmg(w, c, rng):
+    return d(2, 4, rng) + w + c  # ranged keys off Weird only
 
-    chars = {pid: _make_char(pid, prng, budget_a if TEAM_OF[pid] == 0 else budget_b)
-             for pid in ALL_IDS}
-    teams = [
-        Team(id="team_a", name="A", color="pink", player_ids=list(TEAM_IDS[0])),
-        Team(id="team_b", name="B", color="blue", player_ids=list(TEAM_IDS[1])),
+
+def blast_dmg(w, c, rng):
+    return d(1, 6, rng) + w + c  # per-target AOE, friendly fire
+
+
+def heal_amt(w, c, rng):
+    return d(2, 6, rng) + 2 * w + 2 + c  # heals swing races
+
+
+def wild_dmg(w, c, rng):
+    return d(3, 6, rng) + w + c  # swingy
+
+
+def apply(target, dmg, rng, st=None, mv=None):
+    # passive dodge (Speed)
+    if rng.random() < min(DODGE_CAP, DODGE_PER_SPD * target.spd):
+        if st is not None:
+            st["dodges"] += 1
+        return 0
+    reflected = 0
+    if target.shield > 0:
+        mit = target.shield
+        if rng.random() < min(0.6, REFLECT_PER_POW * target.shield_pow):
+            reflected = mit
+        dmg = max(0, dmg - mit)
+    target.hp -= dmg
+    if st is not None and mv:
+        st["imp"][mv] += dmg
+    return reflected
+
+
+def battle(rng, catalogs, stats_map=None, st=None):
+    chars = [
+        C(i, 0 if i < 3 else 1, rng, stats_map.get(i) if stats_map else None) for i in range(6)
     ]
-    state = GameState(room_id="SIM", characters=chars, teams=teams, round=0)
+    for rnd in range(1, MAXR + 1):
+        sd = 3 if rnd > SUDDEN else 0
+        living = [c for c in chars if c.alive()]
+        plans = []
+        for c in living:
+            legal = [
+                m
+                for m in catalogs[c.team]
+                if not (m in COMBAT and m == c.last)
+                and not (m == "move_l" and c.zone == "back_a")
+                and not (m == "move_r" and c.zone == "back_b")
+            ]
+            mv = rng.choice(legal)
+            if mv in COMBAT:
+                c.last = mv
+            plans.append((c, mv, rng.choices(range(4), CRE_W)[0]))
+            c.shield = 0
+            c.shield_pow = 0
+        plans.sort(key=lambda p: (p[0].spd, rng.random()), reverse=True)
+        # SHIELD pre-pass (balance lever): shields go up at the START of the round,
+        # before any attack, regardless of the caster's initiative — a slow tank
+        # still protects the whole zone.
+        for c, mv, tier in plans:
+            if mv == "shield" and c.alive():
+                for t in chars:
+                    if t.alive() and t.team == c.team and t.zone == c.zone:
+                        t.shield = 4 + c.pow
+                        t.shield_pow = c.pow
+        for c, mv, tier in plans:
+            if not c.alive():
+                continue
+            cbon = CRE[tier] + sd
+            enemies = [e for e in chars if e.alive() and e.team != c.team]
+            allies = [a for a in chars if a.alive() and a.team == c.team and a is not c]
+            if not enemies:
+                break
+            if st is not None:
+                st["uses"][mv] += 1
+                st["team"][mv].append(c.team)
+            if mv in ("move_l", "move_r"):
+                c.zone = ZONES[ZIDX[c.zone] + (1 if mv == "move_r" else -1)]
+                continue
+            if mv == "shield":
+                continue  # shields already applied in the round-start pre-pass
+            if mv == "rally":
+                t = min(allies + [c], key=lambda a: a.hp / a.maxhp)
+                t.hp = min(t.maxhp, t.hp + heal_amt(c.wrd, cbon, rng))
+                continue
+            if mv == "smash":
+                cands = [e for e in enemies if e.zone == c.zone]
+                if not cands:
+                    tz = min(enemies, key=lambda e: abs(ZIDX[e.zone] - ZIDX[c.zone])).zone
+                    c.zone = ZONES[ZIDX[c.zone] + (1 if ZIDX[tz] > ZIDX[c.zone] else -1)]
+                    cands = [e for e in enemies if e.zone == c.zone]
+                    if not cands:
+                        continue
+                t = rng.choice(cands)
+                r = apply(t, smash_dmg(c.pow, cbon, rng), rng, st, "smash")
+                if r:
+                    c.hp -= r
+            elif mv == "shoot":
+                t = rng.choice(enemies)
+                dm = shoot_dmg(c.wrd, cbon, rng)  # ranged tied to Weird only
+                if t.zone == c.zone:
+                    dm = (dm + 1) // 2
+                r = apply(t, dm, rng, st, "shoot")
+                if r:
+                    c.hp -= r
+            elif mv == "blast":
+                # hits EVERYONE in the fullest enemy zone, allies there included
+                # (friendly fire is BLAST's cost)
+                zc = max(ZONES, key=lambda z: sum(1 for e in enemies if e.zone == z))
+                for t in [x for x in chars if x.alive() and x.zone == zc and x is not c]:
+                    apply(t, blast_dmg(c.wrd, cbon, rng), rng, st, "blast")
+            elif mv == "wild":
+                if rng.random() < 0.15:  # opt-in backfire
+                    c.hp -= d(2, 4, rng)
+                    if st is not None:
+                        st["fumb"]["wild"] += 1
+                else:
+                    t = rng.choice(enemies)
+                    r = apply(t, wild_dmg(c.wrd, cbon, rng), rng, st, "wild")
+                    if r:
+                        c.hp -= r
+        t0 = any(c.alive() for c in chars if c.team == 0)
+        t1 = any(c.alive() for c in chars if c.team == 1)
+        if not (t0 and t1):
+            return (0 if t0 else 1) if (t0 or t1) else None
+    return None
 
-    winner_idx: int | None = None
-    rounds = MAX_ROUNDS
-    for rnd in range(1, MAX_ROUNDS + 1):
-        living_ids = [p for p, c in state.characters.items() if not c.is_ko]
-        actions = []
-        move_of: dict[str, str] = {}
-        for pid in living_ids:
-            cat = cat_a if TEAM_OF[pid] == 0 else cat_b
-            act = _choose_action(pid, state.characters, cat, prng)
-            move_of[pid] = act.move_id
-            actions.append(act)
-            bs.uses.append((TEAM_OF[pid], act.move_id))
-            bs.use_count[act.move_id] += 1
 
-        state = state.model_copy(update={"round": rnd})
-        result = resolve_round(state, actions, dice, CFG)
-        _scan_events(result.events, move_of, bs)
-        state = result.new_state
-
-        # HP / KO invariants
-        for pid, c in state.characters.items():
-            if c.hp < 0:
-                bs.negative_hp += 1
-            if c.is_ko and c.hp != 0:
-                bs.ko_hp_mismatch += 1
-            if c.hp > c.max_hp:
-                bs.over_max_hp += 1
-
-        if state.winner_team_id:
-            winner_idx = 0 if state.winner_team_id == "team_a" else 1
-            rounds = rnd
-            break
-
-    return winner_idx, rounds
-
-
-def _scan_events(events, move_of: dict[str, str], bs: BattleStats) -> None:
-    for ev in events:
-        t = ev.type.value
-        pid = ev.player_id
-        d = ev.data
-        mv = d.get("move_id") or (move_of.get(pid) if pid else None) or "?"
-        if t == "attack_resolved":
-            res = d.get("result")
-            if res in ("hit", "crit"):
-                bs.impact[mv] += d.get("damage", 0)
-            elif res == "fumble":
-                bs.fumbles[mv] += 1
-        elif t == "healed":
-            bs.impact[move_of.get(pid, "rally") if pid else "rally"] += d.get("amount", 0)
-
-
-# ---------------------------------------------------------------------------
-# Analyses
-# ---------------------------------------------------------------------------
-def run_attribution(n: int, seed: int = 7):
-    agg = dict(uses=defaultdict(int), impact=defaultdict(float), fumbles=defaultdict(int))
+def attribution(n, seed=7):
+    rng = random.Random(seed)
     won = defaultdict(float)
     cnt = defaultdict(int)
-    draws = 0
-    total_rounds = 0
-    neg_hp = ko_mismatch = over_max = 0
-
-    for i in range(n):
-        bs = BattleStats()
-        w, rounds = _run_battle(seed * 1_000_003 + i, CATALOG, CATALOG, bs)
-        total_rounds += rounds
-        if w is None:
-            draws += 1
-        for team_idx, mv in bs.uses:
-            cnt[mv] += 1
-            if w is None:
-                won[mv] += 0.5
-            elif w == team_idx:
-                won[mv] += 1.0
-        for key in ("uses", "impact", "fumbles"):
-            src = getattr(bs, "use_count" if key == "uses" else key)
-            for mv, v in src.items():
-                agg[key][mv] += v
-        neg_hp += bs.negative_hp
-        ko_mismatch += bs.ko_hp_mismatch
-        over_max += bs.over_max_hp
-
-    report = dict(
-        draws=draws,
-        avg_rounds=total_rounds / n,
-        neg_hp=neg_hp,
-        ko_mismatch=ko_mismatch,
-        over_max_hp=over_max,
-    )
-    return agg, won, cnt, report
-
-
-def run_ablation(move: str, n: int, seed: int) -> float:
-    """Team A full catalog vs Team B missing `move`; Team A's win rate."""
-    reduced = [m for m in CATALOG if m != move]
-    wins_a = 0.0
-    for i in range(n):
-        bs = BattleStats()
-        w, _ = _run_battle(seed * 1_000_003 + i, CATALOG, reduced, bs)
-        wins_a += 0.5 if w is None else (1.0 if w == 0 else 0.0)
-    return wins_a / n
-
-
-def run_budget_edge(n: int, seed: int, edge: int = 2) -> float:
-    """Team A plays with stat_budget + edge; Team A's win rate (~0.77 expected)."""
-    wins_a = 0.0
-    for i in range(n):
-        bs = BattleStats()
-        w, _ = _run_battle(seed * 1_000_003 + i, CATALOG, CATALOG, bs,
-                           budgets=(CFG.stat_budget + edge, CFG.stat_budget))
-        wins_a += 0.5 if w is None else (1.0 if w == 0 else 0.0)
-    return wins_a / n
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-def main() -> None:
-    n_attr = int(sys.argv[1]) if len(sys.argv) > 1 else 2000
-    n_abl = int(sys.argv[2]) if len(sys.argv) > 2 else 300
-
-    print(f"Engine simulator — driving the REAL resolve_round ({len(CATALOG)} moves)")
-    print(f"Battles: {n_attr} attribution, {n_abl}/move ablation\n")
-
-    agg, won, cnt, rep = run_attribution(n_attr)
-
-    print(f"=== Attribution ({n_attr} battles, {rep['draws']} draws, "
-          f"avg {rep['avg_rounds']:.1f} rounds) ===")
-    print(f"{'move':<10}{'uses':>8}{'winrate':>9}{'impact/use':>12}{'fumble%':>9}")
-    rows = []
-    for mv in CATALOG:
+    agg = dict(uses=defaultdict(int), imp=defaultdict(float), fumb=defaultdict(int))
+    dodges = 0
+    for _ in range(n):
+        stx = dict(
+            uses=defaultdict(int),
+            team=defaultdict(list),
+            imp=defaultdict(float),
+            fumb=defaultdict(int),
+            dodges=0,
+        )
+        w = battle(rng, (MOVES, MOVES), None, stx)
+        for mv, teams in stx["team"].items():
+            for t in teams:
+                cnt[mv] += 1
+                won[mv] += 0.5 if w is None else (1.0 if w == t else 0.0)
+        for k in ("uses", "fumb"):
+            for mv, v in stx[k].items():
+                agg[k][mv] += v
+        for mv, v in stx["imp"].items():
+            agg["imp"][mv] += v
+        dodges += stx["dodges"]
+    print(f"{'move':<8}{'uses':>9}{'winrate':>9}{'impact/use':>12}")
+    for mv in MOVES:
         u = cnt[mv]
-        wr = won[mv] / u if u else 0.0
-        uses = agg["uses"][mv]
-        ipu = agg["impact"][mv] / uses if uses else 0.0
-        fpct = 100 * agg["fumbles"][mv] / uses if uses else 0.0
-        rows.append((mv, u, wr, ipu, fpct))
-    for mv, u, wr, ipu, fpct in sorted(rows, key=lambda r: -r[2]):
-        print(f"{mv:<10}{u:>8}{wr:>9.3f}{ipu:>12.2f}{fpct:>8.1f}%")
-
-    print(f"\n=== Ablation (Team A full vs Team B missing move; {n_abl} battles; "
-          f"all six combat moves should sit within ±5% of each other) ===")
-    abl = [(mv, run_ablation(mv, n_abl, seed=100 + i)) for i, mv in enumerate(COMBAT)]
-    for mv, wr in sorted(abl, key=lambda r: -r[1]):
-        print(f"{mv:<10}{wr:>7.3f}")
-    spread = max(w for _, w in abl) - min(w for _, w in abl)
-    print(f"ablation spread: {spread:.3f}")
-
-    print("\n=== Stat-budget edge (+2 budget vs baseline; expect ~0.77) ===")
-    print(f"win rate: {run_budget_edge(n_abl, seed=999):.3f}")
-
-    print("\n=== INVARIANT / ISSUE REPORT ===")
-    _issue("Negative HP occurrences (engine should clamp to 0)", rep["neg_hp"])
-    _issue("KO'd characters with hp != 0", rep["ko_mismatch"])
-    _issue("Characters healed above max HP", rep["over_max_hp"])
+        winrate = won[mv] / u if u else 0
+        impact = agg["imp"][mv] / agg["uses"][mv] if agg["uses"][mv] else 0
+        print(f"{mv:<8}{u:>9}{winrate:>9.3f}{impact:>12.2f}")
+    print(f"avg dodges/game: {dodges / n:.1f}")
 
 
-def _issue(label: str, count: int, extra: str = "") -> None:
-    flag = "  OK " if count == 0 else "ISSUE"
-    tail = f"   ({extra})" if extra else ""
-    print(f"  [{flag}] {label}: {count}{tail}")
+def ablation(n=2000):
+    print("\nAblation (>0.5 = valuable):")
+    for i, mv in enumerate(MOVES):
+        rng = random.Random(100 + i)
+        red = [m for m in MOVES if m != mv]
+        w = (
+            sum(
+                0.5 if (r := battle(rng, (MOVES, red))) is None else (1.0 if r == 0 else 0.0)
+                for _ in range(n)
+            )
+            / n
+        )
+        print(f"{mv:<8}{w:>7.3f}")
+
+
+def archetypes(n=3000):
+    """Round-robin: does one specialist dominate? Each team = 3 clones of an archetype."""
+    A = {
+        "Power(6/2/1)": (6, 2, 1),
+        "Speed(1/6/2)": (1, 6, 2),
+        "Weird(2/1/6)": (2, 1, 6),
+        "Balanced(3/3/3)": (3, 3, 3),
+    }
+    print("\nSpecialist round-robin (row team win% vs col):")
+    names = list(A)
+    print("            " + "".join(f"{k[:9]:>11}" for k in names))
+    dash = "\u2014"  # em-dash on the diagonal (no backslash inside the f-string: py311)
+    for rn in names:
+        row = f"{rn:<12}"
+        for cn in names:
+            if rn == cn:
+                row += f"{dash:>11}"
+                continue
+            rng = random.Random(hash((rn, cn)) % 99999)
+            sm = {0: A[rn], 1: A[rn], 2: A[rn], 3: A[cn], 4: A[cn], 5: A[cn]}
+            w = (
+                sum(
+                    0.5
+                    if (r := battle(rng, (MOVES, MOVES), sm)) is None
+                    else (1.0 if r == 0 else 0.0)
+                    for _ in range(n)
+                )
+                / n
+            )
+            row += f"{w:>11.3f}"
+        print(row)
 
 
 if __name__ == "__main__":
-    main()
+    attribution(10000)
+    ablation()
+    archetypes()

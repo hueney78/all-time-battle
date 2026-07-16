@@ -103,19 +103,21 @@ def _attack_ev(result, move_id: str):
 # Seed-42 dice (§12's example numbers are illustrative; the test asserts the
 # actual seeded rolls, exactly like the v2 golden test did). Every move LANDS —
 # the only question is magnitude, dodge, and mitigation:
-#   Stabby    SHOOT at Blob: 2d4=2 + max(SPD 5, WRD 3)=5 + 3 creativity = 10.
-#             Blob's Speed-3 dodge (15%) does not fire → 34 - 10 = 24.
+#   Gerald    SHIELD: applied FIRST, in the round-start pre-pass (balance lever) —
+#             4 + POW 3 = 7 mitigation over his zone (just himself; Stabby is up
+#             front). It now covers him for the whole round regardless of his
+#             Speed-1 initiative — though nothing tests it here (his dodge stops
+#             the only hit aimed at him).
+#   Stabby    SHOOT at Blob: 2d4=2 + WRD 3 + 3 creativity = 8 (ranged keys off
+#             Weird only now). Blob's Speed-3 dodge (21%) does not fire → 34-8 = 26.
 #   Blob      BLAST on the frontline, hitting Stabby AND its own teammate
 #             Lawnmower (friendly fire is BLAST's cost):
-#               - Stabby's Speed-5 dodge (25%) FIRES → she takes nothing.
+#               - Stabby's Speed-5 dodge (35%) FIRES → she takes nothing.
 #               - Lawnmower: 1d6=2 + WRD 6 + 1 creativity = 9 → 41 - 9 = 32.
 #   Lawnmower SMASH on Gerald: auto-steps frontline → glitter_back, then
-#             Gerald's Speed-1 dodge (5%) FIRES — a genuine miracle, and exactly
-#             the defensive highlight v4 wants ("SHE'S NOT EVEN THERE!").
-#   Gerald    SHIELD: 4 + POW 3 = 7 mitigation over his zone (just himself —
-#             Stabby is up front). It lands AFTER the SMASH: a Speed-1 shielder
-#             protects nobody from faster attackers, and the initiative rail
-#             shows the couch why. Here his dodge saved him instead.
+#             Gerald's Speed-1 dodge (7%) FIRES — a long shot, and exactly the
+#             defensive highlight v4 wants ("SHE'S NOT EVEN THERE!").
+#   (Dodge rates are dodge_per_speed 0.07 x Speed — Speed's rebalanced job.)
 
 
 def _golden_chars() -> list[Character]:
@@ -145,7 +147,7 @@ def test_v4_golden():
     chars = result.new_state.characters
 
     assert chars["p1"].hp == 33, f"Stabby: got {chars['p1'].hp}"
-    assert chars["p2"].hp == 24, f"Blob: got {chars['p2'].hp}"
+    assert chars["p2"].hp == 26, f"Blob: got {chars['p2'].hp}"
     assert chars["p3"].hp == 32, f"Lawnmower: got {chars['p3'].hp}"
     assert chars["p4"].hp == 39, f"Gerald: got {chars['p4'].hp}"
 
@@ -158,14 +160,14 @@ def test_v4_golden():
     # Initiative = pure Speed here.
     assert result.initiative_order == ["p1", "p2", "p3", "p4"]
 
-    # Stabby's SHOOT used max(Speed 5, Weird 3) = Speed, and its readout terms
-    # add up to the damage that landed.
+    # Stabby's SHOOT keys off Weird now, and its readout terms add up to the
+    # damage that landed (2d4=2 + Weird 3 + Creative 3 = 8).
     shoot = _attack_ev(result, "shoot")
-    assert shoot.data["result"] == "hit" and shoot.data["damage"] == 10
-    assert shoot.data["stat"] == "speed" and shoot.data["stat_value"] == 5
+    assert shoot.data["result"] == "hit" and shoot.data["damage"] == 8
+    assert shoot.data["stat"] == "weird" and shoot.data["stat_value"] == 3
     assert shoot.data["creativity_bonus"] == CFG.creativity_tier_2
     assert (shoot.data["dice"] + shoot.data["stat_value"]
-            + shoot.data["creativity_bonus"]) == shoot.data["raw"] == 10
+            + shoot.data["creativity_bonus"]) == shoot.data["raw"] == 8
 
     # Lawnmower auto-stepped to Gerald's zone before swinging.
     assert chars["p3"].zone_id == "glitter_back"
@@ -178,7 +180,7 @@ def test_v4_golden():
     assert smash.data["result"] == "dodge"
     assert chars["p4"].hp == chars["p4"].max_hp
 
-    # Gerald's zone-wide shield landed — after the SMASH, and covering only
+    # Gerald's zone-wide shield landed in the round-start pre-pass, covering only
     # himself (Stabby is up front; Lawnmower is a foe).
     shielded = next(e for e in result.events if e.type.value == "shielded")
     assert shielded.player_id == "p4"
@@ -301,10 +303,11 @@ def test_dodge_rate_scales_with_speed_and_honors_the_cap():
         return hits / n
 
     assert dodge_rate(0) == 0.0
-    assert 0.05 <= dodge_rate(2) <= 0.16          # ~10%
-    # Speed 6 → 30% uncapped would be 30%; the cap binds at exactly dodge_cap.
-    assert abs(dodge_rate(6) - CFG.dodge_cap) < 0.06
-    # Above the cap's break-even the rate must not keep climbing.
+    # Rate is dodge_per_speed x Speed (computed from config, not hardcoded).
+    assert abs(dodge_rate(2) - CFG.dodge_per_speed * 2) < 0.06
+    # Speed 6 (the stat ceiling) sits at/under the cap — the cap is headroom now.
+    expected6 = min(CFG.dodge_per_speed * 6, CFG.dodge_cap)
+    assert abs(dodge_rate(6) - expected6) < 0.06
     assert dodge_rate(6) <= CFG.dodge_cap + 0.06
 
 
@@ -418,8 +421,8 @@ def test_move_formulas_scale_with_stats():
 
     assert at("2d4 + POW + 2", POW=0) == "2d4+2"          # SMASH floor
     assert at("2d4 + POW + 2", POW=6) == "2d4+8"          # SMASH on the brick
-    assert at("2d4 + max(SPD,WRD)", SPD=5, WRD=3) == "2d4+5"   # SHOOT takes the better
-    assert at("2d4 + max(SPD,WRD)", SPD=1, WRD=6) == "2d4+6"
+    assert at("2d4 + WRD", WRD=3) == "2d4+3"             # SHOOT keys off Weird
+    assert at("2d4 + WRD", WRD=6) == "2d4+6"
     assert at("1d6 + WRD", WRD=6) == "1d6+6"              # BLAST
     assert at("2d6 + 2*WRD + 2", WRD=4) == "2d6+10"       # RALLY
     assert at("3d6 + WRD", WRD=3) == "3d6+3"              # WILD
@@ -482,8 +485,8 @@ def test_blast_hits_everyone_in_zone_with_one_shared_roll():
     assert len({e.data["damage"] for e in blast_evs}) == 1
 
 
-def test_shoot_uses_the_better_of_speed_and_weird():
-    """The shared ranged stat — every build has a viable ranged option (§3)."""
+def test_shoot_scales_with_weird_only():
+    """Ranged keys off Weird alone now — Speed no longer feeds SHOOT (§3 lever)."""
     def shoot_ev(speed: int, weird: int):
         atk = _char("atk", "Atk", power=0, speed=speed, weird=weird, zone="glitter_back")
         dfn = _char("def", "Def", power=2, speed=0, weird=2, zone="thunder_back")
@@ -493,13 +496,14 @@ def test_shoot_uses_the_better_of_speed_and_weird():
 
     swift = shoot_ev(speed=6, weird=1)
     weird = shoot_ev(speed=1, weird=6)
-    assert swift.data["stat"] == "speed" and swift.data["stat_value"] == 6
+    # Both name Weird; the higher-Weird archer hits harder. Speed is irrelevant.
+    assert swift.data["stat"] == "weird" and swift.data["stat_value"] == 1
     assert weird.data["stat"] == "weird" and weird.data["stat_value"] == 6
-    assert swift.data["damage"] == weird.data["damage"]   # same better-of stat
+    assert weird.data["damage"] - swift.data["damage"] == 5   # same 2d4, WRD 6 vs 1
 
-    # A tie names Speed, matching the initiative rail's ordering stat.
-    tied = shoot_ev(speed=4, weird=4)
-    assert tied.data["stat"] == "speed" and tied.data["stat_value"] == 4
+    # Holding Weird fixed, changing Speed leaves SHOOT damage unchanged.
+    assert shoot_ev(speed=2, weird=4).data["damage"] == \
+        shoot_ev(speed=6, weird=4).data["damage"]
 
 
 def test_shoot_hits_any_zone_at_full_damage():
@@ -613,7 +617,64 @@ def test_shield_without_power_never_reflects():
         assert not [e for e in result.events if e.data.get("result") == "reflect"]
 
 
-def test_rally_heal_scales_with_weird_and_creativity():
+def test_shield_applies_at_round_start_so_a_slow_shielder_still_covers_allies():
+    """Balance lever (§4.1): SHIELD lands in a round-start pre-pass, before any
+    attack, so even a Speed-0 tank protects a faster-hit teammate — the case the
+    old 'shield on the caster's turn' rule failed (which made SHIELD a trap)."""
+    tank = _char("a1", "Tank", power=3, speed=0, weird=2, zone="frontline")   # SLOW
+    ally = _char("a2", "Ally", power=2, speed=0, weird=2, zone="frontline")
+    foe = _char("e1", "Foe", power=6, speed=6, weird=0, zone="frontline")      # FAST
+    teams = [Team(id="team_a", name="A", color="p", player_ids=["a1", "a2"]),
+             Team(id="team_b", name="B", color="b", player_ids=["e1"])]
+    state = _state([tank, ally, foe], teams)
+    # The fast foe acts before the slow tank, yet the shield is already up.
+    actions = [ClassifiedAction(player_id="a1", move_id="shield"),
+               ClassifiedAction(player_id="e1", move_id="smash", target_id="a2")]
+    result = resolve_round(state, actions, Dice(seed=5), CFG)
+
+    assert result.initiative_order[0] == "e1"          # foe outruns the tank
+    smash = _attack_ev(result, "smash")
+    assert smash.data["result"] == "hit"
+    assert smash.data["blocked"] == 7 and smash.data["shielder_id"] == "a1"  # 4 + POW 3
+    assert smash.data["damage"] == smash.data["raw"] - 7
+
+
+def test_shield_pre_pass_covers_a_whole_zone_in_a_3v3():
+    """3v3 at team scale: a Speed-0 tank SHIELDs the frontline, where two allies
+    sit; all three enemies are faster and SMASH into that zone. Because the shield
+    is applied in the round-start pre-pass, every one of the three incoming hits
+    is mitigated — the mechanic that turned SHIELD from a trap into a real move."""
+    a1 = _char("a1", "Ally1", power=2, speed=0, weird=2, zone="frontline")
+    a2 = _char("a2", "Ally2", power=2, speed=0, weird=2, zone="frontline")
+    tank = _char("a3", "Tank", power=4, speed=0, weird=1, zone="frontline")   # shielder
+    e1 = _char("e1", "Foe1", power=6, speed=6, weird=0, zone="frontline")
+    e2 = _char("e2", "Foe2", power=6, speed=5, weird=0, zone="frontline")
+    e3 = _char("e3", "Foe3", power=6, speed=4, weird=0, zone="frontline")
+    teams = [Team(id="team_a", name="A", color="p", player_ids=["a1", "a2", "a3"]),
+             Team(id="team_b", name="B", color="b", player_ids=["e1", "e2", "e3"])]
+    state = _state([a1, a2, tank, e1, e2, e3], teams)
+    actions = [
+        ClassifiedAction(player_id="a3", move_id="shield"),
+        ClassifiedAction(player_id="e1", move_id="smash", target_id="a1"),
+        ClassifiedAction(player_id="e2", move_id="smash", target_id="a2"),
+        ClassifiedAction(player_id="e3", move_id="smash", target_id="a3"),
+    ]
+    result = resolve_round(state, actions, Dice(seed=5), CFG)
+
+    # All three faster foes act before the Speed-0 tank.
+    assert result.initiative_order[:3] == ["e1", "e2", "e3"]
+
+    # The zone-wide shield covered every team-A fighter in the frontline.
+    shielded = next(e for e in result.events if e.type.value == "shielded")
+    assert shielded.player_id == "a3"
+    assert shielded.data["protected"] == ["a1", "a2", "a3"]
+    assert shielded.data["mitigate"] == 4 + 4        # 4 + the tank's POW
+
+    # Every incoming SMASH (all from POW-6 foes, so dmg > 8) was mitigated by 8.
+    smashes = [e for e in result.events
+               if e.data.get("move_id") == "smash" and e.data.get("result") == "hit"]
+    assert len(smashes) == 3
+    assert all(e.data["blocked"] == 8 for e in smashes)
     """RALLY heals 2d6 + 2*WRD + 2, plus the creativity bonus (§4.1, §8)."""
     def run(tier: int, weird: int = 2) -> int:
         healer = _char("atk", "Healer", power=2, speed=4, weird=weird, zone="glitter_back")

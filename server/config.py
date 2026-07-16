@@ -233,8 +233,9 @@ class Balance(BaseModel):
     stat_max: int = 6
     # COMBAT V4: no AC, no attack roll — every selected move lands. Dodge is the
     # only thing that negates a hit: dodge_per_speed * Speed, capped at dodge_cap.
-    dodge_per_speed: float = 0.05
-    dodge_cap: float = 0.30
+    # 0.07 (up from 0.05) is Speed's rebalance after ranged moved to Weird.
+    dodge_per_speed: float = 0.07
+    dodge_cap: float = 0.45
     # WILD CARD's backfire — the only self-damage (chance is on the move itself)
     wild_backfire_damage: str = "2d4"
     # Creativity bonuses (added directly to the effect — there is no roll)

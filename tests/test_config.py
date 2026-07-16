@@ -203,12 +203,15 @@ def test_balance_has_no_attack_roll_knobs():
 
 
 def test_balance_dodge():
-    """Dodge is the only thing that negates a hit: 5% x Speed, capped."""
+    """Dodge is the only thing that negates a hit: dodge_per_speed x Speed, capped.
+    Speed's rebalance (ranged moved to Weird) bumped the rate 0.05 → 0.07."""
     b = load_balance()
-    assert b.dodge_per_speed == 0.05
-    assert b.dodge_cap == 0.30
-    # Speed 6 would be 30% uncapped — the cap binds exactly at the stat ceiling.
-    assert b.dodge_per_speed * b.stat_max == pytest.approx(b.dodge_cap)
+    assert b.dodge_per_speed == 0.07
+    assert b.dodge_cap == 0.45
+    # At the stat ceiling (Speed 6) dodge is 0.42 — under the cap, which is now a
+    # headroom rail that only binds for montage-boosted Speed 7+.
+    assert b.dodge_per_speed * b.stat_max == pytest.approx(0.42)
+    assert b.dodge_per_speed * b.stat_max <= b.dodge_cap
 
 
 def test_balance_wild_backfire():
@@ -359,8 +362,8 @@ def test_moves_headline_stats():
     assert m.moves["wild"].stat == "weird"
     assert m.moves["shield"].stat == "power"
     assert m.moves["rally"].stat == "weird"
-    # SHOOT's shared ranged stat: the better of Speed/Weird (§3).
-    assert m.moves["shoot"].stat == "max(speed,weird)"
+    # SHOOT keys off Weird only (balance lever: Speed no longer doubles as ranged).
+    assert m.moves["shoot"].stat == "weird"
     assert m.moves["move_l"].stat == "none"
 
 
@@ -370,10 +373,10 @@ def test_moves_v4_mechanics():
     assert m.moves["smash"].damage == "2d4 + POW + 2"
     assert m.moves["blast"].friendly_fire is True and m.moves["blast"].target == "zone_all"
     assert m.moves["blast"].damage == "1d6 + WRD"
-    # SHOOT: ranged anywhere, half damage point-blank
+    # SHOOT: ranged anywhere, half damage point-blank, keyed off Weird
     assert m.moves["shoot"].range == "any"
     assert m.moves["shoot"].same_zone_penalty == "half"
-    assert m.moves["shoot"].damage == "2d4 + max(SPD,WRD)"
+    assert m.moves["shoot"].damage == "2d4 + WRD"
     # SHIELD: flat `4 + POW` mitigation for every ally in the caster's zone,
     # then a 10% x POW chance to reflect what it swallowed.
     assert m.moves["shield"].target == "zone_allies"
