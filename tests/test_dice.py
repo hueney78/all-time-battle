@@ -1,4 +1,4 @@
-"""Tests for the seeded dice wrapper + the COMBAT V4 formula evaluator."""
+"""Tests for the seeded dice wrapper + the COMBAT V5 formula evaluator."""
 
 import pytest
 
@@ -6,7 +6,7 @@ from server.engine.dice import Dice, describe_formula, formula_parts
 
 
 def test_there_is_no_attack_roll():
-    """COMBAT V4 removed 2d6-vs-AC entirely — every move lands (§5)."""
+    """COMBAT V5 has no attack roll and no dodge — every move lands (§5)."""
     assert not hasattr(Dice(seed=0), "two_d6")
 
 
@@ -133,12 +133,28 @@ def test_formula_rejects_disallowed_code():
         rng.roll_formula("1d6 + unknown_name", _env())
 
 
-# --- v4: multi-argument max()/min(), needed by SHOOT's shared ranged stat ---
+# --- v5: avg() for CHARGE, plus multi-argument max()/min() generically ---
+
+
+def test_describe_formula_avg_for_charge():
+    """CHARGE keys off avg(POW,SPD) — integer floor average (GAME_DESIGN §4.1)."""
+    spec = "2d4 + avg(POW,SPD)"
+    assert describe_formula(spec, _env(pow_=6, spd=2)) == "2d4+4"   # (6+2)//2
+    assert describe_formula(spec, _env(pow_=1, spd=5)) == "2d4+3"   # (1+5)//2
+    assert describe_formula(spec, _env(pow_=3, spd=4)) == "2d4+3"   # (3+4)//2 floors
+    assert describe_formula(spec, _env()) == "2d4"
+
+
+def test_roll_formula_avg_bounds():
+    rng = Dice(seed=3)
+    for _ in range(200):
+        v = rng.roll_formula("2d4 + avg(POW,SPD)", _env(pow_=6, spd=2))
+        assert 6 <= v <= 12          # 2d4 + 4
 
 
 def test_describe_formula_max_takes_the_better_stat():
-    """The formula evaluator supports max() generically (no shipped move uses it
-    now that SHOOT keys off Weird, but a future catalog formula can)."""
+    """The formula evaluator supports max() generically for future catalog
+    formulas even though no shipped v5 move uses it."""
     spec = "2d4 + max(SPD,WRD)"
     assert describe_formula(spec, _env(spd=5, wrd=3)) == "2d4+5"
     assert describe_formula(spec, _env(spd=1, wrd=6)) == "2d4+6"

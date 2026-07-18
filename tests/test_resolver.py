@@ -1,16 +1,14 @@
-"""Resolver tests — unit, golden, and property tests (COMBAT V4).
+"""Resolver tests — unit, golden, and property tests (COMBAT V5).
 
-Golden test (test_v4_golden):
-    seed 42, the GAME_DESIGN.md §12 2v2 fixture (HP = 28 + 2*POW + WRD):
-    Stabby (P1/S5/W3, HP 33) + Gerald (P3/S1/W5, HP 39)
+Golden test (test_v5_golden):
+    seed 42, the GAME_DESIGN.md §12 2v2 fixture
+    (HP = 27 + 2*POW + WRD + SPD//2):
+    Stabby (P1/S5/W3, HP 34) + Gerald (P3/S1/W5, HP 38)
     vs Lawnmower (P6/S2/W1, HP 41) + Blob (P0/S3/W6, HP 34).
 
-V4 has no AC and no attack roll: every move lands, and only the target's
-passive dodge or a SHIELD's mitigation can reduce it.
-
-Determinism aid: `Dice.chance()` short-circuits at p<=0 without consuming a
-draw, so giving a target Speed 0 switches its dodge off *without* shifting the
-dice stream. Most unit tests below lean on that to isolate one mechanic.
+V5 has no AC, no attack roll, and no dodge: every move lands, and the ONLY thing
+that reduces a hit is PROTECT's reflect shield. Initiative is PROTECT-first, then
+Speed; a fighter KO'd earlier in the round forfeits its already-tapped action.
 """
 
 from __future__ import annotations
@@ -25,6 +23,7 @@ from server.engine.models import (
     GameState,
     Stats,
     Team,
+    Trap,
 )
 from server.engine.resolver import resolve_round
 
@@ -36,6 +35,11 @@ CFG = load_balance()
 # ---------------------------------------------------------------------------
 
 
+def _hp(power: int, speed: int, weird: int) -> int:
+    return (CFG.hp_base + CFG.hp_per_power * power + CFG.hp_per_weird * weird
+            + speed // CFG.hp_speed_divisor)
+
+
 def _char(
     player_id: str,
     name: str,
@@ -45,7 +49,7 @@ def _char(
     zone: str,
     hp: int | None = None,
 ) -> Character:
-    max_hp = CFG.hp_base + CFG.hp_per_power * power + CFG.hp_per_weird * weird
+    max_hp = _hp(power, speed, weird)
     return Character(
         player_id=player_id,
         name=name,
@@ -56,12 +60,14 @@ def _char(
     )
 
 
-def _state(chars: list[Character], teams: list[Team], round_num: int = 1) -> GameState:
+def _state(chars: list[Character], teams: list[Team], round_num: int = 1,
+           traps: list[Trap] | None = None) -> GameState:
     return GameState(
         room_id="TEST",
         round=round_num,
         characters={ch.player_id: ch for ch in chars},
         teams=teams,
+        traps=traps or [],
     )
 
 
@@ -80,7 +86,6 @@ def _duel(attacker: Character, defender: Character):
 
 
 def _smash_duel(attacker_power=6, defender_speed=0):
-    """A duel where the defender defaults to Speed 0 — dodge off, damage exact."""
     atk = _char("atk", "Atk", power=attacker_power, speed=4, weird=0, zone="frontline")
     dfn = _char("def", "Def", power=2, speed=defender_speed, weird=2, zone="frontline")
     return _duel(atk, dfn)
@@ -91,115 +96,119 @@ def _attack_ev(result, move_id: str):
 
 
 # ---------------------------------------------------------------------------
-# §12 Golden test — seed 42, the COMBAT V4 worked round
+# §12 Golden test — seed 42, the COMBAT V5 worked round
 # ---------------------------------------------------------------------------
 #
-# Taps: Stabby SHOOT at Blob (creativity 2 = +3); Blob BLAST on the frontline
-#       (creativity 1 = +1); Lawnmower SMASH on Gerald (auto-step, creativity 0);
-#       Gerald SHIELDs his zone.
+# Taps: Gerald PROTECT on Stabby (creativity 2 = +3); Stabby CHARGE at Blob
+#       (creativity 1 = +1); Lawnmower CHARGE at Stabby (creativity 0); Blob
+#       BLAST at Stabby (creativity 3 = +5, DEVASTATING).
 #
-# Initiative (pure speed, no ties): Stabby(5) → Blob(3) → Lawnmower(2) → Gerald(1).
+# Initiative: PROTECT first → Gerald; then by Speed → Stabby(5), Blob(3),
+# Lawnmower(2).
 #
-# Seed-42 dice (§12's example numbers are illustrative; the test asserts the
-# actual seeded rolls, exactly like the v2 golden test did). Every move LANDS —
-# the only question is magnitude, dodge, and mitigation:
-#   Gerald    SHIELD: applied FIRST, in the round-start pre-pass (balance lever) —
-#             4 + POW 3 = 7 mitigation over his zone (just himself; Stabby is up
-#             front). It now covers him for the whole round regardless of his
-#             Speed-1 initiative — though nothing tests it here (his dodge stops
-#             the only hit aimed at him).
-#   Stabby    SHOOT at Blob: 2d4=2 + WRD 3 + 3 creativity = 8 (ranged keys off
-#             Weird only now). Blob's Speed-3 dodge (21%) does not fire → 34-8 = 26.
-#   Blob      BLAST on the frontline, hitting Stabby AND its own teammate
-#             Lawnmower (friendly fire is BLAST's cost):
-#               - Stabby's Speed-5 dodge (35%) FIRES → she takes nothing.
-#               - Lawnmower: 1d6=2 + WRD 6 + 1 creativity = 9 → 41 - 9 = 32.
-#   Lawnmower SMASH on Gerald: auto-steps frontline → glitter_back, then
-#             Gerald's Speed-1 dodge (7%) FIRES — a long shot, and exactly the
-#             defensive highlight v4 wants ("SHE'S NOT EVEN THERE!").
-#   (Dodge rates are dodge_per_speed 0.07 x Speed — Speed's rebalanced job.)
+# Resolution (seed-42 dice, every move lands — only PROTECT's shield reduces):
+#   Gerald    PROTECT Stabby: heals 1d6 + WRD 5 + 3 creativity, and cloaks her at
+#             5% × 5 = 25% reflect.
+#   Stabby    CHARGE into Blob's zone (back_b), then hits for 2d4 + avg(1,5) + 1.
+#   Blob      BLAST Stabby — now point-blank in Blob's own zone, so halved — a
+#             DEVASTATING drawing; 25% of what lands bounces back at Blob.
+#   Lawnmower CHARGE Stabby's zone (already there → no travel), 2d4 + avg(6,2);
+#             25% reflected.
 
 
 def _golden_chars() -> list[Character]:
     return [
-        _char("p1", "Princess Stabby", power=1, speed=5, weird=3, zone="frontline"),
+        _char("p1", "Princess Stabby", power=1, speed=5, weird=3, zone="glitter_back"),
         _char("p2", "The Blob", power=0, speed=3, weird=6, zone="thunder_back"),
-        _char("p3", "Sir Lawnmower", power=6, speed=2, weird=1, zone="frontline"),
+        _char("p3", "Sir Lawnmower", power=6, speed=2, weird=1, zone="thunder_back"),
         _char("p4", "Gerald", power=3, speed=1, weird=5, zone="glitter_back"),
     ]
 
 
 def _golden_actions() -> list[ClassifiedAction]:
     return [
-        ClassifiedAction(player_id="p1", move_id="shoot", target_id="p2",
+        ClassifiedAction(player_id="p4", move_id="protect", target_id="p1",
                          creativity_tier=2),
-        ClassifiedAction(player_id="p2", move_id="blast", target_id="p1",
+        ClassifiedAction(player_id="p1", move_id="charge", target_id="p2",
                          creativity_tier=1),
-        ClassifiedAction(player_id="p3", move_id="smash", target_id="p4"),
-        ClassifiedAction(player_id="p4", move_id="shield"),
+        ClassifiedAction(player_id="p3", move_id="charge", target_id="p1"),
+        ClassifiedAction(player_id="p2", move_id="blast", target_id="p1",
+                         creativity_tier=3),
     ]
 
 
-def test_v4_golden():
+def test_v5_golden():
     """seed=42, §12 fixture → deterministic HP values (see narrative above)."""
     state = _state(_golden_chars(), _TEAMS, round_num=1)
     result = resolve_round(state, _golden_actions(), Dice(seed=42), CFG)
     chars = result.new_state.characters
 
-    assert chars["p1"].hp == 33, f"Stabby: got {chars['p1'].hp}"
+    assert chars["p1"].hp == 21, f"Stabby: got {chars['p1'].hp}"
     assert chars["p2"].hp == 26, f"Blob: got {chars['p2'].hp}"
-    assert chars["p3"].hp == 32, f"Lawnmower: got {chars['p3'].hp}"
-    assert chars["p4"].hp == 39, f"Gerald: got {chars['p4'].hp}"
+    assert chars["p3"].hp == 39, f"Lawnmower: got {chars['p3'].hp}"
+    assert chars["p4"].hp == 38, f"Gerald: got {chars['p4'].hp}"
 
-    # Derived HP straight from §12: 28 + 2*POW + WRD. There is no AC in v4.
-    assert chars["p1"].max_hp == 33
+    # Derived HP straight from §12: 27 + 2*POW + WRD + SPD//2.
+    assert chars["p1"].max_hp == 34
     assert chars["p2"].max_hp == 34
     assert chars["p3"].max_hp == 41
-    assert chars["p4"].max_hp == 39
+    assert chars["p4"].max_hp == 38
 
-    # Initiative = pure Speed here.
-    assert result.initiative_order == ["p1", "p2", "p3", "p4"]
+    # Initiative — PROTECT first, then pure Speed.
+    assert result.initiative_order == ["p4", "p1", "p2", "p3"]
 
-    # Stabby's SHOOT keys off Weird now, and its readout terms add up to the
-    # damage that landed (2d4=2 + Weird 3 + Creative 3 = 8).
-    shoot = _attack_ev(result, "shoot")
-    assert shoot.data["result"] == "hit" and shoot.data["damage"] == 8
-    assert shoot.data["stat"] == "weird" and shoot.data["stat_value"] == 3
-    assert shoot.data["creativity_bonus"] == CFG.creativity_tier_2
-    assert (shoot.data["dice"] + shoot.data["stat_value"]
-            + shoot.data["creativity_bonus"]) == shoot.data["raw"] == 8
+    # Gerald's PROTECT healed Stabby and cloaked her at 25% reflect.
+    heal = next(e for e in result.events if e.type.value == "healed")
+    assert heal.player_id == "p4" and heal.target_id == "p1"
+    prot = next(e for e in result.events if e.type.value == "protected")
+    assert prot.target_id == "p1" and abs(prot.data["reflect_pct"] - 0.25) < 1e-9
 
-    # Lawnmower auto-stepped to Gerald's zone before swinging.
-    assert chars["p3"].zone_id == "glitter_back"
-    moved = [e for e in result.events if e.type.value == "moved" and e.player_id == "p3"]
-    assert moved and moved[0].data["to"] == "glitter_back"
+    # Stabby charged into Blob's zone before swinging.
+    assert chars["p1"].zone_id == "thunder_back"
+    moved = [e for e in result.events if e.type.value == "moved" and e.player_id == "p1"]
+    assert moved and moved[0].data["to"] == "thunder_back"
 
-    # Gerald's Speed-1 dodge fired against the SMASH — the only thing in v4 that
-    # can negate a hit outright.
-    smash = _attack_ev(result, "smash")
-    assert smash.data["result"] == "dodge"
-    assert chars["p4"].hp == chars["p4"].max_hp
+    # Blob's BLAST was point-blank (Stabby is now in its zone) and DEVASTATING.
+    blast = _attack_ev(result, "blast")
+    assert blast.data["result"] == "devastating"
+    assert blast.data["point_blank"] is True
+    assert blast.data["absorbed"] > 0                 # the shield swallowed a share
 
-    # Gerald's zone-wide shield landed in the round-start pre-pass, covering only
-    # himself (Stabby is up front; Lawnmower is a foe).
-    shielded = next(e for e in result.events if e.type.value == "shielded")
-    assert shielded.player_id == "p4"
-    assert shielded.data["protected"] == ["p4"]
-    assert shielded.data["mitigate"] == 4 + 3      # 4 + POW
+    # The shield reflected exactly what it absorbed back at each attacker.
+    reflects = [e for e in result.events if e.data.get("result") == "reflect"]
+    assert reflects and all(e.player_id == "p1" for e in reflects)   # Stabby reflects
 
-    # BLAST hit EVERYONE in the zone — including Blob's own teammate.
-    blast_evs = [e for e in result.events
-                 if e.type.value == "attack_resolved" and e.data.get("move_id") == "blast"]
-    assert {e.target_id for e in blast_evs} == {"p1", "p3"}
-    # Stabby's Speed-5 dodge saved her; Lawnmower ate it.
-    assert {e.target_id: e.data["result"] for e in blast_evs} == {
-        "p1": "dodge", "p3": "hit"}
-
-    # No-repeat bookkeeping: every fighter's combat move was recorded.
-    assert chars["p1"].last_move_id == "shoot"
-    assert chars["p4"].last_move_id == "shield"
-
+    # No-repeat bookkeeping: every fighter's move was recorded.
+    assert chars["p1"].last_move_id == "charge"
+    assert chars["p4"].last_move_id == "protect"
     assert not any(ch.is_ko for ch in chars.values())
+
+
+# ---------------------------------------------------------------------------
+# Companion: a KO'd fighter forfeits an already-tapped action (§10 bug fix)
+# ---------------------------------------------------------------------------
+
+
+def test_ko_before_slot_forfeits_the_tapped_action():
+    """A fighter reduced to 0 HP before its initiative slot never resolves its
+    tapped move — dead is dead, immediately."""
+    fast = _char("fast", "Fast", power=6, speed=6, weird=0, zone="frontline")
+    slow = _char("slow", "Slow", power=6, speed=0, weird=0, zone="frontline", hp=3)
+    bystander = _char("by", "By", power=0, speed=1, weird=0, zone="frontline")
+    teams = [Team(id="team_a", name="A", color="p", player_ids=["fast"]),
+             Team(id="team_b", name="B", color="b", player_ids=["slow", "by"])]
+    state = _state([fast, slow, bystander], teams)
+    # Fast SMASHes Slow (KO), so Slow's own SMASH at the bystander must never land.
+    actions = [
+        ClassifiedAction(player_id="fast", move_id="smash", target_id="slow"),
+        ClassifiedAction(player_id="slow", move_id="smash", target_id="by"),
+    ]
+    result = resolve_round(state, actions, Dice(seed=5), CFG)
+    assert result.new_state.characters["slow"].is_ko
+    # No smash event names Slow as the attacker.
+    assert not [e for e in result.events
+                if e.player_id == "slow" and e.type.value == "attack_resolved"]
+    assert result.new_state.characters["by"].hp == result.new_state.characters["by"].max_hp
 
 
 # ---------------------------------------------------------------------------
@@ -220,8 +229,28 @@ def test_initiative_order_speed():
     assert result.initiative_order == ["fast", "mid", "slow"]
 
 
+def test_protect_caster_acts_first_regardless_of_speed():
+    """PROTECT always resolves before every other move that round (§5)."""
+    healer = _char("h", "Healer", power=0, speed=0, weird=6, zone="frontline")  # SLOWEST
+    ally = _char("a", "Ally", power=2, speed=3, weird=2, zone="frontline")
+    foe = _char("e", "Foe", power=6, speed=6, weird=0, zone="frontline")        # FASTEST
+    teams = [Team(id="team_a", name="A", color="p", player_ids=["h", "a"]),
+             Team(id="team_b", name="B", color="b", player_ids=["e"])]
+    state = _state([healer, ally, foe], teams)
+    actions = [
+        ClassifiedAction(player_id="h", move_id="protect", target_id="a"),
+        ClassifiedAction(player_id="e", move_id="smash", target_id="a"),
+    ]
+    result = resolve_round(state, actions, Dice(seed=5), CFG)
+    # The Speed-0 healer outranks the Speed-6 foe because PROTECT acts first.
+    assert result.initiative_order[0] == "h"
+    # The shield was up before the foe's SMASH, so it absorbed + reflected.
+    smash = _attack_ev(result, "smash")
+    assert smash.data["absorbed"] > 0
+    assert [e for e in result.events if e.data.get("result") == "reflect"]
+
+
 def test_initiative_tie_broken_by_seeded_roll():
-    """Same speed → order comes from the seeded shuffle, and is stable per seed."""
     def order_for(seed: int) -> list[str]:
         chars = [
             _char("a", "A", power=2, speed=3, weird=2, zone="frontline"),
@@ -233,8 +262,8 @@ def test_initiative_tie_broken_by_seeded_roll():
         return resolve_round(_state(chars, teams), [], Dice(seed=seed), CFG).initiative_order
 
     assert sorted(order_for(5)) == ["a", "b", "c"]
-    assert order_for(5) == order_for(5)          # deterministic
-    assert any(order_for(s) != order_for(5) for s in range(30))   # actually shuffles
+    assert order_for(5) == order_for(5)
+    assert any(order_for(s) != order_for(5) for s in range(30))
 
 
 def test_initiative_drops_ko_and_gremlins():
@@ -247,68 +276,29 @@ def test_initiative_drops_ko_and_gremlins():
 
 
 # ---------------------------------------------------------------------------
-# Unit: V4 resolution — every move lands; dodge is the only negation
+# Unit: V5 resolution — every move lands; only PROTECT's shield reduces it
 # ---------------------------------------------------------------------------
 
 
 def test_every_move_lands_there_is_no_miss():
-    """The v4 headline: a selected move always takes effect. Across many seeds a
-    Speed-0 target is never missed — the only non-hit results are structural."""
+    """The v5 headline: a selected move always takes effect, at every seed."""
     for seed in range(60):
-        state = _smash_duel(attacker_power=0, defender_speed=0)
+        state = _smash_duel(attacker_power=0, defender_speed=6)
         actions = [ClassifiedAction(player_id="atk", move_id="smash", target_id="def")]
         result = resolve_round(state, actions, Dice(seed=seed), CFG)
         ev = _attack_ev(result, "smash")
         assert ev.data["result"] == "hit"
         assert ev.data["damage"] > 0
-    assert not hasattr(Dice(seed=0), "two_d6"), "v4 has no attack roll"
+    assert not hasattr(Dice(seed=0), "two_d6"), "v5 has no attack roll"
 
 
-def test_speed_zero_never_dodges():
-    for seed in range(60):
-        state = _smash_duel(attacker_power=2, defender_speed=0)
+def test_no_dodge_a_fast_target_still_takes_every_hit():
+    """Dodge is gone in v5 — even a Speed-6 target is never missed."""
+    for seed in range(80):
+        state = _smash_duel(attacker_power=2, defender_speed=6)
         actions = [ClassifiedAction(player_id="atk", move_id="smash", target_id="def")]
         result = resolve_round(state, actions, Dice(seed=seed), CFG)
-        assert _attack_ev(result, "smash").data["result"] != "dodge"
-
-
-def test_dodge_negates_the_hit_entirely():
-    """A dodge takes zero damage — not reduced, negated (§5)."""
-    dodged = None
-    for seed in range(200):
-        state = _smash_duel(attacker_power=6, defender_speed=6)
-        actions = [ClassifiedAction(player_id="atk", move_id="smash", target_id="def")]
-        result = resolve_round(state, actions, Dice(seed=seed), CFG)
-        ev = _attack_ev(result, "smash")
-        if ev.data["result"] == "dodge":
-            dodged = result
-            break
-    assert dodged is not None, "a Speed-6 target should dodge within 200 seeds"
-    assert "damage" not in _attack_ev(dodged, "smash").data
-    dfn = dodged.new_state.characters["def"]
-    assert dfn.hp == dfn.max_hp
-
-
-def test_dodge_rate_scales_with_speed_and_honors_the_cap():
-    """5% x Speed, capped at dodge_cap — measured through the real resolver."""
-    def dodge_rate(speed: int, n: int = 400) -> float:
-        hits = 0
-        for seed in range(n):
-            state = _smash_duel(attacker_power=2, defender_speed=speed)
-            actions = [ClassifiedAction(player_id="atk", move_id="smash",
-                                        target_id="def")]
-            result = resolve_round(state, actions, Dice(seed=seed), CFG)
-            if _attack_ev(result, "smash").data["result"] == "dodge":
-                hits += 1
-        return hits / n
-
-    assert dodge_rate(0) == 0.0
-    # Rate is dodge_per_speed x Speed (computed from config, not hardcoded).
-    assert abs(dodge_rate(2) - CFG.dodge_per_speed * 2) < 0.06
-    # Speed 6 (the stat ceiling) sits at/under the cap — the cap is headroom now.
-    expected6 = min(CFG.dodge_per_speed * 6, CFG.dodge_cap)
-    assert abs(dodge_rate(6) - expected6) < 0.06
-    assert dodge_rate(6) <= CFG.dodge_cap + 0.06
+        assert _attack_ev(result, "smash").data["result"] in ("hit", "devastating")
 
 
 # ---------------------------------------------------------------------------
@@ -317,7 +307,6 @@ def test_dodge_rate_scales_with_speed_and_honors_the_cap():
 
 
 def test_creativity_bonus_is_flat_and_stale_scores_zero():
-    """Creativity adds a flat +0/+1/+3/+5 straight to the damage (§5, §8)."""
     def damage_at(tier: int, stale: bool = False) -> int:
         state = _smash_duel(attacker_power=2, defender_speed=0)
         actions = [ClassifiedAction(player_id="atk", move_id="smash", target_id="def",
@@ -329,12 +318,10 @@ def test_creativity_bonus_is_flat_and_stale_scores_zero():
     assert damage_at(1) - base == CFG.creativity_tier_1
     assert damage_at(2) - base == CFG.creativity_tier_2
     assert damage_at(3) - base == CFG.creativity_tier_3
-    # A stale drawing scores creativity 0 — no extra penalty (§8).
     assert damage_at(3, stale=True) == base
 
 
 def test_creativity_tier_3_is_devastating():
-    """Tier 3 is v4's spike moment — the beat that replaces the crit."""
     for tier, expected in ((0, "hit"), (1, "hit"), (2, "hit"), (3, "devastating")):
         state = _smash_duel(attacker_power=2, defender_speed=0)
         actions = [ClassifiedAction(player_id="atk", move_id="smash", target_id="def",
@@ -353,11 +340,11 @@ def _combo_state():
 
 
 def test_combo_escalates_both_partners_creativity_tier():
-    """v4: a combo is +1 creativity TIER for both partners, not a roll bonus (§8)."""
+    """v5: a combo is +1 creativity TIER for both partners, not a fusion (§8)."""
     plain = resolve_round(_combo_state(), [
         ClassifiedAction(player_id="a1", move_id="smash", target_id="e1",
                          creativity_tier=1),
-        ClassifiedAction(player_id="a2", move_id="shoot", target_id="e1",
+        ClassifiedAction(player_id="a2", move_id="blast", target_id="e1",
                          creativity_tier=1),
     ], Dice(seed=8), CFG)
 
@@ -365,42 +352,39 @@ def test_combo_escalates_both_partners_creativity_tier():
         ClassifiedAction(player_id="a1", move_id="smash", target_id="e1",
                          creativity_tier=1, combo_partners=["a2"],
                          combo_name="GLITTERNADO"),
-        ClassifiedAction(player_id="a2", move_id="shoot", target_id="e1",
+        ClassifiedAction(player_id="a2", move_id="blast", target_id="e1",
                          creativity_tier=1, combo_partners=["a1"],
                          combo_name="GLITTERNADO"),
     ], Dice(seed=8), CFG)
 
     combo_evs = [e for e in combo.events if e.type.value == "combo"]
-    assert len(combo_evs) == 1                      # announced once per group
+    assert len(combo_evs) == 1
     assert combo_evs[0].data["combo_name"] == "GLITTERNADO"
 
-    # Both partners gained tier 1 → 2, i.e. +1 bonus → +3. Compared on `raw`,
-    # the addition's total: a2's SHOOT is point-blank here, and that halving
-    # applies after creativity, so its final damage moves by less.
     step = CFG.creativity_tier_2 - CFG.creativity_tier_1
-    for mid in ("smash", "shoot"):
+    for mid in ("smash", "blast"):
         assert _attack_ev(combo, mid).data["creativity_tier"] == 1 + CFG.combo_tier_bonus
+        # Compare the addition total `raw` (a2's BLAST is point-blank here, so its
+        # final damage is halved after creativity — but `raw` moves by the tier).
         assert (_attack_ev(combo, mid).data["raw"]
                 - _attack_ev(plain, mid).data["raw"]) == step
 
 
 def test_combo_can_escalate_a_tier_2_drawing_into_devastating():
-    """§8's promise: a combo makes the DEVASTATING beat more reachable."""
     combo = resolve_round(_combo_state(), [
         ClassifiedAction(player_id="a1", move_id="smash", target_id="e1",
                          creativity_tier=2, combo_partners=["a2"], combo_name="X"),
-        ClassifiedAction(player_id="a2", move_id="shoot", target_id="e1",
+        ClassifiedAction(player_id="a2", move_id="blast", target_id="e1",
                          creativity_tier=2, combo_partners=["a1"], combo_name="X"),
     ], Dice(seed=8), CFG)
     assert _attack_ev(combo, "smash").data["result"] == "devastating"
 
 
 def test_creativity_tier_never_exceeds_the_top_tier():
-    """A tier-3 combo can't run off the end of the bonus table."""
     combo = resolve_round(_combo_state(), [
         ClassifiedAction(player_id="a1", move_id="smash", target_id="e1",
                          creativity_tier=3, combo_partners=["a2"], combo_name="X"),
-        ClassifiedAction(player_id="a2", move_id="shoot", target_id="e1",
+        ClassifiedAction(player_id="a2", move_id="blast", target_id="e1",
                          creativity_tier=3, combo_partners=["a1"], combo_name="X"),
     ], Dice(seed=8), CFG)
     ev = _attack_ev(combo, "smash")
@@ -409,24 +393,22 @@ def test_creativity_tier_never_exceeds_the_top_tier():
 
 
 # ---------------------------------------------------------------------------
-# Unit: the eight moves
+# Unit: the five moves
 # ---------------------------------------------------------------------------
 
 
 def test_move_formulas_scale_with_stats():
-    """The v4 catalog's live math, as rendered on the phone's buttons."""
+    """The v5 catalog's live math, as rendered on the phone's buttons."""
     def at(spec, **stats):
         env = {"POW": 0, "SPD": 0, "WRD": 0} | stats
         return describe_formula(spec, env)
 
     assert at("2d4 + POW + 2", POW=0) == "2d4+2"          # SMASH floor
     assert at("2d4 + POW + 2", POW=6) == "2d4+8"          # SMASH on the brick
-    assert at("2d4 + WRD", WRD=3) == "2d4+3"             # SHOOT keys off Weird
-    assert at("2d4 + WRD", WRD=6) == "2d4+6"
-    assert at("1d6 + WRD", WRD=6) == "1d6+6"              # BLAST
-    assert at("2d6 + 2*WRD + 2", WRD=4) == "2d6+10"       # RALLY
-    assert at("3d6 + WRD", WRD=3) == "3d6+3"              # WILD
-    assert at("4 + POW", POW=3) == "7"                    # SHIELD mitigation
+    assert at("2d4 + WRD + 2", WRD=5) == "2d4+7"          # BLAST
+    assert at("2d4 + avg(POW,SPD)", POW=6, SPD=2) == "2d4+4"   # CHARGE
+    assert at("2d4 + SPD", SPD=5) == "2d4+5"              # ESCAPE
+    assert at("1d6 + WRD", WRD=6) == "1d6+6"              # PROTECT heal
 
 
 def test_smash_damage_scales_with_power():
@@ -436,246 +418,112 @@ def test_smash_damage_scales_with_power():
         return _attack_ev(resolve_round(state, actions, Dice(seed=5), CFG),
                           "smash").data["damage"]
 
-    # Same seeded 2d4; only the POW term moves.
     assert dmg(6) - dmg(0) == 6
 
 
-def test_smash_auto_steps_toward_target():
-    atk = _char("atk", "Atk", power=6, speed=4, weird=0, zone="frontline")
-    dfn = _char("def", "Def", power=2, speed=0, weird=2, zone="thunder_back")
-    state = _duel(atk, dfn)
-    actions = [ClassifiedAction(player_id="atk", move_id="smash", target_id="def")]
-    result = resolve_round(state, actions, Dice(seed=3), CFG)
-    assert result.new_state.characters["atk"].zone_id == "thunder_back"
-    assert any(e.type.value == "moved" and e.player_id == "atk" for e in result.events)
-    assert _attack_ev(result, "smash").data["result"] == "hit"
-
-
-def test_smash_out_of_reach_when_two_zones_away():
+def test_smash_requires_an_enemy_in_your_zone():
+    """SMASH is melee-only — no same-zone enemy → it whiffs (no_target)."""
     atk = _char("atk", "Atk", power=6, speed=4, weird=0, zone="glitter_back")
     dfn = _char("def", "Def", power=2, speed=0, weird=2, zone="thunder_back")
     state = _duel(atk, dfn)
     actions = [ClassifiedAction(player_id="atk", move_id="smash", target_id="def")]
     result = resolve_round(state, actions, Dice(seed=3), CFG)
-    # One step closed (glitter_back → frontline), but still out of reach.
-    assert result.new_state.characters["atk"].zone_id == "frontline"
-    assert _attack_ev(result, "smash").data["result"] == "out_of_reach"
-    assert result.new_state.characters["def"].hp == \
-        result.new_state.characters["def"].max_hp
+    ev = _attack_ev(result, "smash")
+    assert ev.data["result"] == "no_target"
+    assert result.new_state.characters["def"].hp == result.new_state.characters["def"].max_hp
+    assert result.new_state.characters["atk"].zone_id == "glitter_back"   # no travel
 
 
-def test_blast_hits_everyone_in_zone_with_one_shared_roll():
-    chars = [
-        _char("cast", "Caster", power=0, speed=4, weird=6, zone="thunder_back"),
-        _char("e1", "E1", power=2, speed=0, weird=2, zone="frontline"),
-        _char("e2", "E2", power=2, speed=0, weird=2, zone="frontline"),
-        _char("ally", "Ally", power=2, speed=0, weird=2, zone="frontline"),
-    ]
-    teams = [Team(id="team_a", name="A", color="p", player_ids=["cast", "ally"]),
-             Team(id="team_b", name="B", color="b", player_ids=["e1", "e2"])]
-    state = _state(chars, teams)
-    actions = [ClassifiedAction(player_id="cast", move_id="blast", target_id="e1",
-                                creativity_tier=3)]
-    result = resolve_round(state, actions, Dice(seed=11), CFG)
-    blast_evs = [e for e in result.events
-                 if e.type.value == "attack_resolved" and e.data.get("move_id") == "blast"]
-    # Friendly fire: the caster's own teammate in the zone is a target too.
-    assert {e.target_id for e in blast_evs} == {"e1", "e2", "ally"}
-    # One shared damage roll: with dodge off, everyone takes the identical number.
-    assert len({e.data["damage"] for e in blast_evs}) == 1
-
-
-def test_shoot_scales_with_weird_only():
-    """Ranged keys off Weird alone now — Speed no longer feeds SHOOT (§3 lever)."""
-    def shoot_ev(speed: int, weird: int):
-        atk = _char("atk", "Atk", power=0, speed=speed, weird=weird, zone="glitter_back")
-        dfn = _char("def", "Def", power=2, speed=0, weird=2, zone="thunder_back")
-        actions = [ClassifiedAction(player_id="atk", move_id="shoot", target_id="def")]
-        return _attack_ev(resolve_round(_duel(atk, dfn), actions, Dice(seed=5), CFG),
-                          "shoot")
-
-    swift = shoot_ev(speed=6, weird=1)
-    weird = shoot_ev(speed=1, weird=6)
-    # Both name Weird; the higher-Weird archer hits harder. Speed is irrelevant.
-    assert swift.data["stat"] == "weird" and swift.data["stat_value"] == 1
-    assert weird.data["stat"] == "weird" and weird.data["stat_value"] == 6
-    assert weird.data["damage"] - swift.data["damage"] == 5   # same 2d4, WRD 6 vs 1
-
-    # Holding Weird fixed, changing Speed leaves SHOOT damage unchanged.
-    assert shoot_ev(speed=2, weird=4).data["damage"] == \
-        shoot_ev(speed=6, weird=4).data["damage"]
-
-
-def test_shoot_hits_any_zone_at_full_damage():
-    """SHOOT is ranged: full damage from another zone, no auto-step needed."""
+def test_blast_hits_any_zone_at_full_damage():
     atk = _char("atk", "Atk", power=0, speed=4, weird=6, zone="glitter_back")
     dfn = _char("def", "Def", power=2, speed=0, weird=2, zone="thunder_back")
     state = _duel(atk, dfn)
-    actions = [ClassifiedAction(player_id="atk", move_id="shoot", target_id="def")]
+    actions = [ClassifiedAction(player_id="atk", move_id="blast", target_id="def")]
     result = resolve_round(state, actions, Dice(seed=5), CFG)
-    ev = _attack_ev(result, "shoot")
+    ev = _attack_ev(result, "blast")
     assert ev.data["result"] == "hit"
     assert ev.data["point_blank"] is False
-    assert 8 <= ev.data["damage"] <= 14      # 2d4 + 6
-    # The archer never moved.
-    assert result.new_state.characters["atk"].zone_id == "glitter_back"
+    assert ev.data["stat"] == "weird" and ev.data["stat_value"] == 6
+    assert result.new_state.characters["atk"].zone_id == "glitter_back"   # ranged, no move
 
 
-def test_shoot_point_blank_halves_damage_rounded_up():
-    """Same seed, same dice: a same-zone SHOOT deals ceil(half) of the
-    cross-zone damage (the point-blank penalty, GAME_DESIGN §4)."""
-    actions = [ClassifiedAction(player_id="atk", move_id="shoot", target_id="def")]
+def test_blast_point_blank_halves_damage_rounded_up():
+    actions = [ClassifiedAction(player_id="atk", move_id="blast", target_id="def")]
 
     far = _duel(_char("atk", "Atk", power=0, speed=4, weird=6, zone="glitter_back"),
                 _char("def", "Def", power=2, speed=0, weird=2, zone="thunder_back"))
     dmg_far = _attack_ev(resolve_round(far, actions, Dice(seed=5), CFG),
-                         "shoot").data["damage"]
+                         "blast").data["damage"]
 
     near = _duel(_char("atk", "Atk", power=0, speed=4, weird=6, zone="frontline"),
                  _char("def", "Def", power=2, speed=0, weird=2, zone="frontline"))
-    ev = _attack_ev(resolve_round(near, actions, Dice(seed=5), CFG), "shoot")
+    ev = _attack_ev(resolve_round(near, actions, Dice(seed=5), CFG), "blast")
     assert ev.data["point_blank"] is True
     assert ev.data["damage"] == (dmg_far + 1) // 2
 
 
-def test_shield_mitigates_a_flat_amount_for_every_ally_in_the_zone():
-    """SHIELD is zone-wide `4 + POW`: the caster and same-zone teammates are
-    covered; a teammate in another zone is not."""
-    caster = _char("a1", "Caster", power=3, speed=6, weird=2, zone="frontline")
-    near = _char("a2", "Near", power=2, speed=0, weird=2, zone="frontline")
-    far = _char("a3", "Far", power=2, speed=0, weird=2, zone="glitter_back")
-    foe = _char("e1", "Foe", power=6, speed=1, weird=0, zone="frontline")
-    teams = [Team(id="team_a", name="A", color="p", player_ids=["a1", "a2", "a3"]),
-             Team(id="team_b", name="B", color="b", player_ids=["e1"])]
-    state = _state([caster, near, far, foe], teams)
-    actions = [ClassifiedAction(player_id="a1", move_id="shield"),
-               ClassifiedAction(player_id="e1", move_id="smash", target_id="a2")]
+def test_charge_moves_into_the_targets_zone_then_hits():
+    atk = _char("atk", "Atk", power=6, speed=4, weird=0, zone="glitter_back")
+    dfn = _char("def", "Def", power=2, speed=0, weird=2, zone="thunder_back")
+    state = _duel(atk, dfn)
+    actions = [ClassifiedAction(player_id="atk", move_id="charge", target_id="def")]
+    result = resolve_round(state, actions, Dice(seed=3), CFG)
+    assert result.new_state.characters["atk"].zone_id == "thunder_back"
+    assert any(e.type.value == "moved" and e.player_id == "atk" for e in result.events)
+    assert _attack_ev(result, "charge").data["result"] == "hit"
+
+
+def test_charge_already_adjacent_skips_the_move():
+    """A CHARGE at someone already in your zone just swings — no travel."""
+    atk = _char("atk", "Atk", power=6, speed=4, weird=0, zone="frontline")
+    dfn = _char("def", "Def", power=2, speed=0, weird=2, zone="frontline")
+    state = _duel(atk, dfn)
+    actions = [ClassifiedAction(player_id="atk", move_id="charge", target_id="def")]
+    result = resolve_round(state, actions, Dice(seed=3), CFG)
+    assert not [e for e in result.events if e.type.value == "moved"]
+    assert _attack_ev(result, "charge").data["result"] == "hit"
+
+
+def test_charge_keys_off_avg_of_power_and_speed():
+    def ev(power, speed):
+        atk = _char("atk", "Atk", power=power, speed=speed, weird=0, zone="frontline")
+        dfn = _char("def", "Def", power=2, speed=0, weird=2, zone="frontline")
+        actions = [ClassifiedAction(player_id="atk", move_id="charge", target_id="def")]
+        return _attack_ev(resolve_round(_duel(atk, dfn), actions, Dice(seed=5), CFG),
+                          "charge")
+
+    # Hold Speed fixed (same initiative/dice stream) and vary Power only:
+    # avg(6,2)=4 vs avg(0,2)=1 → same seeded 2d4, damage differs by 3.
+    assert ev(6, 2).data["stat_value"] == 4
+    assert ev(0, 2).data["stat_value"] == 1
+    assert ev(6, 2).data["damage"] - ev(0, 2).data["damage"] == 3
+
+
+def test_escape_slips_one_zone_by_direction_then_hits():
+    atk = _char("atk", "Atk", power=0, speed=6, weird=0, zone="frontline")
+    dfn = _char("def", "Def", power=2, speed=0, weird=2, zone="thunder_back")
+    state = _duel(atk, dfn)
+    # ◀ = -1 = one zone toward glitter_back in zones.yaml order.
+    actions = [ClassifiedAction(player_id="atk", move_id="escape", target_id="def",
+                                escape_direction=-1)]
     result = resolve_round(state, actions, Dice(seed=5), CFG)
-
-    shielded = next(e for e in result.events if e.type.value == "shielded")
-    assert shielded.player_id == "a1"
-    assert shielded.data["protected"] == ["a1", "a2"]   # not the far teammate
-    assert shielded.data["mitigate"] == 4 + 3           # 4 + the CASTER's POW
-
-    smash = _attack_ev(result, "smash")
-    assert smash.data["blocked"] == 7 and smash.data["shielder_id"] == "a1"
-    assert smash.data["damage"] == smash.data["raw"] - 7
+    assert result.new_state.characters["atk"].zone_id == "glitter_back"
+    assert _attack_ev(result, "escape").data["result"] == "hit"
+    assert _attack_ev(result, "escape").data["stat"] == "speed"
 
 
-def test_shield_mitigation_never_goes_below_zero_damage():
-    """A hit smaller than the mitigation is fully swallowed, not negative."""
-    caster = _char("a1", "Caster", power=6, speed=6, weird=0, zone="frontline")
-    foe = _char("e1", "Foe", power=0, speed=0, weird=0, zone="frontline")
-    teams = [Team(id="team_a", name="A", color="p", player_ids=["a1"]),
-             Team(id="team_b", name="B", color="b", player_ids=["e1"])]
-    state = _state([caster, foe], teams)
-    actions = [ClassifiedAction(player_id="a1", move_id="shield"),
-               ClassifiedAction(player_id="e1", move_id="smash", target_id="a1")]
+def test_escape_at_the_edge_moves_inward():
+    """An edge zone can only move inward — ◀ from the leftmost zone goes right."""
+    atk = _char("atk", "Atk", power=0, speed=6, weird=0, zone="glitter_back")
+    dfn = _char("def", "Def", power=2, speed=0, weird=2, zone="thunder_back")
+    state = _duel(atk, dfn)
+    actions = [ClassifiedAction(player_id="atk", move_id="escape", target_id="def",
+                                escape_direction=-1)]   # off the left edge
     result = resolve_round(state, actions, Dice(seed=5), CFG)
-    smash = _attack_ev(result, "smash")
-    assert smash.data["damage"] == 0          # 2d4+2 vs 10 mitigation
-    assert result.new_state.characters["a1"].hp == \
-        result.new_state.characters["a1"].max_hp
+    assert result.new_state.characters["atk"].zone_id == "frontline"   # forced inward
 
 
-def test_shield_reflects_the_mitigated_amount_back_at_the_attacker():
-    """10% x POW to bounce back exactly what the shield swallowed (§4.1)."""
-    reflected = None
-    for seed in range(300):
-        caster = _char("a1", "Caster", power=6, speed=6, weird=0, zone="frontline")
-        foe = _char("e1", "Foe", power=2, speed=0, weird=0, zone="frontline")
-        teams = [Team(id="team_a", name="A", color="p", player_ids=["a1"]),
-                 Team(id="team_b", name="B", color="b", player_ids=["e1"])]
-        state = _state([caster, foe], teams)
-        actions = [ClassifiedAction(player_id="a1", move_id="shield"),
-                   ClassifiedAction(player_id="e1", move_id="smash", target_id="a1")]
-        result = resolve_round(state, actions, Dice(seed=seed), CFG)
-        hits = [e for e in result.events if e.data.get("result") == "reflect"]
-        if hits:
-            reflected = (result, hits[0])
-            break
-    assert reflected is not None, "POW 6 should reflect (60%) within 300 seeds"
-    result, ev = reflected
-    smash = _attack_ev(result, "smash")
-    assert ev.player_id == "a1" and ev.target_id == "e1"
-    assert ev.data["damage"] == smash.data["blocked"]      # exactly what was blocked
-    assert result.new_state.characters["e1"].hp == \
-        result.new_state.characters["e1"].max_hp - ev.data["damage"]
-
-
-def test_shield_without_power_never_reflects():
-    """reflect chance = 10% x POW → a POW-0 shielder reflects nothing, ever."""
-    for seed in range(80):
-        caster = _char("a1", "Caster", power=0, speed=6, weird=0, zone="frontline")
-        foe = _char("e1", "Foe", power=2, speed=0, weird=0, zone="frontline")
-        teams = [Team(id="team_a", name="A", color="p", player_ids=["a1"]),
-                 Team(id="team_b", name="B", color="b", player_ids=["e1"])]
-        state = _state([caster, foe], teams)
-        actions = [ClassifiedAction(player_id="a1", move_id="shield"),
-                   ClassifiedAction(player_id="e1", move_id="smash", target_id="a1")]
-        result = resolve_round(state, actions, Dice(seed=seed), CFG)
-        assert not [e for e in result.events if e.data.get("result") == "reflect"]
-
-
-def test_shield_applies_at_round_start_so_a_slow_shielder_still_covers_allies():
-    """Balance lever (§4.1): SHIELD lands in a round-start pre-pass, before any
-    attack, so even a Speed-0 tank protects a faster-hit teammate — the case the
-    old 'shield on the caster's turn' rule failed (which made SHIELD a trap)."""
-    tank = _char("a1", "Tank", power=3, speed=0, weird=2, zone="frontline")   # SLOW
-    ally = _char("a2", "Ally", power=2, speed=0, weird=2, zone="frontline")
-    foe = _char("e1", "Foe", power=6, speed=6, weird=0, zone="frontline")      # FAST
-    teams = [Team(id="team_a", name="A", color="p", player_ids=["a1", "a2"]),
-             Team(id="team_b", name="B", color="b", player_ids=["e1"])]
-    state = _state([tank, ally, foe], teams)
-    # The fast foe acts before the slow tank, yet the shield is already up.
-    actions = [ClassifiedAction(player_id="a1", move_id="shield"),
-               ClassifiedAction(player_id="e1", move_id="smash", target_id="a2")]
-    result = resolve_round(state, actions, Dice(seed=5), CFG)
-
-    assert result.initiative_order[0] == "e1"          # foe outruns the tank
-    smash = _attack_ev(result, "smash")
-    assert smash.data["result"] == "hit"
-    assert smash.data["blocked"] == 7 and smash.data["shielder_id"] == "a1"  # 4 + POW 3
-    assert smash.data["damage"] == smash.data["raw"] - 7
-
-
-def test_shield_pre_pass_covers_a_whole_zone_in_a_3v3():
-    """3v3 at team scale: a Speed-0 tank SHIELDs the frontline, where two allies
-    sit; all three enemies are faster and SMASH into that zone. Because the shield
-    is applied in the round-start pre-pass, every one of the three incoming hits
-    is mitigated — the mechanic that turned SHIELD from a trap into a real move."""
-    a1 = _char("a1", "Ally1", power=2, speed=0, weird=2, zone="frontline")
-    a2 = _char("a2", "Ally2", power=2, speed=0, weird=2, zone="frontline")
-    tank = _char("a3", "Tank", power=4, speed=0, weird=1, zone="frontline")   # shielder
-    e1 = _char("e1", "Foe1", power=6, speed=6, weird=0, zone="frontline")
-    e2 = _char("e2", "Foe2", power=6, speed=5, weird=0, zone="frontline")
-    e3 = _char("e3", "Foe3", power=6, speed=4, weird=0, zone="frontline")
-    teams = [Team(id="team_a", name="A", color="p", player_ids=["a1", "a2", "a3"]),
-             Team(id="team_b", name="B", color="b", player_ids=["e1", "e2", "e3"])]
-    state = _state([a1, a2, tank, e1, e2, e3], teams)
-    actions = [
-        ClassifiedAction(player_id="a3", move_id="shield"),
-        ClassifiedAction(player_id="e1", move_id="smash", target_id="a1"),
-        ClassifiedAction(player_id="e2", move_id="smash", target_id="a2"),
-        ClassifiedAction(player_id="e3", move_id="smash", target_id="a3"),
-    ]
-    result = resolve_round(state, actions, Dice(seed=5), CFG)
-
-    # All three faster foes act before the Speed-0 tank.
-    assert result.initiative_order[:3] == ["e1", "e2", "e3"]
-
-    # The zone-wide shield covered every team-A fighter in the frontline.
-    shielded = next(e for e in result.events if e.type.value == "shielded")
-    assert shielded.player_id == "a3"
-    assert shielded.data["protected"] == ["a1", "a2", "a3"]
-    assert shielded.data["mitigate"] == 4 + 4        # 4 + the tank's POW
-
-    # Every incoming SMASH (all from POW-6 foes, so dmg > 8) was mitigated by 8.
-    smashes = [e for e in result.events
-               if e.data.get("move_id") == "smash" and e.data.get("result") == "hit"]
-    assert len(smashes) == 3
-    assert all(e.data["blocked"] == 8 for e in smashes)
-    """RALLY heals 2d6 + 2*WRD + 2, plus the creativity bonus (§4.1, §8)."""
+def test_protect_heals_and_scales_with_the_casters_weird():
     def run(tier: int, weird: int = 2) -> int:
         healer = _char("atk", "Healer", power=2, speed=4, weird=weird, zone="glitter_back")
         hurt = _char("ally", "Hurt", power=2, speed=2, weird=2, zone="frontline", hp=5)
@@ -683,7 +531,7 @@ def test_shield_pre_pass_covers_a_whole_zone_in_a_3v3():
         teams = [Team(id="team_a", name="A", color="p", player_ids=["atk", "ally"]),
                  Team(id="team_b", name="B", color="b", player_ids=["def"])]
         state = _state([healer, hurt, foe], teams)
-        actions = [ClassifiedAction(player_id="atk", move_id="rally", target_id="ally",
+        actions = [ClassifiedAction(player_id="atk", move_id="protect", target_id="ally",
                                     creativity_tier=tier)]
         result = resolve_round(state, actions, Dice(seed=9), CFG)
         heal = next(e for e in result.events if e.type.value == "healed")
@@ -691,89 +539,95 @@ def test_shield_pre_pass_covers_a_whole_zone_in_a_3v3():
         return heal.data["amount"]
 
     plain = run(0)
-    assert 8 <= plain <= 18                      # 2d6 + 2*2 + 2
+    assert 3 <= plain <= 8                        # 1d6 + WRD 2
     assert run(2) - plain == CFG.creativity_tier_2
     assert run(3) - plain == CFG.creativity_tier_3
-    # The healer's own Weird drives the heal, not the target's.
-    assert run(0, weird=6) - plain == 2 * (6 - 2)
+    assert run(0, weird=6) - plain == (6 - 2)     # the caster's Weird drives the heal
 
 
-def test_rally_heal_capped_at_max_hp_and_blocked_in_sudden_death():
-    healer = _char("atk", "Healer", power=2, speed=4, weird=2, zone="frontline")
+def test_protect_heal_is_capped_at_max_hp():
+    healer = _char("atk", "Healer", power=2, speed=4, weird=6, zone="frontline")
+    ally = _char("ally", "Ally", power=2, speed=2, weird=2, zone="frontline")
     foe = _char("def", "Foe", power=2, speed=1, weird=2, zone="thunder_back")
-    state = _duel(healer, foe)
-    actions = [ClassifiedAction(player_id="atk", move_id="rally", target_id="atk")]
+    teams = [Team(id="team_a", name="A", color="p", player_ids=["atk", "ally"]),
+             Team(id="team_b", name="B", color="b", player_ids=["def"])]
+    state = _state([healer, ally, foe], teams)
+    actions = [ClassifiedAction(player_id="atk", move_id="protect", target_id="ally")]
     result = resolve_round(state, actions, Dice(seed=9), CFG)
-    assert result.new_state.characters["atk"].hp == \
-        result.new_state.characters["atk"].max_hp   # capped
-
-    state2 = _duel(
-        _char("atk", "Healer", power=2, speed=4, weird=2, zone="frontline", hp=5),
-        _char("def", "Foe", power=2, speed=1, weird=2, zone="thunder_back"))
-    state2.sudden_death = True
-    result2 = resolve_round(state2, actions, Dice(seed=9), CFG)
-    assert result2.new_state.characters["atk"].hp == 5   # healing disabled
-    heal = next(e for e in result2.events if e.type.value == "healed")
-    assert heal.data["blocked"] == "sudden_death"
+    ally_after = result.new_state.characters["ally"]
+    assert ally_after.hp == ally_after.max_hp
 
 
-def test_wild_card_backfires_with_self_damage_only():
-    """WILD CARD is the only self-damage in the game (§4.1). No target effects."""
-    backfired = None
-    for seed in range(200):
-        state = _smash_duel(attacker_power=2, defender_speed=0)
-        actions = [ClassifiedAction(player_id="atk", move_id="wild", target_id="def")]
-        result = resolve_round(state, actions, Dice(seed=seed), CFG)
-        ev = _attack_ev(result, "wild")
-        if ev.data["result"] == "backfire":
-            backfired = (result, ev)
-            break
-    assert backfired is not None, "a 15% backfire should appear within 200 seeds"
-    result, ev = backfired
-    chars = result.new_state.characters
-    assert 2 <= ev.data["self_damage"] <= 8            # 2d4
-    assert chars["atk"].hp == chars["atk"].max_hp - ev.data["self_damage"]
-    assert chars["def"].hp == chars["def"].max_hp      # no target effects
-
-
-def test_only_wild_card_can_backfire():
-    """Every other move is safe to pick — opt-in chaos, no attacker fumbles (§5)."""
-    for move_id in ("smash", "shoot", "blast", "rally", "shield"):
-        for seed in range(40):
-            state = _smash_duel(attacker_power=2, defender_speed=0)
-            actions = [ClassifiedAction(player_id="atk", move_id=move_id,
-                                        target_id="def")]
-            result = resolve_round(state, actions, Dice(seed=seed), CFG)
-            assert not [e for e in result.events
-                        if e.data.get("result") == "backfire"], move_id
-
-
-def test_movement_is_absolute_and_grants_no_defensive_bonus():
-    """v4 dropped movement's +1 dodge along with AC — a step is just a step."""
-    mover = _char("atk", "Mover", power=2, speed=6, weird=2, zone="frontline")
-    foe = _char("def", "Foe", power=6, speed=0, weird=2, zone="frontline")
-    state = _duel(mover, foe)
-    actions = [ClassifiedAction(player_id="atk", move_id="move_l"),
-               ClassifiedAction(player_id="def", move_id="shoot", target_id="atk")]
+def test_protect_shield_reflects_a_share_back_at_the_attacker():
+    """A shielded ally absorbs reflect_per_weird×WRD of the hit and bounces it."""
+    healer = _char("a1", "Healer", power=0, speed=5, weird=6, zone="frontline")  # 30% cap
+    ally = _char("a2", "Ally", power=2, speed=0, weird=2, zone="frontline")
+    foe = _char("e1", "Foe", power=6, speed=1, weird=0, zone="frontline")
+    teams = [Team(id="team_a", name="A", color="p", player_ids=["a1", "a2"]),
+             Team(id="team_b", name="B", color="b", player_ids=["e1"])]
+    state = _state([healer, ally, foe], teams)
+    actions = [ClassifiedAction(player_id="a1", move_id="protect", target_id="a2"),
+               ClassifiedAction(player_id="e1", move_id="smash", target_id="a2")]
     result = resolve_round(state, actions, Dice(seed=5), CFG)
-    ch = result.new_state.characters["atk"]
-    assert ch.zone_id == "glitter_back"     # ◀ = one zone left in zones.yaml order
-    mv = next(e for e in result.events if e.type.value == "moved")
-    assert "dodge_ac" not in mv.data and "ac_bonus" not in mv.data
-    # Movement is exempt from the no-repeat rule → not recorded as last move.
-    assert ch.last_move_id is None
+
+    smash = _attack_ev(result, "smash")
+    absorbed = smash.data["absorbed"]
+    assert absorbed > 0
+    reflect = next(e for e in result.events if e.data.get("result") == "reflect")
+    assert reflect.player_id == "a2" and reflect.target_id == "e1"
+    assert reflect.data["damage"] == absorbed
+    # The foe took exactly what its own blow had reflected.
+    foe_after = result.new_state.characters["e1"]
+    assert foe_after.hp == foe_after.max_hp - absorbed
+    # The ally took the reduced amount.
+    ally_after = result.new_state.characters["a2"]
+    assert ally_after.hp == ally_after.max_hp - smash.data["damage"]
 
 
-def test_movement_at_arena_edge_stumbles():
-    mover = _char("atk", "Mover", power=2, speed=6, weird=2, zone="glitter_back")
-    foe = _char("def", "Foe", power=2, speed=1, weird=2, zone="thunder_back")
-    state = _duel(mover, foe)
-    actions = [ClassifiedAction(player_id="atk", move_id="move_l")]   # off the edge
-    result = resolve_round(state, actions, Dice(seed=1), CFG)
-    ch = result.new_state.characters["atk"]
-    assert ch.zone_id == "glitter_back"     # unmoved
-    assert any(e.type.value == "stumble" and e.data.get("reason") == "arena_edge"
-               for e in result.events)
+def test_reflect_can_ko_the_attacker():
+    healer = _char("a1", "Healer", power=0, speed=5, weird=6, zone="frontline")
+    ally = _char("a2", "Ally", power=6, speed=0, weird=2, zone="frontline")
+    foe = _char("e1", "Foe", power=6, speed=1, weird=0, zone="frontline", hp=1)
+    teams = [Team(id="team_a", name="A", color="p", player_ids=["a1", "a2"]),
+             Team(id="team_b", name="B", color="b", player_ids=["e1"])]
+    state = _state([healer, ally, foe], teams)
+    actions = [ClassifiedAction(player_id="a1", move_id="protect", target_id="a2"),
+               ClassifiedAction(player_id="e1", move_id="smash", target_id="a2")]
+    result = resolve_round(state, actions, Dice(seed=5), CFG)
+    assert result.new_state.characters["e1"].is_ko          # felled by its own reflect
+    assert result.new_state.winner_team_id == "team_a"
+
+
+def test_protect_without_shield_pct_when_weird_zero():
+    """A Weird-0 protector heals but its shield reflects nothing."""
+    healer = _char("a1", "Healer", power=6, speed=5, weird=0, zone="frontline")
+    ally = _char("a2", "Ally", power=2, speed=0, weird=2, zone="frontline", hp=5)
+    foe = _char("e1", "Foe", power=6, speed=1, weird=0, zone="frontline")
+    teams = [Team(id="team_a", name="A", color="p", player_ids=["a1", "a2"]),
+             Team(id="team_b", name="B", color="b", player_ids=["e1"])]
+    state = _state([healer, ally, foe], teams)
+    actions = [ClassifiedAction(player_id="a1", move_id="protect", target_id="a2"),
+               ClassifiedAction(player_id="e1", move_id="smash", target_id="a2")]
+    result = resolve_round(state, actions, Dice(seed=5), CFG)
+    assert _attack_ev(result, "smash").data["absorbed"] == 0
+    assert not [e for e in result.events if e.data.get("result") == "reflect"]
+
+
+def test_protect_redirects_to_a_living_ally_and_never_self():
+    """A tapped-target ally that fell is redirected to the neediest teammate."""
+    healer = _char("a1", "Healer", power=0, speed=4, weird=4, zone="frontline")
+    dead = _char("a2", "Dead", power=2, speed=2, weird=2, zone="frontline")
+    dead.is_ko = True
+    dead.is_gremlin = True
+    hurt = _char("a3", "Hurt", power=2, speed=2, weird=2, zone="frontline", hp=3)
+    foe = _char("e1", "Foe", power=2, speed=0, weird=2, zone="frontline")
+    teams = [Team(id="team_a", name="A", color="p", player_ids=["a1", "a2", "a3"]),
+             Team(id="team_b", name="B", color="b", player_ids=["e1"])]
+    state = _state([healer, dead, hurt, foe], teams)
+    actions = [ClassifiedAction(player_id="a1", move_id="protect", target_id="a2")]
+    result = resolve_round(state, actions, Dice(seed=9), CFG)
+    heal = next(e for e in result.events if e.type.value == "healed")
+    assert heal.target_id == "a3"        # redirected to the living, neediest ally
 
 
 # ---------------------------------------------------------------------------
@@ -782,7 +636,7 @@ def test_movement_at_arena_edge_stumbles():
 
 
 def test_dead_target_redirects_to_nearest_enemy():
-    """A target KO'd earlier in the round → redirect, never reject (§9)."""
+    """A ranged target KO'd earlier in the round → redirect, never reject (§9)."""
     atk = _char("p1", "Atk", power=0, speed=4, weird=6, zone="frontline")
     dead = _char("p2", "Dead", power=2, speed=2, weird=2, zone="frontline")
     dead.is_ko = True
@@ -791,14 +645,14 @@ def test_dead_target_redirects_to_nearest_enemy():
     teams = [Team(id="team_a", name="A", color="p", player_ids=["p1"]),
              Team(id="team_b", name="B", color="b", player_ids=["p2", "p3"])]
     state = _state([atk, dead, other], teams)
-    actions = [ClassifiedAction(player_id="p1", move_id="shoot", target_id="p2")]
+    actions = [ClassifiedAction(player_id="p1", move_id="blast", target_id="p2")]
     result = resolve_round(state, actions, Dice(seed=4), CFG)
     ev = next(e for e in result.events if e.type.value == "attack_resolved")
     assert ev.target_id == "p3"
 
 
 # ---------------------------------------------------------------------------
-# Unit: KO, victory, sudden death, gremlins, underdog
+# Unit: KO, victory, sudden death, underdog
 # ---------------------------------------------------------------------------
 
 
@@ -816,7 +670,6 @@ def test_ko_converts_to_gremlin_and_victory_fires():
 
 
 def test_sudden_death_fires_after_max_rounds_and_boosts_damage():
-    """v4: 'attacks gain +2' is now flat DAMAGE — there is no roll to boost."""
     state = _smash_duel(attacker_power=2, defender_speed=0)
     state.round = CFG.max_rounds
     actions = [ClassifiedAction(player_id="atk", move_id="smash", target_id="def")]
@@ -834,7 +687,6 @@ def test_sudden_death_fires_after_max_rounds_and_boosts_damage():
 
 
 def test_underdog_bonus_applies_when_far_behind():
-    """Down two characters' worth of HP share → +1 damage (kids mode)."""
     def run(hp: int | None):
         a1 = _char("p1", "A1", power=2, speed=4, weird=2, zone="frontline", hp=hp)
         a2 = _char("p2", "A2", power=2, speed=3, weird=2, zone="frontline", hp=hp)
@@ -848,80 +700,81 @@ def test_underdog_bonus_applies_when_far_behind():
         actions = [ClassifiedAction(player_id="p1", move_id="smash", target_id="p4")]
         return _attack_ev(resolve_round(state, actions, Dice(seed=7), CFG), "smash")
 
-    behind = run(2)          # nearly wiped out
-    even = run(None)         # full health
+    behind = run(2)
+    even = run(None)
     assert behind.data["riders"] == CFG.underdog_damage_bonus
     assert even.data["riders"] == 0
     assert behind.data["damage"] - even.data["damage"] == CFG.underdog_damage_bonus
 
 
-def test_gremlin_drops_hazard_next_round_only():
+# ---------------------------------------------------------------------------
+# Unit: Arena Gremlin traps (GAME_DESIGN §10)
+# ---------------------------------------------------------------------------
+
+
+def _gremlin_state(trap_zone_occupied: bool):
     grem = _char("g", "Grem", power=2, speed=2, weird=2, zone="frontline")
     grem.is_ko = True
     grem.is_gremlin = True
-    a = _char("p1", "A", power=2, speed=3, weird=2, zone="frontline")
-    b = _char("p2", "B", power=2, speed=1, weird=2, zone="frontline")
-    teams = [Team(id="team_a", name="A", color="p", player_ids=["p1", "g"]),
-             Team(id="team_b", name="B", color="b", player_ids=["p2"])]
-    state = _state([grem, a, b], teams)
-    actions = [ClassifiedAction(player_id="g", move_id="bees"),
-               ClassifiedAction(player_id="p1", move_id="shield"),
-               ClassifiedAction(player_id="p2", move_id="shield")]
+    ally = _char("a", "A", power=2, speed=3, weird=2, zone="glitter_back")
+    foe = _char("e", "E", power=2, speed=1, weird=2,
+                zone="frontline" if trap_zone_occupied else "thunder_back")
+    teams = [Team(id="team_a", name="A", color="p", player_ids=["g", "a"]),
+             Team(id="team_b", name="B", color="b", player_ids=["e"])]
+    return _state([grem, ally, foe], teams)
+
+
+def test_gremlin_plants_a_trap_that_fires_on_an_enemy_in_the_zone():
+    state = _gremlin_state(trap_zone_occupied=True)
+    actions = [ClassifiedAction(player_id="g", move_id="", trap_zone="frontline",
+                                creativity_tier=1),
+               ClassifiedAction(player_id="a", move_id="blast", target_id="e")]
     result = resolve_round(state, actions, Dice(seed=6), CFG)
-    grem_evs = [e for e in result.events if e.type.value == "gremlin_hazard"]
-    assert len(grem_evs) == 1
-    assert grem_evs[0].data["hazard_id"] == "bees"
+    placed = [e for e in result.events if e.type.value == "trap_placed"]
+    fired = [e for e in result.events if e.type.value == "trap_triggered"]
+    assert placed and placed[0].data["zone"] == "frontline"
+    assert fired and fired[0].target_id == "e"
+    assert fired[0].data["damage"] >= 1 + CFG.creativity_tier_1   # 1d4 + creativity
+    # The trap is consumed once it fires.
+    assert result.new_state.traps == []
 
 
-def _gremlin_round(hazard_id: str, seed: int):
-    """One round where a start-of-round gremlin drops `hazard_id`; the two
-    living fighters both stand on the frontline."""
+def test_gremlin_trap_persists_until_an_enemy_arrives():
+    """No enemy in the zone → the trap sits in game state until one shows up."""
+    state = _gremlin_state(trap_zone_occupied=False)
+    actions = [ClassifiedAction(player_id="g", move_id="", trap_zone="frontline",
+                                creativity_tier=0),
+               ClassifiedAction(player_id="a", move_id="blast", target_id="e")]
+    r1 = resolve_round(state, actions, Dice(seed=6), CFG)
+    assert not [e for e in r1.events if e.type.value == "trap_triggered"]
+    assert len(r1.new_state.traps) == 1                 # persisted
+
+    # Round 2: the foe walks into the trapped zone (via CHARGE) → it springs.
+    s2 = r1.new_state.model_copy(update={"round": 2})
+    actions2 = [ClassifiedAction(player_id="g", move_id="", trap_zone="thunder_back"),
+                ClassifiedAction(player_id="e", move_id="charge", target_id="a")]
+    r2 = resolve_round(s2, actions2, Dice(seed=6), CFG)
+    # The foe charged into glitter_back to reach the ally, not the frontline trap;
+    # the original frontline trap still waits, and a new one lands in thunder_back.
+    zones = {t.zone_id for t in r2.new_state.traps}
+    assert "frontline" in zones
+
+
+def test_trap_only_triggers_on_enemies_not_the_owners_team():
+    """A trap ignores the gremlin's own teammates standing in the zone."""
     grem = _char("g", "Grem", power=2, speed=2, weird=2, zone="frontline")
     grem.is_ko = True
     grem.is_gremlin = True
-    a = _char("p1", "A", power=2, speed=3, weird=2, zone="frontline")
-    b = _char("p2", "B", power=2, speed=1, weird=2, zone="frontline")
-    teams = [Team(id="team_a", name="A", color="p", player_ids=["p1", "g"]),
-             Team(id="team_b", name="B", color="b", player_ids=["p2"])]
-    state = _state([grem, a, b], teams)
-    actions = [ClassifiedAction(player_id="g", move_id=hazard_id),
-               ClassifiedAction(player_id="p1", move_id="shield"),
-               ClassifiedAction(player_id="p2", move_id="shield")]
-    return resolve_round(state, actions, Dice(seed=seed), CFG)
-
-
-def _find_gremlin_seed(hazard_id: str, zone: str) -> tuple[int, object]:
-    """Find a seed whose hazard lands on `zone` (the drop zone is seeded-random)."""
-    for seed in range(200):
-        result = _gremlin_round(hazard_id, seed)
-        ev = next(e for e in result.events if e.type.value == "gremlin_hazard")
-        if ev.data["zone"] == zone:
-            return seed, result
-    raise AssertionError("no seed landed the hazard on the target zone")
-
-
-def test_gremlin_damage_hazard_stings_every_occupant():
-    """v2.1: bees/spikes roll one shared 1d4 against everyone in the zone."""
-    _, result = _find_gremlin_seed("bees", "frontline")
-    hits = [e for e in result.events if e.data.get("result") == "hazard"]
-    assert {e.target_id for e in hits} == {"p1", "p2"}
-    dmgs = {e.data["damage"] for e in hits}
-    assert len(dmgs) == 1 and 1 <= dmgs.pop() <= 4   # one shared roll
-    chars = result.new_state.characters
-    dmg = next(e.data["damage"] for e in hits)
-    assert chars["p1"].hp == chars["p1"].max_hp - dmg
-    assert chars["p2"].hp == chars["p2"].max_hp - dmg
-
-
-def test_gremlin_push_hazard_forces_occupants_out():
-    """v2.1: trapdoor/banana push every occupant to an adjacent zone."""
-    _, result = _find_gremlin_seed("trapdoor", "frontline")
-    chars = result.new_state.characters
-    assert chars["p1"].zone_id != "frontline"
-    assert chars["p2"].zone_id != "frontline"
-    # No damage from a pure push.
-    assert chars["p1"].hp == chars["p1"].max_hp
-    assert not [e for e in result.events if e.data.get("result") == "hazard"]
+    ally = _char("a", "A", power=2, speed=3, weird=2, zone="frontline")   # same team
+    foe = _char("e", "E", power=2, speed=1, weird=2, zone="thunder_back")
+    teams = [Team(id="team_a", name="A", color="p", player_ids=["g", "a"]),
+             Team(id="team_b", name="B", color="b", player_ids=["e"])]
+    state = _state([grem, ally, foe], teams)
+    actions = [ClassifiedAction(player_id="g", move_id="", trap_zone="frontline"),
+               ClassifiedAction(player_id="a", move_id="blast", target_id="e")]
+    result = resolve_round(state, actions, Dice(seed=6), CFG)
+    assert not [e for e in result.events if e.type.value == "trap_triggered"]
+    assert len(result.new_state.traps) == 1     # only the ally was there → still armed
 
 
 # ---------------------------------------------------------------------------
@@ -936,11 +789,11 @@ def test_novel_move_added_only_to_yaml_resolves(tmp_path, monkeypatch):
 
     import server.config as cfg_mod
 
-    for f in ("moves.yaml", "zones.yaml", "hazards.yaml", "balance.yaml"):
+    for f in ("moves.yaml", "zones.yaml", "balance.yaml", "settings.yaml"):
         shutil.copy(f"config/{f}", tmp_path / f)
     data = yaml.safe_load((tmp_path / "moves.yaml").read_text(encoding="utf-8"))
     data["moves"]["zap"] = {
-        "stat": "speed", "range": "any", "target": "single_enemy",
+        "stat": "speed", "range": "any_zone", "target": "single_enemy",
         "damage": "1d4 + SPD", "button": "ZAP", "icon": "⚡",
         "desc": "test archetype", "sfx": "zap",
     }
@@ -956,7 +809,6 @@ def test_novel_move_added_only_to_yaml_resolves(tmp_path, monkeypatch):
     ev = _attack_ev(result, "zap")
     assert ev.data["result"] == "hit"
     assert ev.data["stat"] == "speed" and ev.data["stat_value"] == 6
-    # 1d4 + SPD 6 + tier-1 creativity, with no code change anywhere.
     assert 7 + CFG.creativity_tier_1 <= ev.data["damage"] <= 10 + CFG.creativity_tier_1
 
 
@@ -964,12 +816,13 @@ def test_novel_move_added_only_to_yaml_resolves(tmp_path, monkeypatch):
 # Property tests
 # ---------------------------------------------------------------------------
 
+_MOVES = ["smash", "blast", "charge", "escape", "protect"]
+
 
 @pytest.mark.parametrize("seed", range(25))
 def test_resolver_never_negative_hp_and_unique_event_ids(seed):
     rng = Dice(seed=seed)
     pick = Dice(seed=seed + 1000)
-    moves = ["smash", "blast", "shoot", "shield", "rally", "wild", "move_l", "move_r"]
     chars = [
         _char("p1", "P1", power=5, speed=2, weird=2, zone="frontline"),
         _char("p2", "P2", power=1, speed=4, weird=4, zone="thunder_back"),
@@ -981,13 +834,22 @@ def test_resolver_never_negative_hp_and_unique_event_ids(seed):
         living = [p for p, c in state.characters.items() if not c.is_ko]
         actions = []
         for pid in living:
-            mv = pick.choice(moves)
-            enemies = [p for p in living if p != pid]
+            mv = pick.choice(_MOVES)
+            teammates = [p for p in living if p != pid
+                         and (p in ("p1", "p4")) == (pid in ("p1", "p4"))]
+            enemies = [p for p in living if p != pid and p not in teammates]
+            if mv == "protect":
+                if not teammates:
+                    mv = "blast"
+                    target = pick.choice(enemies) if enemies else None
+                else:
+                    target = pick.choice(teammates)
+            else:
+                target = pick.choice(enemies) if enemies else None
             actions.append(ClassifiedAction(
-                player_id=pid, move_id=mv,
-                target_id=pick.choice(enemies) if enemies else None,
-                creativity_tier=pick.randint(0, 3),
-            ))
+                player_id=pid, move_id=mv, target_id=target,
+                escape_direction=pick.choice([-1, 1]),
+                creativity_tier=pick.randint(0, 3)))
         state = state.model_copy(update={"round": round_num})
         result = resolve_round(state, actions, rng, CFG)
         ids = [e.id for e in result.events]
@@ -1000,9 +862,9 @@ def test_resolver_never_negative_hp_and_unique_event_ids(seed):
 
 @pytest.mark.parametrize("seed", range(15))
 def test_damage_readout_terms_always_add_up(seed):
-    """The host's §13 readout must never disagree with the engine: every damage
-    event's terms sum to `raw`, and `raw` minus what was blocked is the damage
-    that actually landed."""
+    """The host's §13 readout must never disagree with the engine: every damage/
+    heal event's terms sum to `raw`, and the damage that landed is `raw` (or its
+    point-blank half) minus what the shield absorbed."""
     rng = Dice(seed=seed)
     pick = Dice(seed=seed + 500)
     chars = [
@@ -1016,15 +878,16 @@ def test_damage_readout_terms_always_add_up(seed):
         living = [p for p, c in state.characters.items() if not c.is_ko]
         if len(living) < 2:
             break
-        actions = [
-            ClassifiedAction(
+        actions = []
+        for pid in living:
+            enemies = [p for p in living if p != pid
+                       and (p in ("p1", "p4")) != (pid in ("p1", "p4"))]
+            actions.append(ClassifiedAction(
                 player_id=pid,
-                move_id=pick.choice(["smash", "shoot", "blast", "rally", "shield"]),
-                target_id=pick.choice([p for p in living if p != pid]),
-                creativity_tier=pick.randint(0, 3),
-            )
-            for pid in living
-        ]
+                move_id=pick.choice(["smash", "blast", "charge", "escape"]),
+                target_id=pick.choice(enemies) if enemies else None,
+                escape_direction=pick.choice([-1, 1]),
+                creativity_tier=pick.randint(0, 3)))
         state = state.model_copy(update={"round": round_num})
         result = resolve_round(state, actions, rng, CFG)
         for e in result.events:
@@ -1033,6 +896,7 @@ def test_damage_readout_terms_always_add_up(seed):
                 continue
             assert d["dice"] + d["stat_value"] + d["creativity_bonus"] + d["riders"] \
                 == d["raw"], f"readout terms must sum to raw: {d}"
-            if e.type.value == "attack_resolved" and not d.get("point_blank"):
-                assert d["damage"] == max(0, d["raw"] - d.get("blocked", 0))
+            if e.type.value == "attack_resolved" and d.get("result") in ("hit", "devastating"):
+                landed = (d["raw"] + 1) // 2 if d.get("point_blank") else d["raw"]
+                assert d["damage"] == max(0, landed - d.get("absorbed", 0))
         state = result.new_state

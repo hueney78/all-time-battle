@@ -2,35 +2,29 @@
 # Change a value → start a new room → new rules apply immediately.
 # See GAME_DESIGN.md §3–8 and §14 for the tuning guide.
 
-# --- Character stats (COMBAT V4: 0–6 on a budget of 9) ---
-# HP = hp_base + hp_per_power * Power + hp_per_weird * Weird   (28–43)
-hp_base: 28          # want faster games? lower this
+# --- Character stats (COMBAT V5: 0–6 on a budget of 9) ---
+# HP = hp_base + hp_per_power*Power + hp_per_weird*Weird + floor(Speed/hp_speed_divisor)
+#    = 27 + 2*Power + Weird + floor(Speed/2)   (range 27–45)
+# Speed buys a little HP now that dodge is gone (v5 restat — sim-verified to
+# restore rock-paper-scissors).
+hp_base: 27          # want faster games? lower this
 hp_per_power: 2
 hp_per_weird: 1
+hp_speed_divisor: 2  # HP gains floor(Speed / this)
 # AI distributes stats summing to stat_budget; each stat clamped to [stat_min, stat_max]
 stat_budget: 9
 stat_min: 0          # a stat of 0 is characterful, not broken
 stat_max: 6
 
-# --- Resolution (COMBAT V4: there is no AC and no attack roll) ---
-# Every selected move lands. effect = the move's stat base + a flat creativity
-# bonus. Only two things can reduce a hit: the target's passive DODGE, and
-# SHIELD's mitigation (config lives on the move itself in moves.yaml).
+# --- Resolution (COMBAT V5: no AC, no attack roll, no dodge) ---
+# Every selected move lands. effect = the move's dice + stat + a flat creativity
+# bonus. The ONLY thing that reduces a hit is PROTECT's reflect shield.
 
-# --- Dodge (passive, target's Speed) — the ONLY thing that negates a hit ---
-# chance = dodge_per_speed * Speed, capped at dodge_cap. Checked per incoming
-# hit, including each BLAST target separately.
-# Balance lever: once ranged moved off Speed onto Weird, Speed did too little,
-# so its one remaining job (dodge) was strengthened 0.05 → 0.07 to flatten the
-# archetypes (3v3 round-robin spread .276 → .074). At the stat ceiling (Speed 6)
-# that is 0.42; the cap 0.45 only binds for montage-boosted Speed 7+.
-dodge_per_speed: 0.07
-dodge_cap: 0.45
-
-# --- WILD CARD backfire ---
-# The only self-damage in the game (chance lives on the move: backfire_chance).
-# Matches scripts/balance_sim.py, which models the backfire as 2d4.
-wild_backfire_damage: "2d4"
+# --- PROTECT's reflect shield — the only damage reduction in the game ---
+# A shielded ally absorbs reflect_per_weird * caster's Weird of each incoming
+# hit (capped at reflect_cap) and bounces exactly that much back at the attacker.
+reflect_per_weird: 0.05   # 5% × Weird; at Weird 6 that's 30% = the cap
+reflect_cap: 0.30
 
 # --- Creativity bonuses (added DIRECTLY to the effect — there is no roll) ---
 # Judge idea creativity, not drawing skill. Tier 3 is the "DEVASTATING" beat.
@@ -47,6 +41,11 @@ creativity_tier_3: 5   # "table losing it" — lower to 4 to reduce variance
 # and the narrator merges their beats into one named spectacle.
 combo_tier_bonus: 1
 
+# --- Arena Gremlin traps (GAME_DESIGN §10) ---
+# A KO'd player plants a trap in a chosen zone; it persists until an enemy is in
+# that zone at end of round, then fires this + creativity at one random enemy.
+trap_damage: "1d4"
+
 # --- Rubber-banding (kids mode, on by default) ---
 # Losing team gets underdog_damage_bonus when down >= underdog_hp_share_threshold
 # characters' worth of HP share.
@@ -55,6 +54,6 @@ underdog_hp_share_threshold: 2   # kids losing? lower to 1
 underdog_damage_bonus: 1
 
 # --- Sudden death ---
-# After max_rounds rounds: all attacks gain sudden_death_damage_bonus, healing disabled.
+# After max_rounds rounds: all damage gains sudden_death_damage_bonus.
 max_rounds: 12
-sudden_death_damage_bonus: 2
+sudden_death_damage_bonus: 3

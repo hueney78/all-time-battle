@@ -1,7 +1,7 @@
 """Balance report driven through the REAL engine (server.engine.resolver).
 
 Companion to `scripts/balance_sim.py`. That one is a fast standalone *model* of
-the v4 rules — it never imports the engine, so it can explore tuning freely and
+the v5 rules — it never imports the engine, so it can explore tuning freely and
 is free to diverge from the shipped game on purpose. This one asks the same
 questions of the actual `resolve_round` pipeline and the actual `config/*.yaml`,
 so its numbers are the game people will really play. When the two disagree, this
@@ -19,9 +19,9 @@ Reports:
   3. Invariant report — negative HP, KO bookkeeping, over-max healing. Any
      non-zero is a resolver bug.
 
-Policy: taps are uniform-random over the legal buttons (no-repeat honored,
-edge-illegal movement excluded), targets random over living enemies. This
-measures intrinsic power, not player skill.
+Policy: taps are uniform-random over the legal buttons (no-repeat honored),
+targets random over living enemies, ESCAPE direction random. This measures
+intrinsic power, not player skill.
 
 Run:
     python scripts/balance_engine.py            # default N
@@ -50,8 +50,8 @@ from server.engine.resolver import resolve_round  # noqa: E402
 CFG = load_balance()
 MOVES = load_moves().moves
 ZONES = [z.id for z in load_zones().zones]
-COMBAT = [mid for mid, d in MOVES.items() if not d.move]
-CATALOG = list(MOVES)
+CATALOG = list(MOVES)         # v5: all five moves are subject to the no-repeat rule
+COMBAT = CATALOG
 
 # Creativity tier weights — roughly how a stingy judge scores a table (§8).
 CRE_WEIGHTS = [0.35, 0.35, 0.22, 0.08]
@@ -70,23 +70,31 @@ ARCHETYPES = {
 
 def _char(pid: str, stats: tuple[int, int, int], zone: str) -> Character:
     power, speed, weird = stats
-    hp = CFG.hp_base + CFG.hp_per_power * power + CFG.hp_per_weird * weird
+    hp = (CFG.hp_base + CFG.hp_per_power * power + CFG.hp_per_weird * weird
+          + speed // CFG.hp_speed_divisor)
     return Character(player_id=pid, name=pid,
                      stats=Stats(power=power, speed=speed, weird=weird),
                      hp=hp, max_hp=hp, zone_id=zone)
 
 
-def _legal(ch: Character, catalog: list[str]) -> list[str]:
+def _legal(ch: Character, catalog: list[str], living: list[Character]) -> list[str]:
+    """The legal button set the phone would show (§4.1): no-repeat, SMASH needs a
+    same-zone enemy, PROTECT needs a living ally. BLAST/CHARGE/ESCAPE always
+    legal. Falls back to BLAST so a fighter always has something. Matches the
+    grey-out rules in server/state_machine.validate_tap and the standalone sim."""
+    in_a = ch.player_id in TEAM_A
+    enemies = [c for c in living if (c.player_id in TEAM_A) != in_a]
+    allies = [c for c in living if (c.player_id in TEAM_A) == in_a and c is not ch]
     out = []
     for mid in catalog:
-        mdef = MOVES[mid]
-        if mdef.move:
-            idx = ZONES.index(ch.zone_id) + mdef.move
-            if 0 <= idx < len(ZONES):
-                out.append(mid)
-        elif mid != ch.last_move_id:
-            out.append(mid)
-    return out
+        if mid == ch.last_move_id:
+            continue
+        if mid == "smash" and not any(e.zone_id == ch.zone_id for e in enemies):
+            continue
+        if mid == "protect" and not allies:
+            continue
+        out.append(mid)
+    return out or ["blast"]
 
 
 def battle(rng, dice, stats_a, stats_b, catalog_a=None, catalog_b=None, report=None):
@@ -108,10 +116,11 @@ def battle(rng, dice, stats_a, stats_b, catalog_a=None, catalog_b=None, report=N
             foes = [c.player_id for c in living if (c.player_id in TEAM_A) != in_a]
             if not foes:
                 break
-            move_id = rng.choice(_legal(ch, catalog_a if in_a else catalog_b))
+            move_id = rng.choice(_legal(ch, catalog_a if in_a else catalog_b, living))
             actions.append(ClassifiedAction(
                 player_id=ch.player_id, move_id=move_id,
                 target_id=rng.choice(foes),
+                escape_direction=rng.choice([-1, 1]),
                 creativity_tier=rng.choices(range(4), CRE_WEIGHTS)[0]))
             if report is not None:
                 report["uses"][move_id] = report["uses"].get(move_id, 0) + 1

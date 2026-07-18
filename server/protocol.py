@@ -99,13 +99,17 @@ class SubmitDrawingMsg(BaseModel):
 
 
 class SubmitActionMsg(BaseModel):
-    """COMBAT V2 action submission: the tapped move + target are ground truth
-    from the phone; the drawing supplies creativity/flavor only."""
+    """COMBAT V5 action submission: the tapped move + target are ground truth
+    from the phone; the drawing supplies creativity/flavor only. ESCAPE also
+    carries a ◀/▶ direction; an Arena Gremlin sends a trap_zone (+ drawing)
+    instead of a move."""
 
     round: int = 0
     png_base64: str = ""
     move_id: str = ""             # a moves.yaml key; "" = no tap → stumble
     target_id: str | None = None  # enemy or ally portrait tapped, move-dependent
+    escape_direction: int = 0     # ESCAPE only: -1 = ◀ / +1 = ▶
+    trap_zone: str | None = None  # Arena Gremlin only: the zone to plant a trap in
 
 
 class SubmitHintMsg(BaseModel):

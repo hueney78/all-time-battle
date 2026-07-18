@@ -51,17 +51,10 @@ class AIComboSpec(BaseModel):
     combo_name: str = Field(default="", description="a hype combined-move name, e.g. GLITTERNADO")
 
 
-class AIWildInterpretation(BaseModel):
-    """WILD CARD only: the AI's free read of the drawing — big flat damage by
-    default, or a reposition/absurdity; no status effects."""
-
-    description: str = Field(default="", description="what the drawing does, for the narrator")
-
-
 class AIAction(BaseModel):
-    """COMBAT V2: the move and target are TAPPED on the phone (ground truth,
+    """COMBAT V5: the move and target are TAPPED on the phone (ground truth,
     echoed in the request) — judge only the DRAWING: creativity, staleness,
-    flavor, WILD CARD's interpretation."""
+    flavor."""
 
     player_id: str
     creativity_tier: int = Field(default=0, description="0 plain..3 wild; judge the IDEA not art")
@@ -71,9 +64,6 @@ class AIAction(BaseModel):
     )
     flavor_summary: str = Field(
         default="", description="a short vivid read of the drawing, feeds the narrator"
-    )
-    wild_interpretation: AIWildInterpretation | None = Field(
-        default=None, description="WILD CARD only: your free read of the drawing"
     )
     adaptation_note: str | None = Field(
         default=None, description="explain any adaptation (e.g. blank canvas, odd drawing)"
@@ -88,11 +78,19 @@ class ClassifyActionsResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# classify_gremlin — a KO'd player draws one hazard per round (GAME_DESIGN §10)
+# classify_gremlin — a KO'd player draws one trap per round (GAME_DESIGN §10).
+# The zone to plant it in is TAPPED on the phone (ground truth); the AI judges
+# only the trap drawing's creativity, exactly like a fighter's action.
 # ---------------------------------------------------------------------------
-class AIGremlinHazard(BaseModel):
+class AIGremlinTrap(BaseModel):
     player_id: str = Field(description="the gremlin's id from the labeled drawing")
-    hazard_id: str = Field(description="exactly one id from the hazard palette")
+    creativity_tier: int = Field(default=0, description="0 plain..3 wild; judge the IDEA")
+    similar_to_previous: bool = Field(
+        default=False, description="true if repeating last round's trap concept"
+    )
+    flavor_summary: str = Field(
+        default="", description="a short vivid read of the trap drawing, for the narrator"
+    )
     adaptation_note: str | None = Field(
         default=None, description="a funny read of what the gremlin scribbled"
     )
@@ -101,7 +99,7 @@ class AIGremlinHazard(BaseModel):
 
 class ClassifyGremlinsResponse(BaseModel):
     round: int = 0
-    hazards: list[AIGremlinHazard]
+    traps: list[AIGremlinTrap]
 
 
 # ---------------------------------------------------------------------------

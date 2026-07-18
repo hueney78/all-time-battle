@@ -12,7 +12,7 @@ from server.ai.validators import (
     build_awards,
     build_classified_actions,
     build_generated_characters,
-    build_gremlin_hazards,
+    build_gremlin_traps,
     build_montage,
     build_narration,
     normalize_stats,
@@ -26,7 +26,7 @@ CFG = RULES.balance
 
 def _char(pid, zone="frontline"):
     return Character(player_id=pid, name=pid, stats=Stats(power=2, speed=2, weird=4),
-                     hp=20, max_hp=20, ac=13, zone_id=zone)
+                     hp=20, max_hp=20, zone_id=zone)
 
 
 def _state(pids_zones: dict[str, str], teams):
@@ -86,63 +86,57 @@ def _teams():
 
 
 def test_classify_merges_judgment_onto_taps():
-    """COMBAT V2: the AI decorates the tapped move; a skipped player still
-    resolves their tap at creativity 0."""
+    """COMBAT V5: the AI decorates the tapped move; a skipped player still
+    resolves their tap at creativity 0. ESCAPE's direction rides through."""
     state = _state({"p1": "glitter_back", "p2": "thunder_back"}, _teams())
-    taps = {"p1": ("shoot", "p2"), "p2": ("smash", "p1")}
+    taps = {"p1": ("escape", "p2", -1), "p2": ("smash", "p1", 0)}
     resp = S.ClassifyActionsResponse(actions=[
         S.AIAction(player_id="p1", creativity_tier=9,           # clamped to 3
                    flavor_summary="a suspicious maneuver"),
     ])
     actions = {a.player_id: a for a in build_classified_actions(resp, state, taps, RULES)}
     a = actions["p1"]
-    assert a.move_id == "shoot" and a.target_id == "p2"   # taps are ground truth
+    assert a.move_id == "escape" and a.target_id == "p2"   # taps are ground truth
+    assert a.escape_direction == -1                        # ◀/▶ is ground truth too
     assert a.creativity_tier == 3                          # clamped
     assert a.flavor_summary == "a suspicious maneuver"
     b = actions["p2"]                                      # AI omitted p2
     assert b.move_id == "smash" and b.creativity_tier == 0
 
 
-def test_classify_validates_wild_interpretation_and_attaches_combo():
+def test_classify_attaches_combo_to_both_partners():
     state = _state({"p1": "glitter_back", "p2": "glitter_back", "e": "thunder_back"},
                    [Team(id="team_a", name="A", color="#f0f", player_ids=["p1", "p2"]),
                     Team(id="team_b", name="B", color="#0ff", player_ids=["e"])])
-    taps = {"p1": ("wild", "e"), "p2": ("blast", "e"), "e": ("smash", "p1")}
+    taps = {"p1": ("charge", "e", 0), "p2": ("blast", "e", 0), "e": ("smash", "p1", 0)}
     resp = S.ClassifyActionsResponse(
         combos=[S.AIComboSpec(partners=["p1", "p2"], combo_name="GLITTERNADO")],
         actions=[
-            S.AIAction(player_id="p1",
-                       wild_interpretation=S.AIWildInterpretation(
-                           description="a glue tornado")),
+            S.AIAction(player_id="p1"),
             S.AIAction(player_id="p2"),
             S.AIAction(player_id="e"),
         ],
     )
     built = build_classified_actions(resp, state, taps, RULES)
     actions = {a.player_id: a for a in built}
-    assert actions["p1"].wild_interpretation.description == "a glue tornado"
-    # Both partners carry the combo — each gets the roll bonus in the engine.
+    # Both partners carry the combo — each gets the tier bonus in the engine.
     assert actions["p1"].combo_partners == ["p2"]
     assert actions["p2"].combo_partners == ["p1"]
     assert actions["p1"].combo_name == "GLITTERNADO"
     assert actions["e"].combo_partners == []
 
 
-def test_classify_drops_cross_team_combos_and_wild_on_non_wild_moves():
+def test_classify_drops_cross_team_combos():
     state = _state({"p1": "glitter_back", "e": "thunder_back"},
                    [Team(id="team_a", name="A", color="#f0f", player_ids=["p1"]),
                     Team(id="team_b", name="B", color="#0ff", player_ids=["e"])])
-    taps = {"p1": ("smash", "e"), "e": ("smash", "p1")}
+    taps = {"p1": ("smash", "e", 0), "e": ("smash", "p1", 0)}
     resp = S.ClassifyActionsResponse(
         combos=[S.AIComboSpec(partners=["p1", "e"], combo_name="IMPOSSIBLE")],
-        actions=[
-            S.AIAction(player_id="p1",
-                       wild_interpretation=S.AIWildInterpretation(description="glue")),
-        ],
+        actions=[S.AIAction(player_id="p1")],
     )
     actions = {a.player_id: a for a in build_classified_actions(resp, state, taps, RULES)}
     assert actions["p1"].combo_partners == []             # enemies can't combo
-    assert actions["p1"].wild_interpretation is None      # only WILD carries a read
 
 
 # ---------------------------------------------------------------------------
@@ -165,20 +159,22 @@ def test_narration_salvages_when_all_ids_unknown():
 
 
 # ---------------------------------------------------------------------------
-# classify_gremlin
+# classify_gremlin — a trap planted in the TAPPED zone (creativity only)
 # ---------------------------------------------------------------------------
-def test_build_gremlin_hazards_maps_validates_and_skips():
-    """Valid hazard ids pass through; an unknown id falls back to the palette
-    (never rejected); a gremlin with no classification drops no hazard."""
-    resp = S.ClassifyGremlinsResponse(hazards=[
-        S.AIGremlinHazard(player_id="g1", hazard_id="bees"),
-        S.AIGremlinHazard(player_id="g2", hazard_id="not_a_real_hazard"),
+def test_build_gremlin_traps_uses_tapped_zone_and_judges_creativity():
+    """The zone is ground truth from the phone; the AI supplies creativity. A
+    gremlin with no valid zone plants nothing; a missing AI entry → creativity 0."""
+    resp = S.ClassifyGremlinsResponse(traps=[
+        S.AIGremlinTrap(player_id="g1", creativity_tier=9, flavor_summary="a bear trap"),
     ])
-    out = {a.player_id: a for a in build_gremlin_hazards(resp, ["g1", "g2", "g3"], RULES)}
+    gremlin_taps = {"g1": "frontline", "g2": "not_a_zone", "g3": None}
+    out = {a.player_id: a for a in build_gremlin_traps(resp, gremlin_taps, RULES)}
 
-    assert out["g1"].move_id == "bees"                       # valid → kept
-    assert out["g2"].move_id in RULES.hazards.hazards        # unknown → palette fallback
-    assert "g3" not in out                                   # unclassified → no hazard
+    assert out["g1"].trap_zone == "frontline" and out["g1"].move_id == ""
+    assert out["g1"].creativity_tier == 3                    # clamped
+    assert out["g1"].flavor_summary == "a bear trap"
+    assert "g2" not in out                                   # invalid zone → no trap
+    assert "g3" not in out                                   # no zone tapped → no trap
 
 
 # ---------------------------------------------------------------------------

@@ -27,7 +27,7 @@ uv run uvicorn server.main:app --reload
 pytest
 
 # Run a specific test
-pytest tests/test_resolver.py::test_v4_golden
+pytest tests/test_resolver.py::test_v5_golden
 
 # Lint / format
 ruff check .
@@ -50,10 +50,9 @@ All tunable values live in `config/*.yaml` — edit and start a new room (no ser
 | File | Contents |
 |---|---|
 | `config/settings.yaml` | Timers, ports, player limits, model IDs |
-| `config/balance.yaml` | HP formulas, stat budgets, dodge chance/cap, creativity bonuses |
+| `config/balance.yaml` | HP formula, stat budgets, PROTECT reflect + trap damage, creativity bonuses |
 | `config/zones.yaml` | Zone graph — add High Ground here with zero code changes |
-| `config/hazards.yaml` | Arena Gremlin hazard palette (damage-or-push) |
-| `config/moves.yaml` | COMBAT V4 catalog: eight tapped moves owning all action math |
+| `config/moves.yaml` | COMBAT V5 catalog: five tapped moves owning all action math |
 | `config/prompts/` | Jinja2 prompt templates for the AI layer |
 
 See `ARCHITECTURE.md` and `GAME_DESIGN.md` for full documentation.

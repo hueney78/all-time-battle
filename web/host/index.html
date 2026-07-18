@@ -116,10 +116,17 @@
     .fighter{position:relative; width:120px; text-align:center; transition:transform .3s;
       transform-origin:bottom center; display:flex; flex-direction:column; align-items:center}
     .fighter .pic{width:104px; height:104px; background:center/contain no-repeat}
+    /* creativity star badges under the action drawing [spec §13] */
+    .fighter .stars{font-size:12px; letter-spacing:-1px; line-height:1; min-height:12px}
     /* name bubble floats ABOVE the character image (order:-1); HP bar below */
     .nametag{order:-1; font-family:'Titan One'; font-size:11.5px; background:#fff;
       border:2.5px solid var(--ink); border-radius:9px; padding:1px 5px; display:inline-block;
       margin-bottom:3px}
+    /* Arena Gremlin trap icons [spec §10]: small, in the planted zone, until sprung */
+    .zone .trap{position:absolute; top:26px; width:30px; height:30px; font-size:22px;
+      background:center/contain no-repeat; filter:drop-shadow(0 1px 1px #0004); z-index:1;
+      animation:trapidle 2.2s ease-in-out infinite}
+    @keyframes trapidle{50%{transform:translateY(-3px) rotate(-4deg)}}
     .hpbar{height:9px; border:2px solid var(--ink); border-radius:6px; background:#fff;
       margin:4px auto 0; width:96px; overflow:hidden}
     .hpbar > i{display:block; height:100%; background:var(--heal); transition:width .5s ease}
@@ -891,6 +898,7 @@
       applyTeams(payload.teams);
       if (chars.length) view('stage');
       arena.render(chars);
+      if (payload.traps) arena.setTraps(payload.traps);   // Gremlin traps in their zones
       renderRail(speedOrder());          // rail visible during drawing phases too
     }
 

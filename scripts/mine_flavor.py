@@ -1,16 +1,17 @@
-"""Wildcard miner — mine snapshots/*/wildcards.jsonl for new moves.yaml archetypes.
+"""Flavor miner — mine snapshots/*/flavor.jsonl for new moves.yaml archetypes.
 
-Every WILD CARD play lands in a room's `wildcards.jsonl` as
-`{round, player_id, wild_interpretation, adaptation_note}` (see
-server/snapshots.py). After game nights, recurring interpretations are the
-signal for what the six moves might be missing — "kids keep drawing themselves
-growing giant" → add a `grow` move (GAME_DESIGN §4.1 / §14). This aggregates
-the AI's reads: which shapes keep showing up, with example notes, so you can
-decide what to add — always a YAML-only change.
+Every drawing's AI flavor read lands in a room's `flavor.jsonl` as
+`{round, player_id, move_id, flavor_summary, adaptation_note}` (see
+server/snapshots.py). After game nights, recurring notes about drawings that
+strain one of the five moves are the signal for what the catalog might be
+missing — "kids keep drawing themselves growing giant" → add a `grow` move
+(GAME_DESIGN §4.1 / §14). This aggregates the AI's reads: which shapes keep
+showing up, with example notes, so you can decide what to add — always a
+YAML-only change.
 
-    python scripts/mine_wildcards.py                    # scans ./snapshots
-    python scripts/mine_wildcards.py path/to/snapshots  # scan elsewhere
-    python scripts/mine_wildcards.py --top 20           # show more keywords
+    python scripts/mine_flavor.py                    # scans ./snapshots
+    python scripts/mine_flavor.py path/to/snapshots  # scan elsewhere
+    python scripts/mine_flavor.py --top 20           # show more keywords
 """
 
 from __future__ import annotations
@@ -30,16 +31,16 @@ _STOPWORDS = {
     "canvas", "image", "picture", "looks", "look", "like", "likely", "appears",
     "appear", "seems", "seem", "maybe", "probably", "unclear", "ambiguous",
     "nothing", "fits", "closest", "action", "move", "attack", "enemy", "ally",
-    "target", "toward", "around", "wildcard", "adapt", "adapted", "interpret",
+    "target", "toward", "around", "adapt", "adapted", "interpret",
     "interpreted", "read", "reading", "just", "some", "kind", "sort",
 }
 
 
-def load_wildcards(snapshots_dir: str | Path) -> list[dict]:
-    """Read every snapshots/<room>/wildcards.jsonl row, tagged with its room.
+def load_flavor(snapshots_dir: str | Path) -> list[dict]:
+    """Read every snapshots/<room>/flavor.jsonl row, tagged with its room.
     Missing dirs and malformed lines are skipped, never fatal."""
     rows: list[dict] = []
-    for path in sorted(Path(snapshots_dir).glob("*/wildcards.jsonl")):
+    for path in sorted(Path(snapshots_dir).glob("*/flavor.jsonl")):
         room = path.parent.name
         try:
             text = path.read_text(encoding="utf-8")
@@ -69,16 +70,15 @@ def _keywords(note: str) -> set[str]:
 
 
 def _row_note(row: dict) -> str:
-    """The mineable text of one row: the WILD interpretation's description
-    (COMBAT V2), falling back to the adaptation note."""
-    wi = row.get("wild_interpretation")
-    if isinstance(wi, dict) and (wi.get("description") or "").strip():
-        return wi["description"].strip()
+    """The mineable text of one row: the AI's flavor_summary, falling back to
+    the adaptation note."""
+    if (row.get("flavor_summary") or "").strip():
+        return row["flavor_summary"].strip()
     return (row.get("adaptation_note") or "").strip()
 
 
 def mine(rows: list[dict], top: int = 15) -> dict:
-    """Aggregate wildcard rows into archetype-candidate signals: how often each
+    """Aggregate flavor rows into archetype-candidate signals: how often each
     keyword recurs (with example notes) and the most-repeated exact notes."""
     notes = [_row_note(r) for r in rows]
     keyword_counts: Counter[str] = Counter()
@@ -101,11 +101,11 @@ def mine(rows: list[dict], top: int = 15) -> dict:
 
 def format_report(result: dict, top: int = 15) -> str:
     lines = [
-        f"Wildcard log: {result['total']} unplaced classification(s) across "
+        f"Flavor log: {result['total']} drawing read(s) across "
         f"{len(result['per_room'])} room(s)."
     ]
     if not result["total"]:
-        lines.append("No wildcards logged yet — nothing to mine.")
+        lines.append("No flavor logged yet — nothing to mine.")
         return "\n".join(lines)
     lines += ["", f"Recurring keywords (candidate archetypes; top {top}):"]
     for kw, n in result["top_keywords"]:
@@ -121,13 +121,13 @@ def format_report(result: dict, top: int = 15) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="Mine wildcards.jsonl for new moves.yaml archetype candidates."
+        description="Mine flavor.jsonl for new moves.yaml archetype candidates."
     )
     ap.add_argument("snapshots_dir", nargs="?", default="snapshots",
-                    help="directory holding <room>/wildcards.jsonl (default: snapshots)")
+                    help="directory holding <room>/flavor.jsonl (default: snapshots)")
     ap.add_argument("--top", type=int, default=15, help="how many keywords/phrases to show")
     args = ap.parse_args()
-    print(format_report(mine(load_wildcards(args.snapshots_dir), top=args.top), top=args.top))
+    print(format_report(mine(load_flavor(args.snapshots_dir), top=args.top), top=args.top))
 
 
 if __name__ == "__main__":

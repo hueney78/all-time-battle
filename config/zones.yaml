@@ -2,13 +2,16 @@
 # Adding a new zone (e.g. High Ground) requires ONLY this file — zero Python changes.
 # The resolver reads `modifiers` generically; the AI prompts receive this zone list automatically.
 #
-# Known modifier keys (COMBAT V4 — no AC, so no ac_bonus/attack_bonus):
+# Known modifier keys (COMBAT V5 — no AC and no dodge, so no ac/attack/dodge keys):
 #   damage_bonus            flat damage added to hits made FROM this zone
 #   incoming_damage_bonus   flat damage added to hits landing IN this zone
-#   dodge_bonus             added to the dodge chance of anyone standing here
-#   incoming_dodge_penalty  subtracted from it — exposed ground is hard to dodge on
+#   heal_bonus              flat healing added to heals landing IN this zone
 # Zone-level keys:     capacity (optional int), entry_cost (default 1)
 # Unknown keys log a warning rather than failing the room (GAME_DESIGN §6).
+#
+# Movement is not a button in v5 — CHARGE rushes into a target's zone and ESCAPE
+# slips one zone (player picks ◀/▶). The list order below is the arena's
+# left→right order on the TV, which ESCAPE's direction and CHARGE's pathing follow.
 #
 # Uncomment the high_ground block below to enable it:
 #
@@ -16,11 +19,11 @@
 #   name: "The High Ground"
 #   adjacent: [frontline]
 #   capacity: 2
-#   entry_cost: 2
+#   entry_cost: 2                      # steep climb
 #   tags: [elevated]
 #   modifiers:
 #     damage_bonus: 1                  # it's over, Anakin
-#     incoming_dodge_penalty: 0.10     # exposed up here: harder to dodge
+#     incoming_damage_bonus: 2         # exposed up here: hits land harder
 
 zones:
   - id: glitter_back
@@ -42,6 +45,5 @@ zones:
     modifiers: {}
 
 rules:
-  melee_requires_same_zone: true    # SMASH; auto_step closes 1 zone toward the target
-  ranged_any_zone: true
-  move_buttons: [move_l, move_r]    # movement is tapped, absolute, edge-disabled
+  melee_requires_same_zone: true    # SMASH; CHARGE closes the gap for you
+  ranged_any_zone: true             # BLAST / CHARGE / ESCAPE reach any zone

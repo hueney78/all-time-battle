@@ -50,27 +50,21 @@ class Team(BaseModel):
     player_ids: list[str]
 
 
-class WildInterpretation(BaseModel):
-    """WILD CARD: the AI's free read of the drawing, bounded by schema — big
-    flat damage by default, or a reposition/absurdity; no status effects."""
-
-    description: str = ""          # what the AI saw — feeds the narrator
-
-
 class ClassifiedAction(BaseModel):
     """One player's action for a round: the TAPPED move + target (ground truth
     from the phone, server-validated) plus the AI's judgment of the drawing
-    (creativity, flavor, WILD read, combos). Arena Gremlins reuse this shape
-    with move_id carrying a hazard id."""
+    (creativity, flavor, combos). Arena Gremlins reuse this shape with move_id
+    empty and trap_zone set (they plant a trap in a chosen zone, §10)."""
 
     player_id: str
-    move_id: str                  # a key in moves.yaml (or hazards.yaml for gremlins)
+    move_id: str                  # a key in moves.yaml ("" for a gremlin's trap)
     target_id: str | None = None  # tapped target (enemy or ally, move-dependent)
+    escape_direction: int = 0     # ESCAPE only: -1 = ◀ / +1 = ▶ (from the phone)
+    trap_zone: str | None = None  # Arena Gremlin only: the zone the trap is planted in
     creativity_tier: int = 0      # 0–3, from the drawing
     creativity_reason: str = ""
     similar_to_previous: bool = False   # stale drawing → scores creativity 0
     flavor_summary: str = ""            # feeds the narrator
-    wild_interpretation: WildInterpretation | None = None  # WILD CARD only
     adaptation_note: str | None = None
     flagged: bool = False
     combo_partners: list[str] = []      # both partners gain +combo_tier_bonus creativity tiers
@@ -79,23 +73,23 @@ class ClassifiedAction(BaseModel):
 
 
 class EventType(str, Enum):
-    # data["result"] is one of (COMBAT V4 — there is no "miss": every move lands):
+    # data["result"] is one of (COMBAT V5 — there is no "miss": every move lands):
     #   hit          the move landed
-    #   devastating  it landed at creativity tier 3 — v4's spike moment (replay,
-    #                stinger, gold log line). Replaces v2's crit.
-    #   dodge        the target's passive Speed dodge negated it outright
-    #   backfire     WILD CARD turned on its caster (the only self-damage)
-    #   reflect      a SHIELD bounced mitigated damage back at the attacker
-    #   hazard       an Arena Gremlin's zone hazard
-    #   no_target / out_of_reach
+    #   devastating  it landed at creativity tier 3 — the spike moment (replay,
+    #                stinger, gold log line)
+    #   reflect      a PROTECT shield bounced absorbed damage back at the attacker
+    #   trap         an Arena Gremlin's trap sprang on an enemy in its zone
+    #   no_target
     ATTACK_RESOLVED = "attack_resolved"
-    # SHIELD resolved: data carries the protected player ids + the mitigation
-    # amount, so the narrator and the host's "helped" pop know who got covered.
-    SHIELDED = "shielded"
+    # PROTECT resolved: data carries the healed/shielded ally + the reflect
+    # percentage, so the narrator and the host's "helped" pop know who got covered.
+    PROTECTED = "protected"
     MOVED = "moved"
     HEALED = "healed"
     KO = "ko"
-    GREMLIN_HAZARD = "gremlin_hazard"
+    # A gremlin plants a trap in a zone; it persists until an enemy triggers it.
+    TRAP_PLACED = "trap_placed"
+    TRAP_TRIGGERED = "trap_triggered"
     COMBO = "combo"
     VICTORY = "victory"
     SUDDEN_DEATH = "sudden_death"
@@ -111,12 +105,27 @@ class Event(BaseModel):
     data: dict[str, Any] = {}
 
 
+class Trap(BaseModel):
+    """An Arena Gremlin's planted trap (GAME_DESIGN §10). It sits in a zone as a
+    drawn icon and persists ACROSS rounds until an enemy of the owner's team is
+    in that zone at end of round — then it fires trap_damage + creativity at one
+    random enemy there and is consumed."""
+
+    trap_id: str
+    zone_id: str
+    owner_id: str                 # the gremlin who planted it
+    owner_team_id: str | None = None   # enemies of this team trigger the trap
+    creativity: int = 0
+    png_b64: str = ""             # the trap drawing → the host's zone icon
+
+
 class RoundResult(BaseModel):
     round: int
     events: list[Event]
     new_state: GameState
-    # Player ids in this round's acting order (speed desc, KO'd/gremlins dropped).
-    # Surfaced so the host's Initiative Order rail can render + reorder portraits.
+    # Player ids in this round's acting order (PROTECT first, then speed desc;
+    # KO'd/gremlins dropped). Surfaced so the host's Initiative Order rail can
+    # render + reorder portraits.
     initiative_order: list[str] = []
 
 
@@ -126,6 +135,8 @@ class GameState(BaseModel):
     round: int = 0
     characters: dict[str, Character] = {}  # player_id → Character
     teams: list[Team] = []
+    # Arena Gremlin traps planted on the battlefield, persisting until triggered.
+    traps: list[Trap] = []
     winner_team_id: str | None = None
     sudden_death: bool = False
     rng_seed: int = 42

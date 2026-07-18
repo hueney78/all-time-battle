@@ -255,7 +255,7 @@ async def test_reveal_step_carries_initiative_meters_and_floats():
 async def test_reveal_beats_carry_sfx_and_result():
     """Each beat ships its move's sound clip (moves.yaml sfx key, looked up
     from the event's move_id) and the attack result, so the host's audio
-    manager can play move sounds and fire the backfire stinger from engine data."""
+    manager can play move sounds and fire event stingers from engine data."""
     from server.ai.provider import Beat, Narration
     from server.engine.models import Event, EventType
 
@@ -269,14 +269,13 @@ async def test_reveal_beats_carry_sfx_and_result():
                    hp=20, max_hp=20, zone_id="glitter_back")
     machine.state = GameState(room_id="TEST", characters={p.id: ch}, teams=room.teams)
 
-    zap = Event(id="e1", type=EventType.ATTACK_RESOLVED, round=1, player_id=p.id,
-                target_id=p.id, data={"result": "backfire", "move_id": "wild",
-                                      "self_damage": 5})
+    boom = Event(id="e1", type=EventType.ATTACK_RESOLVED, round=1, player_id=p.id,
+                 target_id=p.id, data={"result": "hit", "move_id": "blast", "damage": 5})
     ko = Event(id="e2", type=EventType.KO, round=1, player_id=p.id, data={})
-    narration = Narration(beats=[Beat(event_id="e1", text="zap!"),
+    narration = Narration(beats=[Beat(event_id="e1", text="boom!"),
                                  Beat(event_id="e2", text="down!")])
 
-    await machine._reveal(1, narration, [zap, ko])
+    await machine._reveal(1, narration, [boom, ko])
 
     reveal = None
     for _ in range(6):
@@ -286,8 +285,8 @@ async def test_reveal_beats_carry_sfx_and_result():
             break
     assert reveal is not None
     beats = {bt["event_id"]: bt for bt in reveal.payload["beats"]}
-    assert beats["e1"]["sfx"] == rules.moves.moves["wild"].sfx  # "zap"
-    assert beats["e1"]["result"] == "backfire"
+    assert beats["e1"]["sfx"] == rules.moves.moves["blast"].sfx  # "boom"
+    assert beats["e1"]["result"] == "hit"
     assert beats["e2"]["sfx"] is None        # KO has no catalog move — stinger only
     assert beats["e2"]["result"] is None
 
@@ -308,26 +307,26 @@ async def test_reveal_beats_carry_the_plain_language_readout():
     machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
 
     ca = Character(player_id=a.id, name="Stabby", stats=Stats(power=1, speed=5, weird=3),
-                   hp=33, max_hp=33, zone_id="glitter_back")
-    cb = Character(player_id=b.id, name="Gerald", stats=Stats(power=3, speed=1, weird=5),
-                   hp=39, max_hp=39, zone_id="thunder_back")
+                   hp=34, max_hp=34, zone_id="glitter_back")
+    cb = Character(player_id=b.id, name="Blob", stats=Stats(power=0, speed=3, weird=6),
+                   hp=34, max_hp=34, zone_id="thunder_back")
     machine.state = GameState(room_id="TEST", characters={a.id: ca, b.id: cb},
                               teams=room.teams)
 
-    # The §13 worked example: SHOOT, 2d4 showing 3, Speed 5, creativity tier 2,
-    # then Gerald's shield swallows 7 of the 11.
+    # The §13 worked example: BLAST, 2d4 showing 5, Weird 5, creativity tier 2,
+    # then a shielded Blob reflects 3 back at Stabby.
     shot = Event(id="e1", type=EventType.ATTACK_RESOLVED, round=1, player_id=a.id,
                  target_id=b.id,
-                 data={"result": "hit", "move_id": "shoot", "damage": 4, "raw": 11,
-                       "dice": 3, "stat": "speed", "stat_value": 5, "riders": 0,
-                       "creativity_tier": 2, "creativity_bonus": 3,
-                       "blocked": 7, "shielder_id": b.id})
-    dodged = Event(id="e2", type=EventType.ATTACK_RESOLVED, round=1, player_id=b.id,
-                   target_id=a.id, data={"result": "dodge", "move_id": "smash"})
-    narration = Narration(beats=[Beat(event_id="e1", text="zap"),
-                                 Beat(event_id="e2", text="whiff")])
+                 data={"result": "hit", "move_id": "blast", "damage": 10, "raw": 13,
+                       "dice": 5, "stat": "weird", "stat_value": 5, "riders": 0,
+                       "creativity_tier": 2, "creativity_bonus": 3, "absorbed": 3})
+    reflected = Event(id="e2", type=EventType.ATTACK_RESOLVED, round=1, player_id=b.id,
+                      target_id=a.id, data={"result": "reflect", "move_id": "protect",
+                                            "damage": 3})
+    narration = Narration(beats=[Beat(event_id="e1", text="boom"),
+                                 Beat(event_id="e2", text="ping")])
 
-    await machine._reveal(1, narration, [shot, dodged])
+    await machine._reveal(1, narration, [shot, reflected])
 
     reveal = None
     for _ in range(6):
@@ -339,11 +338,10 @@ async def test_reveal_beats_carry_the_plain_language_readout():
     beats = {bt["event_id"]: bt for bt in reveal.payload["beats"]}
 
     assert beats["e1"]["readout"] == [
-        "🎯 SHOOT → 🎲 3 + ⚡ Speed 5 + ⭐⭐ Creative 3 = 11 damage",
-        "🛡️ Gerald's shield blocks 7 → 4 damage gets through",
+        "🔥 BLAST → 🎲 5 + 🌀 Weird 5 + ⭐⭐ Creative 3 = 13 damage",
     ]
-    # A dodge adds up to nothing, so it gets only its reduction line.
-    assert beats["e2"]["readout"] == ["💨 Stabby dodges — no damage!"]
+    # A reflect adds up to nothing, so it gets only its reflect line.
+    assert beats["e2"]["readout"] == ["🛡️ Blob's shield reflects 3 back at Stabby!"]
 
 
 async def test_readout_omits_zero_terms_and_flags_devastating():
@@ -486,7 +484,7 @@ async def test_full_4player_mock_game_reaches_victory_over_websockets():
     async def player_driver(sock: FakeSocket) -> Envelope:
         # A dumb phone: remembers its latest button grid and taps the first
         # legal attack each action round (exercising the submit_action path);
-        # once KO'd it draws hazards like a proper Gremlin.
+        # once KO'd it plants traps like a proper Gremlin.
         moves: list[dict] = []
         is_ko = False
         while True:
@@ -505,16 +503,15 @@ async def test_full_4player_mock_game_reaches_victory_over_websockets():
                     "png_base64": "doodle",   # non-blank → the mock upgrades
                 })
             elif env.type == "phase_change" and env.payload.get("phase") == "draw_action":
-                if is_ko:   # Gremlins draw hazards, no move tap
-                    sock.client_send("submit_drawing", {
-                        "phase": "draw_action",
+                if is_ko:   # Gremlins plant a trap in a zone, no move tap
+                    sock.client_send("submit_action", {
                         "round": env.payload["round"],
                         "png_base64": "doodle",
+                        "trap_zone": "frontline",
                     })
                     continue
                 pick = next((m for m in moves
-                             if not m["disabled"] and m["target"] in ("single_enemy",
-                                                                      "zone_all")), None)
+                             if not m["disabled"] and m["target"] == "single_enemy"), None)
                 sock.client_send("submit_action", {
                     "round": env.payload["round"],
                     "png_base64": "doodle",
@@ -552,22 +549,22 @@ async def test_full_4player_mock_game_reaches_victory_over_websockets():
     await asyncio.wait_for(asyncio.gather(*conn_tasks, return_exceptions=True), timeout=5.0)
 
 
-async def test_submit_action_validates_no_repeat_edge_and_dead_target():
-    """The server owns the tap rules (COMBAT V2 §4): no combat-move repeats,
-    no movement off the arena edge, no dead targets. Rejections answer with an
+async def test_submit_action_validates_no_repeat_smash_reach_and_dead_target():
+    """The server owns the tap rules (COMBAT V5 §4.1): no move repeats, SMASH
+    needs a same-zone enemy, no dead targets. Rejections answer with an
     action_rejected toast and leave the round unsubmitted."""
     from server.protocol import SubmitActionMsg
 
     rules = _rules()
     room = Room("TEST", rules)
     sock = FakeSocket()
-    p = room.add_player("Alice", "player", sock, None)
+    p = room.add_player("Alice", "player", sock, None)      # team_a
     other_sock = FakeSocket()
-    o = room.add_player("Bob", "player", other_sock, None)
+    o = room.add_player("Bob", "player", other_sock, None)   # team_b (KO'd gremlin)
     machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
 
     ca = Character(player_id=p.id, name="Alice", stats=Stats(power=2, speed=2, weird=4),
-                   hp=20, max_hp=20, zone_id="glitter_back", last_move_id="smash")
+                   hp=20, max_hp=20, zone_id="glitter_back", last_move_id="blast")
     cb = Character(player_id=o.id, name="Bob", stats=Stats(power=2, speed=2, weird=4),
                    hp=0, max_hp=20, zone_id="thunder_back",
                    is_ko=True, is_gremlin=True)
@@ -585,24 +582,25 @@ async def test_submit_action_validates_no_repeat_edge_and_dead_target():
         assert env.type == "toast" and env.payload["kind"] == "action_rejected"
         assert p.id not in machine._action_taps and p.id not in machine._collected
 
-    await rejected("smash")                    # no-repeat
-    await rejected("move_l")                   # arena edge (glitter_back is leftmost)
-    await rejected("blast", target_id=o.id)    # dead target
+    await rejected("blast")                    # no-repeat (last move was blast)
+    await rejected("smash")                    # no enemy in Alice's zone (Bob is KO'd)
+    await rejected("charge", target_id=o.id)   # dead target
     await rejected("nonsense")                 # unknown move
 
-    # A legal tap is recorded and counts as this player's submission.
+    # A legal tap is recorded (with its escape direction) and counts as submitted.
     await machine.submit_action(
-        p.id, SubmitActionMsg(round=2, png_base64="x", move_id="shoot", target_id=None))
-    assert machine._action_taps[p.id] == ("shoot", None)
+        p.id, SubmitActionMsg(round=2, png_base64="x", move_id="escape",
+                              target_id=None, escape_direction=1))
+    assert machine._action_taps[p.id] == ("escape", None, 1, None)
     assert p.id in machine._collected
 
-    # Gremlins can't tap moves at all.
+    # A gremlin's submit_action plants a trap in the tapped zone (no move tap).
     machine._expected = {o.id}
     machine._collected = set()
     await machine.submit_action(
-        o.id, SubmitActionMsg(round=2, png_base64="x", move_id="shoot"))
-    env = await asyncio.wait_for(other_sock.client_recv(), 1.0)
-    assert env.type == "toast" and "Gremlin" in env.payload["message"]
+        o.id, SubmitActionMsg(round=2, png_base64="x", trap_zone="frontline"))
+    assert machine._action_taps[o.id] == ("", None, 0, "frontline")
+    assert o.id in machine._collected
 
     # An empty tap (timer auto-submit) is accepted — the fighter stumbles.
     machine._expected = {p.id}
@@ -613,37 +611,41 @@ async def test_submit_action_validates_no_repeat_edge_and_dead_target():
 
 
 async def test_player_state_ships_move_buttons_with_live_math():
-    """player_state carries the eight-button grid with this character's live
+    """player_state carries the five-button grid with this character's live
     math and disabled states — the phone renders, the server decides."""
     rules = _rules()
     room = Room("TEST", rules)
     sock = FakeSocket()
-    p = room.add_player("Alice", "player", sock, None)
+    p = room.add_player("Alice", "player", sock, None)       # team_a
+    o = room.add_player("Bob", "player", FakeSocket(), None)  # team_b
     machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
 
     ch = Character(player_id=p.id, name="Alice", stats=Stats(power=6, speed=2, weird=1),
-                   hp=32, max_hp=32, zone_id="glitter_back", last_move_id="smash")
-    machine.state = GameState(room_id="TEST", characters={p.id: ch}, teams=room.teams)
+                   hp=32, max_hp=32, zone_id="glitter_back", last_move_id="blast")
+    foe = Character(player_id=o.id, name="Bob", stats=Stats(power=2, speed=2, weird=2),
+                    hp=32, max_hp=32, zone_id="thunder_back")   # NOT in Alice's zone
+    machine.state = GameState(room_id="TEST", characters={p.id: ch, o.id: foe},
+                              teams=room.teams)
 
     await machine._send_player_state(p.id)
     env = await asyncio.wait_for(sock.client_recv(), 1.0)
     assert env.type == "player_state"
-    assert env.payload["last_move_id"] == "smash"
+    assert env.payload["last_move_id"] == "blast"
     moves = {m["id"]: m for m in env.payload["moves"]}
-    assert set(moves) == {"smash", "blast", "shoot", "shield", "rally", "wild",
-                          "move_l", "move_r"}
+    assert set(moves) == {"smash", "blast", "charge", "escape", "protect"}
     assert moves["smash"]["math"] == "2d4+8"        # POW 6 → live math on the label
-    assert moves["shoot"]["math"] == "2d4+1"        # WRD 1
-    assert moves["rally"]["math"] == "♥ 2d6+4"      # 2d6 + 2*WRD 1 + 2
-    assert moves["wild"]["math"] == "3d6+1"         # 3d6 + WRD 1
-    assert moves["shield"]["math"] == "block 10"    # 4 + POW 6, zone-wide
+    assert moves["blast"]["math"] == "2d4+3"        # WRD 1 + 2
+    assert moves["charge"]["math"] == "2d4+4"       # avg(POW 6, SPD 2) = 4
+    assert moves["escape"]["math"] == "2d4+2"       # SPD 2
+    assert moves["protect"]["math"] == "♥ 1d6+1"    # 1d6 + WRD 1
     # The label promises the base; creativity is unknowable until the drawing
     # is judged, so it never appears on a button.
     assert not any("✨" in m["math"] for m in moves.values())
-    assert moves["smash"]["disabled"] and moves["smash"]["disabled_reason"] == "no_repeat"
-    assert moves["move_l"]["disabled"] and moves["move_l"]["disabled_reason"] == "edge"
-    assert not moves["move_r"]["disabled"]
-    assert not moves["blast"]["disabled"]
+    assert moves["blast"]["disabled"] and moves["blast"]["disabled_reason"] == "no_repeat"
+    # SMASH is greyed with no enemy in Alice's zone; PROTECT with no living ally.
+    assert moves["smash"]["disabled"] and moves["smash"]["disabled_reason"] == "no_enemy_here"
+    assert moves["protect"]["disabled"] and moves["protect"]["disabled_reason"] == "no_ally"
+    assert not moves["charge"]["disabled"] and not moves["escape"]["disabled"]
 
 
 async def test_taps_flow_through_to_classification():
@@ -668,20 +670,20 @@ async def test_taps_flow_through_to_classification():
     async def drive():
         await asyncio.sleep(0)   # let _draw_stage arm the collector
         await machine.submit_action(a.id, SubmitActionMsg(
-            round=2, png_base64="doodle", move_id="shoot", target_id=b.id))
+            round=2, png_base64="doodle", move_id="blast", target_id=b.id))
         await machine.submit_action(b.id, SubmitActionMsg(
-            round=2, png_base64="doodle", move_id="shield", target_id=b.id))
+            round=2, png_base64="doodle", move_id="charge", target_id=a.id))
 
     (pngs, taps), _ = await asyncio.gather(
         machine._draw_stage(2, [a.id, b.id]), drive())
-    assert taps == {a.id: ("shoot", b.id), b.id: ("shield", b.id)}
+    assert taps == {a.id: ("blast", b.id, 0, None), b.id: ("charge", a.id, 0, None)}
 
     from server.state_machine import _Drawn
     processed = await machine._process_round(
         _Drawn(2, pngs, [a.id, b.id], [], taps=taps))
     by_pid = {act.player_id: act for act in processed.actions}
-    assert by_pid[a.id].move_id == "shoot" and by_pid[a.id].target_id == b.id
-    assert by_pid[b.id].move_id == "shield"
+    assert by_pid[a.id].move_id == "blast" and by_pid[a.id].target_id == b.id
+    assert by_pid[b.id].move_id == "charge"
 
 
 async def test_phase_change_carries_splash_and_deadline_excludes_it():
@@ -786,9 +788,9 @@ async def test_team_names_revealed_as_final_intro_beat_then_used_everywhere():
 
 
 def test_mock_respects_taps_and_blank_canvas_scores_zero():
-    """COMBAT V2 auto-submit semantics: the tapped move always resolves — a
+    """COMBAT V5 auto-submit semantics: the tapped move always resolves — a
     blank canvas just scores creativity 0; missing taps (headless mock games)
-    get a deterministic any-range attack on a living enemy."""
+    get a deterministic any-zone attack on a living enemy."""
     from server.ai.provider import ActionSubmission
     from server.engine.models import Team
 
@@ -800,12 +802,12 @@ def test_mock_respects_taps_and_blank_canvas_scores_zero():
         Team(id="team_a", name="A", color="#f0f", player_ids=["a"]),
         Team(id="team_b", name="B", color="#0ff", player_ids=["b"]),
     ])
-    subs = {"a": ActionSubmission("a", "doodle", move_id="smash", target_id="b"),
+    subs = {"a": ActionSubmission("a", "doodle", move_id="charge", target_id="b"),
             "b": ActionSubmission("b", "")}   # blank canvas, no tap
     actions = {act.player_id: act for act in MockAI().classify_actions(state, subs, 1)}
 
-    assert actions["a"].move_id == "smash" and actions["a"].target_id == "b"
-    assert actions["b"].move_id in ("blast", "shoot")   # headless fallback pick
+    assert actions["a"].move_id == "charge" and actions["a"].target_id == "b"
+    assert actions["b"].move_id in ("blast", "charge", "escape")   # headless fallback pick
     assert actions["b"].creativity_tier == 0            # blank canvas → tier 0
 
 
@@ -978,13 +980,13 @@ async def test_deliberation_interlude_masks_slow_ai_and_orders_reveals():
 
 
 # ---------------------------------------------------------------------------
-# Arena Gremlin flow: KO'd players draw hazards into the round (GAME_DESIGN §10)
+# Arena Gremlin flow: KO'd players plant traps into the round (GAME_DESIGN §10)
 # ---------------------------------------------------------------------------
-async def test_gremlin_draws_a_hazard_into_the_round():
+async def test_gremlin_plants_a_trap_into_the_round():
     """A KO'd player is an Arena Gremlin: the pipeline keeps them in the draw
-    roster, classifies their drawing as a hazard (separately from fighters'
-    moves), and the resolver drops it — a GREMLIN_HAZARD event lands in the
-    processed round."""
+    roster, classifies their trap drawing (creativity; the zone is the tapped
+    ground truth), and the resolver plants it — a TRAP_PLACED event lands in the
+    processed round and the trap persists in game state."""
     from server.state_machine import _Drawn
 
     rules = _rules()
@@ -1010,14 +1012,15 @@ async def test_gremlin_draws_a_hazard_into_the_round():
     assert set(fighters) == {a.id, b.id} and gremlins == [c.id]
 
     drawn = _Drawn(round_num=1,
-                   action_pngs={a.id: "doodle", b.id: "doodle", c.id: "hazard-doodle"},
-                   fighters=fighters, gremlins=gremlins)
+                   action_pngs={a.id: "doodle", b.id: "doodle", c.id: "trap-doodle"},
+                   fighters=fighters, gremlins=gremlins,
+                   taps={c.id: ("", None, 0, "thunder_back")})
     processed = await machine._process_round(drawn)
 
-    haz = [e for e in processed.events if e.type.value == "gremlin_hazard"]
-    assert haz, "the gremlin's drawing should resolve into a hazard"
-    assert haz[0].player_id == c.id
-    assert haz[0].data["hazard_id"] in rules.hazards.hazards
+    placed = [e for e in processed.events if e.type.value == "trap_placed"]
+    assert placed, "the gremlin's drawing should plant a trap"
+    assert placed[0].player_id == c.id and placed[0].data["zone"] == "thunder_back"
+    assert any(t.zone_id == "thunder_back" for t in processed.post_state.traps)
 
 
 # ---------------------------------------------------------------------------
@@ -1107,23 +1110,28 @@ async def test_montage_applies_stat_and_becomes_new_original():
     assert seen["canvas_init"].payload["png"] == "UPGRADED"
 
 
-def test_apply_montage_speed_grants_no_hp_and_noops_without_results():
-    """v4: Speed feeds initiative and the passive dodge, neither of which is
-    stored — so a Speed montage moves the stat and nothing else (AC is gone)."""
+def test_apply_montage_speed_grants_hp_only_when_it_crosses_the_floor():
+    """v5: Speed feeds HP as floor(Speed/2), so a Speed montage adds HP only
+    when the new value crosses an even boundary (2→3 adds nothing, 3→4 adds 1)."""
     from server.ai.provider import MontageResult
 
     rules = _rules()
     room = Room("MTG2", rules)
     p = room.add_player("A", "player", FakeSocket(), None)
     machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
+
+    # 2 → 3: floor(2/2)=1, floor(3/2)=1 → no HP change.
     ch = Character(player_id=p.id, name="A", stats=Stats(power=2, speed=2, weird=2),
                    hp=20, max_hp=22, zone_id="glitter_back", character_png_b64="OLD")
     state = GameState(room_id="MTG2", characters={p.id: ch}, teams=room.teams)
-
     machine._apply_montage(state, [MontageResult(p.id, "speed", "zoom")], {p.id: "NEW"})
     assert ch.stats.speed == 3
-    assert (ch.hp, ch.max_hp) == (20, 22)         # Speed has no HP term
+    assert (ch.hp, ch.max_hp) == (20, 22)         # 2→3 crosses no floor
     assert ch.character_png_b64 == "NEW"
+
+    # 3 → 4: floor(3/2)=1, floor(4/2)=2 → +1 HP.
+    machine._apply_montage(state, [MontageResult(p.id, "speed", "zoom")], {})
+    assert ch.stats.speed == 4 and (ch.hp, ch.max_hp) == (21, 23)
 
     # a blank montage (no results) changes nothing
     before = (ch.stats.speed, ch.max_hp, ch.character_png_b64)
@@ -1131,9 +1139,9 @@ def test_apply_montage_speed_grants_no_hp_and_noops_without_results():
     assert (ch.stats.speed, ch.max_hp, ch.character_png_b64) == before
 
 
-def test_apply_montage_weird_now_raises_max_hp_too():
-    """v4's HP formula is 28 + 2*POW + WRD, so a Weird montage must move max HP
-    the same way a Power one does — v2's formula had no Weird term."""
+def test_apply_montage_weird_and_power_raise_max_hp():
+    """v5's HP formula is 27 + 2*POW + WRD + floor(SPD/2): a Weird montage moves
+    max HP by hp_per_weird and a Power one by hp_per_power."""
     from server.ai.provider import MontageResult
 
     rules = _rules()

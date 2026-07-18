@@ -14,14 +14,12 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from server.config import Balance, GameRules
-from server.engine.hazards import HazardRegistry
 from server.engine.models import (
     Character,
     ClassifiedAction,
     Event,
     GameState,
     Stats,
-    WildInterpretation,
 )
 
 log = logging.getLogger("doodle.ai")
@@ -60,10 +58,13 @@ class GeneratedRoster:
 class ActionSubmission:
     player_id: str
     png_base64: str = ""
-    # COMBAT V2: the tapped move + target from the phone (ground truth — the AI
-    # judges the drawing, never the move). Empty for gremlin/montage drawings.
+    # COMBAT V5: the tapped move + target from the phone (ground truth — the AI
+    # judges the drawing, never the move). ESCAPE carries a ◀/▶ direction; a
+    # gremlin carries the trap_zone it tapped. Empty for montage drawings.
     move_id: str = ""
     target_id: str | None = None
+    escape_direction: int = 0
+    trap_zone: str | None = None
 
 
 @dataclass
@@ -81,7 +82,7 @@ class MatchSummary:
     # {player_id, name, team_id, alive}
     players: list[dict] = field(default_factory=list)
     creativity: dict[str, int] = field(default_factory=dict)   # pid → total tiers
-    backfires: dict[str, int] = field(default_factory=dict)    # pid → WILD backfire count
+    reflects: dict[str, int] = field(default_factory=dict)     # pid → shield-reflect count
     combos: list[dict] = field(default_factory=list)           # {combo_name, partners}
     round_titles: list[str] = field(default_factory=list)
     best_line: str = ""
@@ -206,27 +207,26 @@ class MockAI:
             if enemy is None:
                 continue
             # The tapped move/target are ground truth when present; headless
-            # mock games (no phone taps) alternate two any-range attacks so the
+            # mock games (no phone taps) rotate three any-zone attacks so the
             # no-repeat rule holds and the game reaches a decisive result.
-            move_id = (sub.move_id if sub else "") or ("blast" if round_num % 2 else "shoot")
+            move_id = (sub.move_id if sub else "") or \
+                ["blast", "charge", "escape"][round_num % 3]
             target_id = (sub.target_id if sub else None) or enemy
+            escape_direction = sub.escape_direction if sub else 0
             png = (sub.png_base64 if sub else "").strip()
             # A blank canvas (auto-submit) still resolves the tapped move — at
             # creativity 0, narrated as maximum-confidence minimum-effort (§9).
             # Seeded by round as well as player so tiers VARY across the match and
-            # span the full 0–3: in v4 creativity is the drawing's entire
-            # mechanical contribution, and tier 3 is the DEVASTATING beat that
-            # drives the replay/stinger/gold-log presentation. A mock game that
-            # never rolls a 3 leaves all of that unreachable without an API key.
+            # span the full 0–3: creativity is the drawing's entire mechanical
+            # contribution, and tier 3 is the DEVASTATING beat that drives the
+            # replay/stinger/gold-log presentation.
             creativity = (
                 random.Random(f"crea:{pid}:{round_num}").randint(0, 3) if png else 0
             )
             actions.append(ClassifiedAction(
                 player_id=pid, move_id=move_id, target_id=target_id,
+                escape_direction=escape_direction,
                 creativity_tier=creativity,
-                wild_interpretation=WildInterpretation(
-                    description="pure doodle chaos, unleashed"
-                ) if move_id == "wild" else None,
                 flavor_summary="a no-frills energy bolt",
             ))
         return actions
@@ -234,17 +234,24 @@ class MockAI:
     def classify_gremlin(
         self, state: GameState, submissions: dict[str, ActionSubmission], round_num: int
     ) -> list[ClassifiedAction]:
-        """Map each gremlin's doodle to a deterministic hazard from the palette.
-        A blank canvas drops no hazard that round."""
-        haz_ids = HazardRegistry().all_ids
+        """A gremlin plants a trap in the zone it tapped (§10). Headless mock
+        games (no tap) trap a living enemy's zone so it actually springs. A blank
+        canvas plants nothing that round."""
         out: list[ClassifiedAction] = []
         for pid, sub in submissions.items():
             png = (sub.png_base64 if sub else "").strip()
-            if not png or not haz_ids:
+            if not png:
                 continue
-            hid = haz_ids[random.Random(f"grem:{pid}").randrange(len(haz_ids))]
+            zone = sub.trap_zone if sub else None
+            if not zone:
+                enemy = _lowest_hp_enemy(pid, state)
+                zone = state.characters[enemy].zone_id if enemy else None
+            if not zone:
+                continue
+            creativity = random.Random(f"grem:{pid}:{round_num}").randint(0, 3)
             out.append(ClassifiedAction(
-                player_id=pid, move_id=hid,
+                player_id=pid, move_id="", trap_zone=zone,
+                creativity_tier=creativity,
                 adaptation_note="a menacing little doodle",
             ))
         return out
@@ -329,21 +336,21 @@ def _mock_round_title(events: list[Event]) -> str:
         return "Someone Hits the Sand"
     if "devastating" in results:
         return "Absolutely Devastating"
-    if "backfire" in results:
-        return "A Comedy of Errors"
-    if "dodge" in results:
-        return "Not Even There"
+    if "trap_triggered" in kinds:
+        return "Sprung!"
+    if "reflect" in results:
+        return "Right Back At You"
     return "The Doodles Circle"
 
 
 def _mock_speaker(ev: Event) -> str:
     """Split beats between the two announcers so both voices show up every round:
-    the deadpan color commentator handles the dodges, backfires, and dry asides;
-    the play-by-play announcer calls the big swings."""
+    the deadpan color commentator handles reflects, traps, and dry asides; the
+    play-by-play announcer calls the big swings."""
     t = ev.type.value
-    if t == "attack_resolved" and ev.data.get("result") in ("dodge", "backfire"):
+    if t == "attack_resolved" and ev.data.get("result") == "reflect":
         return "color"
-    if t in ("gremlin_hazard", "stumble"):
+    if t in ("trap_placed", "trap_triggered", "stumble"):
         return "color"
     return "pbp"
 
@@ -367,28 +374,23 @@ def _beat_text(ev: Event, characters: dict[str, Character],
             return f"{who} lands an absolutely devastating blow on {whom} for {d.get('damage', 0)}!"
         if res == "hit":
             return f"{who} tags {whom} for {d.get('damage', 0)}."
-        if res == "dodge":
-            return f"{whom} blurs sideways and {who}'s attack sails past."
-        if res == "backfire":
-            return f"{who}'s wild card goes off in their own hands."
         if res == "reflect":
-            return f"{who}'s shield flings the blow back at {whom} for {d.get('damage', 0)}!"
-        if res == "out_of_reach":
-            return f"{who} charges at {whom} but can't close the gap."
-        if res == "hazard":
-            return f"{whom} takes {d.get('damage', 0)} from the hazard!"
+            return f"{who}'s shield throws it right back at {whom} for {d.get('damage', 0)}!"
+        if res == "no_target":
+            return f"{who} swings at empty air."
         return ""
+    if t == "trap_triggered":
+        zone = zn.get(d.get("zone"), d.get("zone", "the arena"))
+        return f"{whom} stumbles into {who}'s trap in {zone} for {d.get('damage', 0)}!"
+    if t == "trap_placed":
+        zone = zn.get(d.get("zone"), d.get("zone", "the arena"))
+        return f"{who} the Gremlin plants a nasty little trap in {zone}…"
     if t == "ko":
         return f"{who} is knocked out and becomes an Arena Gremlin!"
-    if t == "gremlin_hazard":
-        hz = str(d.get("hazard_id", "something")).replace("_", " ")
-        zone = zn.get(d.get("zone"), d.get("zone", "the arena"))
-        return f"{who} the Gremlin drops {hz} on {zone}!"
-    if t == "shielded":
-        n = len(d.get("protected", []))
-        return f"{who} raises a shield over the whole zone ({n} covered)!"
+    if t == "protected":
+        return f"{who} cloaks {whom} in a shimmering, blow-flinging shield!"
     if t == "healed":
-        return f"{who} recovers {d.get('amount', 0)} HP."
+        return f"{who} patches {whom} up for {d.get('amount', 0)} HP."
     if t == "victory":
         return f"Team {d.get('winner_team_id', '?')} wins the brawl!"
     if t == "sudden_death":

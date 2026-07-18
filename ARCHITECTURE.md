@@ -19,7 +19,7 @@ Doodle Brawl is a local-network party game. One computer runs a Python server an
 
 **Core principle: the AI judges, the server does math.** The AI never tracks HP, rolls dice, or decides outcomes. It classifies drawings into structured actions and writes narration. The engine is a pure, seeded, unit-testable state machine.
 
-**Second principle: everything tunable lives in config.** Zones, moves, hazards, stat formulas, bonuses, timers, and prompts are data (YAML + template files), not code. Adding a "High Ground" zone must require zero Python changes.
+**Second principle: everything tunable lives in config.** Zones, moves, stat formulas, bonuses, timers, and prompts are data (YAML + template files), not code. Adding a "High Ground" zone must require zero Python changes.
 
 ## 2. Technology Stack
 
@@ -92,7 +92,7 @@ Message catalog (subset):
 | Direction | Type | Payload |
 |---|---|---|
 | C→S | `join` | name, player_id?, role: player\|host |
-| C→S | `submit_action` | phase, round, png_base64, **move_id, target_id** (tapped on the phone; server-validated: no-repeat, edge legality, living target) |
+| C→S | `submit_action` | phase, round, png_base64, **move_id, target_id, escape_direction?** (tapped on the phone; server-validated: no-repeat, legality, living target). Gremlins send `png_base64 + trap_zone` instead. |
 | C→S | `submit_hint` | character hint word/phrase (creation phase) |
 | S→C | `canvas_init` | your character PNG — preloaded onto the action canvas each round (also powers the "restore character" button client-side) |
 | S→C | `arena_state` | zone layout + each character's PNG and current zone (host renders this during drawing phases) |
@@ -126,18 +126,18 @@ def resolve_round(state: GameState, actions: list[ClassifiedAction],
     """No I/O, no AI, no globals. Same inputs → same outputs."""
 ```
 
-It handles: initiative, the eight v4 moves and their formulas (via the moves registry), no-repeat/edge legality, creativity/combo bonuses, damage and healing, passive dodge (Speed) and shield mitigation/reflect (Power), WILD CARD backfire, zone legality/movement, KO → Gremlin conversion, and victory detection. There are no attack rolls and no degrees of success — every move lands (Design Doc §5) — and there is no condition system (removed in v2.1). Output is an ordered list of `Event` objects (attack_resolved, shielded, moved, healed, ko, ...) — this event list is BOTH the input to the narrator AI and the script for host-screen animations.
+It handles: initiative (PROTECT first, then Speed), the five v5 moves and their formulas (via the moves registry), move legality (no-repeat, SMASH needs same-zone enemy, PROTECT needs a living ally, BLAST always legal), PROTECT shield absorb/reflect, **an alive() check immediately before every action so a KO'd character forfeits an already-selected action**, CHARGE/ESCAPE movement, Gremlin trap placement/persistence/triggering, combo creativity escalation, damage and healing (every move lands — there are no attack rolls, no degrees of success, no conditions, Design Doc §5), KO → Gremlin conversion, sudden death, and victory detection. Output is an ordered list of `Event` objects (attack_resolved, protected, moved, healed, ko, trap_placed, trap_triggered, ...) — this event list is BOTH the input to the narrator AI and the script for host-screen animations.
 
-**Registries, not if-statements.** Zones and **moves** are loaded from YAML into registries of declarative effects (see Design Doc §4.1, §6). Every classified action resolves through its `moves.yaml` entry (stat, range, targeting, damage/heal formula, riders); the resolver queries `registry.modifier(target, "damage_bonus")` etc. Adding High Ground — or a whole new attack archetype — = adding a YAML block.
+**Registries, not if-statements.** Zones and **moves** are loaded from YAML into registries of declarative effects (see Design Doc §4.1, §6). Every classified action resolves through its `moves.yaml` entry (headline stat, range, targeting, damage/heal formula, riders); the resolver queries `registry.modifier(target, "damage_bonus")` etc. Adding High Ground — or a whole new attack archetype — = adding a YAML block.
 
 ### 4.4 AI Layer (`ai/`)
 Five call types, all with pydantic-validated JSON responses (via forced tool-use so output is guaranteed structured):
 
 1. **`generate_characters`** (Haiku, 1 call/game): all character PNGs as labeled image blocks (grouped by team) → stats, personality, announcer intro per character, plus an **AI-invented team name per team** that links its roster (teams display as “Team A/B” until the intro reveal; names then propagate to all clients via room state).
-2. **`classify_actions`** (Haiku, 1 call/round): per player, the **tapped move + target** (ground truth from the phone) plus a labeled **pair of images — original character and action drawing**. The AI judges creativity tier, drawing staleness, combo synergy, and WILD CARD interpretation — it never chooses the move/target or whether a hit lands (there is no to-hit; every move lands, only passive dodge/shield reduce it). Plus compact game-state summary → per-player classification (see Design Doc §11.1). Total AI failure still resolves the round: server owns the move; fallback is creativity 0 + template narration.
+2. **`classify_actions`** (Haiku, 1 call/round): per player, the **tapped move + target** (ground truth from the phone) plus a labeled **pair of images — original character and action drawing**. The AI judges creativity tier, drawing staleness, combo synergy, and flavor — it never chooses the move/target or whether a hit lands (there is no to-hit; every move lands, and only a PROTECT shield reduces damage). Plus compact game-state summary → per-player classification (see Design Doc §11.1). Total AI failure still resolves the round: server owns the move; fallback is creativity 0 + template narration.
 3. **`narrate_round`** (Sonnet, 1 call/round, text-only): resolved `Event` list + personalities → comedic narrative broken into reveal beats aligned to event IDs, voiced as a two-announcer duo (optional `speaker` tag per beat for host styling and future TTS voices).
 4. **`classify_montage`** (Haiku, 1 call per montage, every `montage_every_rounds` rounds): per player, previous character image + updated montage image → which stat gets +1 and a flavor line; the updated image becomes the character's new original everywhere. Masked by a “training montage” TV interstitial (same pattern as the deliberation interlude).
-5. **`generate_awards`** (Sonnet, 1 call/game, at victory): match summary (creativity data, WILD backfires, combos, best beats) → 5–7 awards `{title, player_id, blurb}`, every player receiving at least one.
+5. **`generate_awards`** (Sonnet, 1 call/game, at victory): match summary (creativity data, shield reflects, combos, best beats) → 5–7 awards `{title, player_id, blurb}`, every player receiving at least one.
 
 Reliability rules:
 - 20s timeout, 1 retry; on validation failure, retry once with the validation error appended.
@@ -174,7 +174,7 @@ Reliability rules:
 
 ## 7. Configuration Philosophy
 
-Every number a designer might tune lives in `config/`. Code reads config through typed pydantic settings objects loaded at room creation (so you can edit YAML and start a new game without restarting the server — hot-reload per room). Examples of things that are config, not code: draw timer seconds, HP formula coefficients, creativity bonus values, stale penalty, combo tier escalation, dodge chance and cap, zone graph, **the entire move catalog**, model IDs, max image size, prompt text, arena background image path, reveal zoom scale/duration, action-canvas character scale, and all sfx mappings (per-move and event stingers).
+Every number a designer might tune lives in `config/`. Code reads config through typed pydantic settings objects loaded at room creation (so you can edit YAML and start a new game without restarting the server — hot-reload per room). Examples of things that are config, not code: draw timer seconds, HP formula coefficients, creativity bonus values, stale penalty, combo tier escalation, PROTECT's reflect-per-Weird and cap, trap damage, zone graph, **the entire move catalog**, model IDs, max image size, prompt text, arena background image path, reveal zoom scale/duration, action-canvas character scale, and all sfx mappings (per-move and event stingers).
 
 ## 8. Security/Privacy Notes
 

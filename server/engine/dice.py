@@ -1,20 +1,19 @@
-"""Seeded RNG wrapper + the COMBAT V4 damage-formula evaluator.
+"""Seeded RNG wrapper + the COMBAT V5 damage-formula evaluator.
 
 Usage:
     rng = Dice(seed=42)
     dmg  = rng.roll("2d6")                  # plain dice specs
-    dmg2 = rng.roll_formula("2d4 + max(SPD,WRD)", stats)   # catalog formulas
-    hit  = not rng.chance(0.15)             # seeded probability check
+    dmg2 = rng.roll_formula("2d4 + avg(POW,SPD)", stats)   # catalog formulas
 
-COMBAT V4 has no attack roll, so there is no `two_d6`: the only probability
-checks left are dodge, SHIELD's reflect, and WILD CARD's backfire — all of
-which go through `chance()`.
+COMBAT V5 has no attack roll, no dodge, and no backfire: every move lands and
+the only damage reducer (PROTECT's reflect shield) is a fixed percentage, so the
+resolver has no probability gates. `chance()` stays as a general utility.
 
 Formulas come straight from config/moves.yaml and may reference the acting
-character's POW / SPD / WRD plus ceil(x/y) / floor(x/y) / max(a,b) / min(a,b)
-and integer arithmetic — e.g. "2d4 + POW + 2", "2d4 + max(SPD,WRD)",
-"2d6 + 2*WRD + 2". `describe_formula` renders the same formula as the live math
-shown on the phone's move buttons ("2d4+8" on the brick's phone).
+character's POW / SPD / WRD plus ceil(x/y) / floor(x/y) / max(a,b) / min(a,b) /
+avg(a,b) and integer arithmetic — e.g. "2d4 + POW + 2", "2d4 + avg(POW,SPD)",
+"1d6 + WRD". `describe_formula` renders the same formula as the live math shown
+on the phone's move buttons ("2d4+8" on the brick's phone).
 """
 
 from __future__ import annotations
@@ -29,8 +28,8 @@ from typing import TypeVar
 T = TypeVar("T")
 
 # The die token: a lowercase 'd' followed by the number of sides. Stat names
-# (POW/SPD/WRD) and functions (ceil/floor/max/min) contain no lowercase d-digit
-# pair, so the first match splits "<count-expr> d<sides> <+/- mod-expr>" reliably.
+# (POW/SPD/WRD) and functions (ceil/floor/max/min/avg) contain no lowercase
+# d-digit pair, so the first match splits "<count-expr> d<sides> <+/- mod-expr>".
 _DIE_RE = re.compile(r"d(\d+)")
 
 _ALLOWED_NODES = (
@@ -38,7 +37,14 @@ _ALLOWED_NODES = (
     ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.USub, ast.UAdd,
     ast.Load,
 )
-_ALLOWED_FUNCS = {"ceil": math.ceil, "floor": math.floor, "max": max, "min": min}
+def _avg(*xs: int) -> int:
+    """Integer floor average — CHARGE keys off avg(POW,SPD) (GAME_DESIGN §4.1)."""
+    return sum(xs) // len(xs)
+
+
+_ALLOWED_FUNCS = {
+    "ceil": math.ceil, "floor": math.floor, "max": max, "min": min, "avg": _avg,
+}
 
 
 def _eval_expr(expr: str, stats: dict[str, int]) -> int:
@@ -134,10 +140,9 @@ class Dice:
     def chance(self, p: float) -> bool:
         """A seeded probability check — True with probability `p`.
 
-        COMBAT V4's only random gates: dodge (5%×Speed), SHIELD's reflect
-        (10%×POW), and WILD CARD's backfire (15%). p<=0 never fires and p>=1
-        always does, both WITHOUT consuming a draw, so a Speed-0 character's
-        dodge check can't shift the dice stream for everyone behind them.
+        COMBAT V5 has no probability gates in the resolver, but this stays as a
+        general utility. p<=0 never fires and p>=1 always does, both WITHOUT
+        consuming a draw, so a guaranteed check can't shift the dice stream.
         """
         if p <= 0:
             return False

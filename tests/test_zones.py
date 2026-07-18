@@ -37,11 +37,11 @@ def test_unknown_zone_raises():
 def test_modifier_default_zero():
     reg = ZoneRegistry()
     assert reg.modifier("frontline", "damage_bonus") == 0
-    assert reg.modifier("frontline", "incoming_dodge_penalty") == 0
+    assert reg.modifier("frontline", "heal_bonus") == 0
 
 
 def _high_ground_zones() -> dict:
-    """The GAME_DESIGN §6 High Ground block, on v4's modifier keys."""
+    """The GAME_DESIGN §6 High Ground block, on v5's modifier keys."""
     return {
         "zones": [
             {"id": "glitter_back", "name": "A", "adjacent": ["frontline"],
@@ -59,7 +59,7 @@ def _high_ground_zones() -> dict:
                 "tags": ["elevated"],
                 "modifiers": {
                     "damage_bonus": 1,
-                    "incoming_dodge_penalty": 0.10,
+                    "incoming_damage_bonus": 2,
                     "some_future_key": "prone",
                 },
             },
@@ -67,14 +67,13 @@ def _high_ground_zones() -> dict:
         "rules": {
             "melee_requires_same_zone": True,
             "ranged_any_zone": True,
-            "move_buttons": ["move_l", "move_r"],
         },
     }
 
 
 def test_high_ground_modifiers(tmp_path, monkeypatch):
-    """High Ground exposes v4's damage/dodge modifiers — the "zero Python"
-    test. v4 has no AC, so `attack_bonus`/`ranged_ac_bonus` are gone."""
+    """High Ground exposes v5's damage modifiers — the "zero Python" test. v5 has
+    no AC and no dodge, so a zone's edge is flat damage or healing now."""
     import server.config as cfg_mod
 
     (tmp_path / "zones.yaml").write_text(yaml.dump(_high_ground_zones()))
@@ -83,7 +82,7 @@ def test_high_ground_modifiers(tmp_path, monkeypatch):
     reg = ZoneRegistry()
     assert "high_ground" in reg
     assert reg.modifier("high_ground", "damage_bonus") == 1
-    assert reg.modifier("high_ground", "incoming_dodge_penalty") == 0.10
+    assert reg.modifier("high_ground", "incoming_damage_bonus") == 2
     # Unknown keys still load (extra="allow") rather than failing the room.
     assert reg.get("high_ground").modifiers.some_future_key == "prone"
     assert reg.get("high_ground").entry_cost == 2
@@ -102,7 +101,7 @@ def test_high_ground_modifiers_actually_reach_the_resolver(tmp_path, monkeypatch
     from server.engine.resolver import resolve_round
 
     # The resolver loads the whole rule bundle — only zones.yaml is overridden.
-    for f in ("moves.yaml", "hazards.yaml", "balance.yaml"):
+    for f in ("moves.yaml", "balance.yaml"):
         shutil.copy(f"config/{f}", tmp_path / f)
     (tmp_path / "zones.yaml").write_text(yaml.dump(_high_ground_zones()))
     monkeypatch.setattr(cfg_mod, "CONFIG_DIR", tmp_path)
@@ -119,12 +118,12 @@ def test_high_ground_modifiers_actually_reach_the_resolver(tmp_path, monkeypatch
             teams=[Team(id="a", name="A", color="p", player_ids=["atk"]),
                    Team(id="b", name="B", color="b", player_ids=["def"])],
         )
-        actions = [ClassifiedAction(player_id="atk", move_id="shoot", target_id="def")]
+        actions = [ClassifiedAction(player_id="atk", move_id="blast", target_id="def")]
         result = resolve_round(state, actions, Dice(seed=5), cfg)
         return next(e for e in result.events
-                    if e.data.get("move_id") == "shoot").data["damage"]
+                    if e.data.get("move_id") == "blast").data["damage"]
 
-    # Same seed, same dice: shooting FROM the high ground adds its damage_bonus.
+    # Same seed, same dice: BLASTing FROM the high ground adds its damage_bonus.
     assert run("high_ground") - run("glitter_back") == 1
 
 
@@ -138,11 +137,10 @@ def test_rules_loaded():
     reg = ZoneRegistry()
     assert reg.rules.melee_requires_same_zone is True
     assert reg.rules.ranged_any_zone is True
-    assert reg.rules.move_buttons == ["move_l", "move_r"]
 
 
 def test_ordered_ids_follow_yaml_order():
-    """zones.yaml list order = the TV's left→right order — ◀/▶ step along it."""
+    """zones.yaml list order = the TV's left→right order — ESCAPE steps along it."""
     reg = ZoneRegistry()
     assert reg.ordered_ids == ["glitter_back", "frontline", "thunder_back"]
 

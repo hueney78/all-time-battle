@@ -70,7 +70,6 @@ class LiveAI:
             zones=rules.zones.zones,
         )
         self._sys_gremlin = env.get_template("gremlin_classify.md.j2").render(
-            hazards=rules.hazards.hazards,
             zones=rules.zones.zones,
         )
         self._sys_montage = env.get_template("montage_classify.md.j2").render()
@@ -111,9 +110,9 @@ class LiveAI:
     def classify_actions(
         self, state: GameState, submissions: dict[str, ActionSubmission], round_num: int
     ) -> list[ClassifiedAction]:
-        # The tapped move + target are ground truth from the phone (COMBAT V2):
+        # The tapped move + target are ground truth from the phone (COMBAT V5):
         # they're echoed to the AI for context but never chosen by it.
-        taps: dict[str, tuple[str, str | None]] = {}
+        taps: dict[str, tuple[str, str | None, int]] = {}
         content: list[dict] = [{"type": "text", "text": _roster_text(state, round_num)}]
         for pid, ch in state.characters.items():
             if ch.is_ko:
@@ -121,7 +120,7 @@ class LiveAI:
             sub = submissions.get(pid)
             if sub is None or not sub.move_id:
                 continue
-            taps[pid] = (sub.move_id, sub.target_id)
+            taps[pid] = (sub.move_id, sub.target_id, sub.escape_direction)
             move = self.rules.moves.moves.get(sub.move_id)
             target_name = ""
             if sub.target_id and sub.target_id in state.characters:
@@ -154,28 +153,30 @@ class LiveAI:
         self, state: GameState, submissions: dict[str, ActionSubmission], round_num: int
     ) -> list[ClassifiedAction]:
         gremlins = [pid for pid, ch in state.characters.items() if ch.is_gremlin]
-        header = f"Round {round_num}. Classify each Arena Gremlin's hazard drawing."
+        header = (f"Round {round_num}. Judge each Arena Gremlin's trap drawing "
+                  f"(creativity only — the zone is tapped on the phone).")
         content: list[dict] = [{"type": "text", "text": header}]
-        drawn: list[str] = []
+        gremlin_taps: dict[str, str | None] = {}
         for pid in gremlins:
-            png = submissions[pid].png_base64 if pid in submissions else ""
+            sub = submissions.get(pid)
+            png = sub.png_base64 if sub else ""
             img = _image_block(png)
             if img is None:
-                continue                          # blank canvas → no hazard this round
+                continue                          # blank canvas → no trap this round
+            gremlin_taps[pid] = sub.trap_zone if sub else None
             name = state.characters[pid].name
             content.append({"type": "text", "text": f"=== gremlin {name} ({pid}) ==="})
             content.append(img)
-            drawn.append(pid)
 
-        if not drawn:
+        if not gremlin_taps:
             return []
         parsed = self._call_tool(
             self._sys_gremlin, content, S.ClassifyGremlinsResponse,
-            "submit_gremlin_hazards", self.ai.classify_model,
+            "submit_gremlin_traps", self.ai.classify_model,
         )
         if parsed is None:
-            parsed = S.ClassifyGremlinsResponse(hazards=[])        # → drop nothing
-        return V.build_gremlin_hazards(parsed, drawn, self.rules)
+            parsed = S.ClassifyGremlinsResponse(traps=[])          # → creativity 0
+        return V.build_gremlin_traps(parsed, gremlin_taps, self.rules)
 
     def classify_montage(
         self, state: GameState, submissions: dict[str, ActionSubmission], round_num: int
@@ -385,7 +386,7 @@ def _awards_text(summary: MatchSummary) -> str:
         lines.append(
             f"- {p.get('name', pid)} ({pid}) team={p.get('team_id')} "
             f"alive={p.get('alive')} creativity={summary.creativity.get(pid, 0)} "
-            f"backfires={summary.backfires.get(pid, 0)}"
+            f"reflects={summary.reflects.get(pid, 0)}"
         )
     combo_names = [c.get("combo_name", "") for c in summary.combos if c.get("combo_name")]
     if combo_names:

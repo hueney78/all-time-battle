@@ -1,30 +1,36 @@
-# moves.yaml — COMBAT V4. The catalog owns all math; the phone renders each
-# character's live numbers from these formulas ("SMASH — 2d4+8" on the brick's
-# phone). Moves are TAPPED, never classified from the drawing — the drawing
-# supplies creativity, flavor, WILD CARD's interpretation, and combos only
+# moves.yaml — COMBAT V5. Five moves, ALL single-target. The catalog owns all
+# math; the phone renders each character's live numbers from these formulas
+# ("SMASH — 2d4+8" on the brick's phone). Moves are TAPPED, never classified
+# from the drawing — the drawing supplies creativity, flavor, and combos only
 # (GAME_DESIGN §4).
 #
-# THERE IS NO AC AND NO ATTACK ROLL (v4). Every selected move lands. The only
-# dice that reduce a hit are the target's passive DODGE (Speed, balance.yaml)
-# and SHIELD's `mitigate`. Damage/heal formulas set the *magnitude*, so outcomes
-# vary in size, never in whether they land.
+# THERE IS NO AC, NO ATTACK ROLL, NO DODGE (v5). Every selected move lands. The
+# ONLY thing that reduces a hit is PROTECT's reflect shield. Damage/heal formulas
+# set the *magnitude*, so outcomes vary in size, never in whether they land.
 #
 # damage/heal formulas may reference POW / SPD / WRD plus ceil()/floor()/
-# max()/min(), e.g. "2d4 + max(SPD,WRD)" — evaluated per character by
-# engine/dice.py. They must NOT spell out creativity: the resolver adds the
-# flat creativity bonus to every damage/heal result as a system rule
-# (GAME_DESIGN §5), so a formula can't silently forget it. SHIELD's `mitigate`
-# is the one effect creativity does not touch.
+# max()/min()/avg(), e.g. "2d4 + avg(POW,SPD)" — evaluated per character by
+# engine/dice.py. They must NOT spell out creativity: the resolver adds the flat
+# creativity bonus (+0/+1/+3/+5) to every damage/heal result as a system rule
+# (GAME_DESIGN §5), so a formula can't silently forget it.
 #
 # `stat` names the move's headline stat — the term the host readout prints
-# ("🌀 Weird 5") and the phone button keys off. "none" = no stat term.
-# SHOOT keys off Weird only, so ranged damage no longer rides on Speed too.
-# `same_zone_penalty: half` (SHOOT) halves damage point-blank.
-# `sfx` names the clip (web/host/assets/sfx/<name>.wav) the host plays when
-# the move resolves; event stingers live in settings.yaml ui.audio.events_sfx.
+# ("🌀 Weird 5") and the phone button keys off. "avg(power,speed)" prints the
+# higher of the two.
 #
-# No-repeat rule: a combat move (anything without `move`) can't be picked two
-# rounds in a row; ◀/▶ movement is exempt. Enforced server-side at submit time.
+# Riders:
+#   always_legal      the button is never greyed (BLAST, CHARGE — the fallbacks)
+#   moves_to_target   CHARGE: rush into the target's zone before swinging
+#   moves_one_zone    ESCAPE: slip one zone (player picks ◀/▶), then a ranged hit
+#   acts_first        PROTECT resolves before every other move that round
+#   applies_shield    PROTECT: cloak the target in a reflecting shield
+#   same_zone_penalty BLAST: half damage (round up) point-blank
+#
+# `sfx` names the clip (web/host/assets/sfx/<name>.wav) the host plays when the
+# move resolves; event stingers live in settings.yaml ui.audio.events_sfx.
+#
+# No-repeat rule: a move can't be picked two rounds in a row (button greys).
+# Enforced server-side at submit time.
 
 moves:
   smash:
@@ -32,79 +38,54 @@ moves:
     range: same_zone
     target: single_enemy
     damage: "2d4 + POW + 2"           # POW 0: 2d4+2 … POW 6: 2d4+8
-    auto_step: true    # no enemy in your zone → step toward target and swing
     button: "SMASH"
     icon: "💥"
-    desc: "Huge melee hit. Get in their face."
+    desc: "Powerful melee hit on someone in your zone."
     sfx: punch
-
-  shoot:
-    stat: weird                       # ranged keys off Weird only (balance lever:
-                                      # Speed no longer doubles as a full attack stat)
-    range: any
-    target: single_enemy
-    damage: "2d4 + WRD"
-    same_zone_penalty: half           # point-blank = half damage (round up)
-    button: "SHOOT"
-    icon: "🎯"
-    desc: "Hit anyone, anywhere. Weaker up close."
-    sfx: whoosh
 
   blast:
     stat: weird
-    range: any
-    target: zone_all
-    friendly_fire: true
-    damage: "1d6 + WRD"               # one shared roll hits the whole zone
+    range: any_zone
+    target: single_enemy
+    damage: "2d4 + WRD + 2"
+    same_zone_penalty: half           # point-blank is clumsy — half damage (round up)
+    always_legal: true                # the universal fallback (see legality rules)
     button: "BLAST"
     icon: "🔥"
-    desc: "Hits EVERYONE in a zone. Allies too."
+    desc: "Powerful ranged hit on anyone, anywhere. Weak up close."
     sfx: boom
 
-  shield:
-    stat: power
-    target: zone_allies               # ALL teammates in the caster's zone, incl. self
-    mitigate: "4 + POW"               # subtracted from each incoming hit this round
-    reflect_chance_per_power: 0.10    # 10% × POW to bounce the mitigated amount back
-    button: "SHIELD"
-    icon: "🛡️"
-    desc: "Protect everyone in your zone. Tanks reflect."
-    sfx: shield
-
-  rally:
-    stat: weird
-    range: any
-    target: ally_or_self
-    heal: "2d6 + 2*WRD + 2"           # + creativity: the drawing IS the medicine
-    button: "RALLY"
-    icon: "❤️"
-    desc: "Heal a teammate. Great drawings heal more."
-    sfx: sparkle
-
-  wild:
-    stat: weird
-    range: any
+  charge:
+    stat: "avg(power,speed)"
+    range: any_zone
     target: single_enemy
-    damage: "3d6 + WRD"
-    backfire_chance: 0.15             # the only self-damage in the game
-    ai_interprets: true               # the one move whose drawing the AI reads freely
-    button: "WILD CARD"
-    icon: "🃏"
-    desc: "Big and chaotic — but it can backfire."
-    sfx: zap
+    damage: "2d4 + avg(POW,SPD)"      # ~2/3 of SMASH
+    moves_to_target: true             # rush into the target's zone, then hit
+    always_legal: true                # already adjacent → skip the move, just swing
+    button: "CHARGE"
+    icon: "🐗"
+    desc: "Rush into their zone and hit them."
+    sfx: charge
 
-  move_l:
-    stat: none
-    target: self
-    move: -1                         # absolute: one zone left, matches the TV
-    button: "◀ MOVE"
-    desc: "Step one zone left."
-    sfx: steps
+  escape:
+    stat: speed
+    range: any_zone
+    target: single_enemy
+    damage: "2d4 + SPD"               # ~2/3 of SMASH
+    moves_one_zone: true              # slip one zone (◀/▶ chosen with the tap), then shoot
+    button: "ESCAPE"
+    icon: "💨"
+    desc: "Slip one zone away, then shoot from there."
+    sfx: whoosh
 
-  move_r:
-    stat: none
-    target: self
-    move: 1
-    button: "MOVE ▶"
-    desc: "Step one zone right."
-    sfx: steps
+  protect:
+    stat: weird
+    range: any_zone
+    target: ally
+    heal: "1d6 + WRD"                 # + creativity: the drawing IS the medicine
+    acts_first: true                  # PROTECT always resolves before everything
+    applies_shield: true             # cloak the ally: reflect_per_weird × WRD (cap)
+    button: "PROTECT"
+    icon: "🛡️"
+    desc: "Heal a teammate and cloak them in a reflecting shield."
+    sfx: shield

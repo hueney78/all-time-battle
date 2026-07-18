@@ -185,6 +185,15 @@ def build() -> dict[str, list[float]]:
     # sneaky: three soft low plucks (minor-ish tiptoe)
     plucks = [envelope(tone(f, 0.12), attack=0.002, curve=4.0) for f in (330, 392, 311)]
     clips["sneaky"] = concat(plucks[0], silence(0.04), plucks[1], silence(0.04), plucks[2])
+    # charge: a rising rush — galloping noise over a climbing saw (CHARGE)
+    clips["charge"] = envelope(
+        mix(
+            gain(lowpass(noise(0.42), 0.2), 0.6),
+            tone(110, 0.42, glide_to=300, shape="saw"),
+        ),
+        attack=0.02,
+        curve=1.6,
+    )
     # shield: metallic ring
     clips["shield"] = bell(520, 0.45)
     # sparkle: fast ascending high arpeggio
@@ -218,6 +227,17 @@ def build() -> dict[str, list[float]]:
             )
             for f, d in notes
         ]
+    )
+    # boing: a springy sproing — fast falling sine with heavy vibrato (REFLECT)
+    clips["boing"] = envelope(
+        tone(620, 0.4, glide_to=180, vibrato_hz=28, vibrato_depth=0.45, shape="sine"),
+        attack=0.002,
+        curve=2.5,
+    )
+    # comic_snap: a sharp crack + a rubbery pop (a trap springing)
+    clips["comic_snap"] = concat(
+        envelope(lowpass(noise(0.04), 0.5), attack=0.001, curve=3.0),
+        envelope(tone(900, 0.09, glide_to=1700, shape="square"), attack=0.001, curve=2.2),
     )
     # ko_bell: boxing bell double-strike + crowd gasp
     gasp = gain(envelope(lowpass(noise(0.5), 0.15), attack=0.12, curve=1.5), 0.4)

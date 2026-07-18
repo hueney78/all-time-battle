@@ -1,16 +1,15 @@
-"""Randomized battle guard on the REAL engine (COMBAT V4).
+"""Randomized battle guard on the REAL engine (COMBAT V5).
 
 `scripts/balance_sim.py` is a standalone Monte-Carlo *design* tool — it models
-the v4 rules in its own fast loop and never imports the engine, so it can
+the v5 rules in its own fast loop and never imports the engine, so it can
 explore tuning without dragging the server along. That makes it the wrong thing
 to assert against: it is free to diverge from the engine on purpose.
 
 So this guard drives `resolve_round` itself. A batch of random battles through
 the real resolver must never produce negative HP, KO/HP mismatches, or over-max
 healing, and must still terminate decisively with every move reachable. Taps are
-uniform-random over the legal buttons (no-repeat honored, edge-illegal movement
-excluded) — this measures the engine's invariants, not player skill. Kept to a
-small N to stay fast.
+uniform-random over the legal buttons (no-repeat honored) — this measures the
+engine's invariants, not player skill. Kept to a small N to stay fast.
 """
 
 from __future__ import annotations
@@ -35,7 +34,7 @@ _MAX_ROUNDS = 30
 CFG = load_balance()
 MOVES = load_moves().moves
 ZONES = [z.id for z in load_zones().zones]
-COMBAT = [mid for mid, mdef in MOVES.items() if not mdef.move]
+COMBAT = list(MOVES)   # v5: all five moves are subject to the no-repeat rule
 
 _TEAM_A = ["p0", "p1", "p2"]
 _TEAM_B = ["p3", "p4", "p5"]
@@ -51,7 +50,8 @@ def _roster(rng: random.Random) -> list[Character]:
             weird = CFG.stat_budget - power - speed
             if CFG.stat_min <= weird <= CFG.stat_max:
                 break
-        max_hp = CFG.hp_base + CFG.hp_per_power * power + CFG.hp_per_weird * weird
+        max_hp = (CFG.hp_base + CFG.hp_per_power * power + CFG.hp_per_weird * weird
+                  + speed // CFG.hp_speed_divisor)
         chars.append(Character(
             player_id=f"p{i}",
             name=f"Fighter {i}",
@@ -64,16 +64,10 @@ def _roster(rng: random.Random) -> list[Character]:
 
 
 def _legal_moves(ch: Character) -> list[str]:
-    """Honor the no-repeat rule and arena edges, exactly like the phone does."""
-    out = []
-    for mid, mdef in MOVES.items():
-        if mdef.move:
-            idx = ZONES.index(ch.zone_id) + mdef.move
-            if 0 <= idx < len(ZONES):
-                out.append(mid)
-        elif mid != ch.last_move_id:
-            out.append(mid)
-    return out
+    """Honor the no-repeat rule, exactly like the phone does. SMASH/PROTECT can
+    still fizzle if their preconditions aren't met — the resolver handles that
+    gracefully, so we don't pre-filter them here."""
+    return [mid for mid in MOVES if mid != ch.last_move_id]
 
 
 def _battle(rng: random.Random, dice: Dice, report: dict) -> None:
@@ -99,6 +93,7 @@ def _battle(rng: random.Random, dice: Dice, report: dict) -> None:
                 player_id=ch.player_id,
                 move_id=move_id,
                 target_id=rng.choice(enemies) if enemies else None,
+                escape_direction=rng.choice([-1, 1]),
                 creativity_tier=rng.randint(0, 3),
             ))
             report["uses"][move_id] += 1
@@ -148,16 +143,16 @@ def test_random_battles_hold_engine_invariants():
 def test_engine_demo_runs(capsys):
     """`python -m server.engine.demo` is a documented command (CLAUDE.md) with a
     hand-written event printer — it reads the resolver's event data directly, so
-    it rots silently whenever the schema moves. It broke on the v4 rewrite
-    exactly this way. Smoke-run it so the next change can't."""
+    it rots silently whenever the schema moves. Smoke-run it so the next change
+    can't."""
     from server.engine.demo import main
 
     main()
     out = capsys.readouterr().out
-    assert "COMBAT V4" in out
+    assert "COMBAT V5" in out
     assert "every move lands" in out
-    # The §12 fixture's opening lineup, straight from the v4 HP formula.
-    assert "HP=33/33" in out and "HP=41/41" in out
-    # v2 vocabulary must never reappear in the play-by-play.
-    for gone in ("2d6", "vs AC", "FUMBLE", "MISS", "CRIT"):
-        assert gone not in out, f"demo still prints v2 concept {gone!r}"
+    # The §12 fixture's opening lineup, straight from the v5 HP formula.
+    assert "HP=34/34" in out and "HP=41/41" in out
+    # Older vocabulary must never reappear in the play-by-play.
+    for gone in ("2d6", "vs AC", "FUMBLE", "MISS", "CRIT", "DODGE", "BACKFIRE"):
+        assert gone not in out, f"demo still prints a removed concept {gone!r}"

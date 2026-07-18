@@ -1,7 +1,8 @@
 """Move catalog registry — loads moves.yaml, provides lookup API.
 
-COMBAT V2: eight tapped moves — six combat moves (subject to the no-repeat
-rule) plus ◀/▶ movement (exempt, edge-checked).
+COMBAT V5: five tapped moves (SMASH/BLAST/CHARGE/ESCAPE/PROTECT), all
+single-target, all subject to the no-repeat rule. Movement lives inside CHARGE
+and ESCAPE, so there are no movement buttons.
 """
 
 from __future__ import annotations
@@ -34,8 +35,3 @@ class MoveRegistry:
     def ordered_ids(self) -> list[str]:
         """Catalog order as authored in moves.yaml — the phone's button order."""
         return list(self._moves.keys())
-
-    @property
-    def combat_ids(self) -> list[str]:
-        """Moves subject to the no-repeat rule (everything but movement)."""
-        return [mid for mid, m in self._moves.items() if not m.is_movement]

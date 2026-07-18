@@ -99,8 +99,8 @@ class AudioConfig(BaseModel):
     sfx_dir: str = "/static/host/assets/sfx"
     events_sfx: dict[str, str] = {
         "devastating": "crowd_roar",
-        "dodge": "whoosh",
-        "backfire": "sad_trombone",
+        "reflect": "boing",
+        "trap": "comic_snap",
         "ko": "ko_bell",
         "combo": "air_horn",
         "sudden_death": "drumroll",
@@ -128,11 +128,8 @@ class ReadoutConfig(BaseModel):
     devastating_chip: str = "⭐⭐⭐ DEVASTATING!"
     damage_line: str = "{icon} {move} → {terms} = {total} damage"
     heal_line: str = "{icon} {move} → {terms} = {total} healed"
-    # Reduction lines (second line, never a rewrite of the first).
-    shield_line: str = "🛡️ {shielder}'s shield blocks {blocked} → {total} damage gets through"
-    dodge_line: str = "💨 {target} dodges — no damage!"
-    reflect_line: str = "🛡️ {target}'s shield bounces {total} back at {attacker}!"
-    backfire_line: str = "🃏 {attacker}'s wild card backfires — {total} damage to themselves!"
+    # The one reduction line (second line): PROTECT's shield reflecting a share.
+    reflect_line: str = "🛡️ {target}'s shield reflects {total} back at {attacker}!"
 
 
 class HowToPlayConfig(BaseModel):
@@ -223,21 +220,23 @@ def load_settings(config_dir: Path | None = None) -> Settings:
 
 
 class Balance(BaseModel):
-    # HP formula: HP = hp_base + hp_per_power * Power + hp_per_weird * Weird
-    hp_base: int = 28
+    # HP = hp_base + hp_per_power*Power + hp_per_weird*Weird + Speed//hp_speed_divisor
+    hp_base: int = 27
     hp_per_power: int = 2
     hp_per_weird: int = 1
+    hp_speed_divisor: int = 2   # Speed buys a little HP now that dodge is gone (v5)
     # Stat budget — AI distributes stats summing to this
     stat_budget: int = 9
     stat_min: int = 0
     stat_max: int = 6
-    # COMBAT V4: no AC, no attack roll — every selected move lands. Dodge is the
-    # only thing that negates a hit: dodge_per_speed * Speed, capped at dodge_cap.
-    # 0.07 (up from 0.05) is Speed's rebalance after ranged moved to Weird.
-    dodge_per_speed: float = 0.07
-    dodge_cap: float = 0.45
-    # WILD CARD's backfire — the only self-damage (chance is on the move itself)
-    wild_backfire_damage: str = "2d4"
+    # COMBAT V5: no AC, no attack roll, no dodge — every selected move lands. The
+    # ONLY thing that reduces a hit is PROTECT's reflect shield: a shielded ally
+    # absorbs reflect_per_weird * caster's Weird (capped at reflect_cap) and
+    # bounces exactly that much back at the attacker.
+    reflect_per_weird: float = 0.05
+    reflect_cap: float = 0.30
+    # Arena Gremlin traps (GAME_DESIGN §10): trap_damage + creativity to one enemy
+    trap_damage: str = "1d4"
     # Creativity bonuses (added directly to the effect — there is no roll)
     creativity_tier_0: int = 0
     creativity_tier_1: int = 1
@@ -251,7 +250,7 @@ class Balance(BaseModel):
     underdog_damage_bonus: int = 1
     # Sudden death
     max_rounds: int = 12
-    sudden_death_damage_bonus: int = 2
+    sudden_death_damage_bonus: int = 3
 
 
 def load_balance(config_dir: Path | None = None) -> Balance:
@@ -265,15 +264,13 @@ def load_balance(config_dir: Path | None = None) -> Balance:
 
 
 class ZoneModifiers(BaseModel):
-    """Zone riders the resolver reads generically (GAME_DESIGN §6). COMBAT V4
-    has no AC, so the v2 `attack_bonus`/`ac_bonus`/`ranged_ac_bonus` keys are
-    gone — a zone's edge is damage or dodge now."""
+    """Zone riders the resolver reads generically (GAME_DESIGN §6). COMBAT V5
+    has no AC and no dodge, so a zone's edge is flat damage or healing now."""
 
     model_config = {"extra": "allow"}
     damage_bonus: int = 0            # flat damage on hits made FROM this zone
     incoming_damage_bonus: int = 0   # flat damage on hits landing IN this zone
-    dodge_bonus: float = 0.0         # added to occupants' dodge chance
-    incoming_dodge_penalty: float = 0.0   # subtracted from it
+    heal_bonus: int = 0              # flat healing on heals landing IN this zone
 
 
 class ZoneDef(BaseModel):
@@ -290,8 +287,8 @@ class ZoneDef(BaseModel):
 class ZoneRules(BaseModel):
     melee_requires_same_zone: bool = True
     ranged_any_zone: bool = True
-    # Movement is tapped, absolute (◀/▶ match the TV), edge-disabled.
-    move_buttons: list[str] = ["move_l", "move_r"]
+    # v5: movement is not a button — CHARGE rushes into a target's zone and
+    # ESCAPE slips one zone (player picks ◀/▶) along the zones.yaml order.
 
 
 class ZonesConfig(BaseModel):
@@ -310,42 +307,30 @@ def load_zones(config_dir: Path | None = None) -> ZonesConfig:
 
 
 class MoveDef(BaseModel):
-    """One COMBAT V4 move (GAME_DESIGN §4.1). The catalog owns all math;
+    """One COMBAT V5 move (GAME_DESIGN §4.1). The catalog owns all math;
     formulas may reference POW/SPD/WRD (see engine/dice.py) but never spell out
     creativity — the resolver adds that to every damage/heal as a system rule."""
 
     model_config = {"extra": "allow"}
     # Headline stat — the term the host readout prints and the phone keys off.
-    # "power" | "speed" | "weird" | "max(speed,weird)" | "none". Not a roll:
-    # COMBAT V4 has no attack roll.
+    # "power" | "speed" | "weird" | "avg(power,speed)" | "none". Not a roll:
+    # COMBAT V5 has no attack roll.
     stat: str = "none"
-    range: str = "same_zone"  # "same_zone" | "any"
-    # "single_enemy" | "zone_all" | "ally_or_self" | "zone_allies" | "self"
-    target: str = "single_enemy"
-    damage: str | None = None     # formula, e.g. "2d4 + max(SPD,WRD)"
-    heal: str | None = None       # formula, e.g. "2d6 + 2*WRD + 2"
+    range: str = "same_zone"  # "same_zone" | "any_zone"
+    target: str = "single_enemy"  # "single_enemy" | "ally"
+    damage: str | None = None     # formula, e.g. "2d4 + avg(POW,SPD)"
+    heal: str | None = None       # formula, e.g. "1d6 + WRD"
     same_zone_penalty: str | None = None  # "half" → point-blank damage halved (round up)
-    # SHIELD: flat mitigation formula subtracted from each incoming hit to the
-    # caster's zone allies this round, then reflect_chance_per_power * POW
-    # chance to bounce the mitigated amount back at the attacker.
-    mitigate: str = ""
-    reflect_chance_per_power: float = 0.0
-    friendly_fire: bool = False
-    auto_step: bool = False       # SMASH: no enemy in zone → step toward target
-    backfire_chance: float = 0.0  # WILD: chance the move turns on its caster
-    # WILD CARD: the one move where the AI reads the drawing freely and whatever
-    # it sees becomes the flavor (GAME_DESIGN §9). Declared, not inferred from
-    # another rider, so a second chaotic move can't accidentally inherit it.
-    ai_interprets: bool = False
-    move: int = 0                 # absolute zone steps (◀ = -1, ▶ = +1)
+    # v5 riders (GAME_DESIGN §4.1):
+    always_legal: bool = False    # BLAST/CHARGE: the button is never greyed out
+    moves_to_target: bool = False # CHARGE: rush into the target's zone, then hit
+    moves_one_zone: bool = False  # ESCAPE: slip one zone (◀/▶ from the tap), then hit
+    acts_first: bool = False      # PROTECT: resolves before every other move this round
+    applies_shield: bool = False  # PROTECT: cloak the target in a reflecting shield
     button: str = ""              # phone button label
     icon: str = ""                # emoji shown on the host readout line (§13)
     desc: str = ""
     sfx: str = ""                 # host sound clip (web/host/assets/sfx/<sfx>.wav)
-
-    @property
-    def is_movement(self) -> bool:
-        return self.move != 0
 
 
 class MovesConfig(BaseModel):
@@ -358,31 +343,6 @@ def load_moves(config_dir: Path | None = None) -> MovesConfig:
 
 
 # ---------------------------------------------------------------------------
-# hazards.yaml — the Arena Gremlin hazard palette (GAME_DESIGN §10)
-# ---------------------------------------------------------------------------
-
-
-class HazardDef(BaseModel):
-    model_config = {"extra": "allow"}
-    # A hazard damages a zone's occupants or forces them to move (v2.1: no
-    # status effects). Adding a hazard is YAML-only.
-    damage: str = ""              # dice spec rolled once for the whole zone
-    forces_move: bool = False
-    emoji: str = ""
-    sfx: str = ""
-    desc: str = ""
-
-
-class HazardsConfig(BaseModel):
-    hazards: dict[str, HazardDef]
-
-
-def load_hazards(config_dir: Path | None = None) -> HazardsConfig:
-    data = _load_yaml("hazards.yaml", config_dir)
-    return _parse(HazardsConfig, data, "hazards.yaml")
-
-
-# ---------------------------------------------------------------------------
 # Bundle — passed to resolver and AI layer
 # ---------------------------------------------------------------------------
 
@@ -392,7 +352,6 @@ class GameRules(BaseModel):
     balance: Balance
     zones: ZonesConfig
     moves: MovesConfig
-    hazards: HazardsConfig = HazardsConfig(hazards={})
 
 
 def load_game_rules(config_dir: Path | None = None) -> GameRules:
@@ -401,5 +360,4 @@ def load_game_rules(config_dir: Path | None = None) -> GameRules:
         balance=load_balance(config_dir),
         zones=load_zones(config_dir),
         moves=load_moves(config_dir),
-        hazards=load_hazards(config_dir),
     )

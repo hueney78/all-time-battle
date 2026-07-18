@@ -53,9 +53,10 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("doodle.state_machine")
 
-# Attack results that put damage on the target (COMBAT V4 — see EventType).
-# "devastating" is a hit at creativity tier 3; "dodge" lands nothing at all.
-_DAMAGING_RESULTS = ("hit", "devastating", "reflect", "hazard")
+# Attack results that put damage on a character (COMBAT V5 — see EventType).
+# "devastating" is a hit at creativity tier 3; "reflect" is a shield bouncing a
+# blow back at the attacker; "trap" is a Gremlin trap springing.
+_DAMAGING_RESULTS = ("hit", "devastating", "reflect", "trap")
 
 
 @dataclass
@@ -88,9 +89,10 @@ class _Drawn:
     round_num: int
     action_pngs: dict[str, str]
     fighters: list[str]   # living fighters — tapped a move + drew this round
-    gremlins: list[str]   # KO'd players — each drew one hazard this round
-    # COMBAT V2: pid → (move_id, target_id), server-validated at submit time.
-    taps: dict[str, tuple[str, str | None]] = field(default_factory=dict)
+    gremlins: list[str]   # KO'd players — each planted a trap this round
+    # COMBAT V5: pid → (move_id, target_id, escape_direction, trap_zone),
+    # server-validated at submit time. Gremlins carry ("", None, 0, trap_zone).
+    taps: dict[str, tuple[str, str | None, int, str | None]] = field(default_factory=dict)
 
 
 @dataclass
@@ -148,8 +150,9 @@ class GameStateMachine:
         # rounds keep their own snapshot, so this is only ever the round being
         # drawn right now (no cross-stage collision).
         self._action_pngs: dict[str, str] = {}
-        # COMBAT V2: the validated taps for the round being drawn right now.
-        self._action_taps: dict[str, tuple[str, str | None]] = {}
+        # COMBAT V5: pid → (move_id, target_id, escape_direction, trap_zone) for
+        # the round being drawn right now (gremlins carry ("", None, 0, zone)).
+        self._action_taps: dict[str, tuple[str, str | None, int, str | None]] = {}
         # Separate live buffer for a Power-Up Montage sub-phase (never overlaps an
         # action draw — a player is in exactly one draw phase at a time).
         self._montage_pngs: dict[str, str] = {}
@@ -160,6 +163,9 @@ class GameStateMachine:
         # (original character image until they first act). Server-owned so it
         # survives host refresh.
         self._latest_action_png: dict[str, str] = {}
+        # Creativity tier of each character's latest action → the host's star
+        # badges under the action sprite (⭐/⭐⭐/⭐⭐⭐; §13).
+        self._latest_action_creativity: dict[str, int] = {}
         # Rolling per-team creativity totals feeding the "Crowd Favorite" meter,
         # recency-weighted by keeping only the last N rounds.
         self._audience: deque[dict[str, int]] = deque(
@@ -172,7 +178,7 @@ class GameStateMachine:
 
         # Match-wide tallies for the victory awards ceremony (GAME_DESIGN §10.2).
         self._creativity_totals: dict[str, int] = {}
-        self._backfire_counts: dict[str, int] = {}
+        self._reflect_counts: dict[str, int] = {}
         self._combos_seen: list[dict] = []
         self._round_titles: list[str] = []
         self._best_line: str = ""
@@ -192,23 +198,28 @@ class GameStateMachine:
 
     # -- inbound events (called from the connection dispatch) -------------
     async def submit_action(self, player_id: str, msg: SubmitActionMsg) -> None:
-        """COMBAT V2 action submission: validate the tapped move + target
-        (no-repeat, edge legality, living target), then record it alongside
-        the drawing. An empty move_id (timer auto-submit with no tap) is
-        accepted — the fighter simply stumbles."""
-        if msg.move_id:
+        """COMBAT V5 action submission. A living fighter taps a move (+ target,
+        + ESCAPE direction); an Arena Gremlin taps a trap_zone instead. The move
+        is validated (no-repeat, legality, living target); an empty move_id
+        (timer auto-submit with no tap) is accepted — the fighter stumbles."""
+        ch = self.state.characters.get(player_id) if self.state else None
+        if ch is not None and ch.is_ko:
+            # Gremlins plant a trap in the tapped zone — no move, no target.
+            self._action_taps[player_id] = ("", None, 0, msg.trap_zone)
+        elif msg.move_id:
             error = self.validate_tap(player_id, msg.move_id, msg.target_id)
             if error is not None:
                 await self.room.send(player_id, S2C.TOAST,
                                      {"message": error, "kind": "action_rejected"})
                 return
-            self._action_taps[player_id] = (msg.move_id, msg.target_id)
+            self._action_taps[player_id] = (
+                msg.move_id, msg.target_id, msg.escape_direction, None)
         self._action_pngs[player_id] = msg.png_base64
         self._note_submission(player_id)
 
     def validate_tap(self, player_id: str, move_id: str,
                      target_id: str | None) -> str | None:
-        """The server-side tap rules (§4): returns a player-facing error
+        """The server-side tap rules (§4.1): returns a player-facing error
         message, or None when the tap is legal."""
         move = self.rules.moves.moves.get(move_id)
         if move is None:
@@ -220,17 +231,32 @@ class GameStateMachine:
         ch = self.state.characters[player_id]
         if ch.is_ko:
             return "You can't fight right now — you're a Gremlin!"
-        if move.is_movement:
-            if self._zone_reg.step(ch.zone_id, move.move) is None:
-                return "You're at the arena edge — can't move that way."
-            return None
         if move_id == ch.last_move_id:
             return "No repeats! Pick a different move this round."
+        # SMASH needs an enemy in your zone; PROTECT needs a living ally.
+        if move_id == "smash" and not self._enemy_in_zone(player_id, ch.zone_id):
+            return "SMASH needs an enemy in your zone — try BLAST or CHARGE."
+        if move.target == "ally" and not self._living_ally(player_id):
+            return "No teammate to protect right now!"
         if target_id is not None:
             target = self.state.characters.get(target_id)
             if target is None or target.is_ko:
                 return "That target is already out of the fight."
         return None
+
+    def _enemy_in_zone(self, pid: str, zone_id: str) -> bool:
+        team = self.room.team_of(pid)
+        return any(
+            not c.is_ko and c.zone_id == zone_id and self.room.team_of(p) != team
+            for p, c in (self.state.characters.items() if self.state else [])
+        )
+
+    def _living_ally(self, pid: str) -> bool:
+        team = self.room.team_of(pid)
+        return any(
+            p != pid and not c.is_ko and self.room.team_of(p) == team
+            for p, c in (self.state.characters.items() if self.state else [])
+        )
 
     def submit_drawing(self, player_id: str, msg) -> None:
         if self._phase == "draw_characters":
@@ -332,7 +358,7 @@ class GameStateMachine:
 
     def _draw_roster(self) -> tuple[list[str], list[str]]:
         """Who draws this round: living fighters (a move) and Arena Gremlins
-        (a hazard — GAME_DESIGN §10). Gremlins are is_ko, so the sets are
+        (a trap — GAME_DESIGN §10). Gremlins are is_ko, so the sets are
         disjoint. Characters always exist by now — intros precede Round 1."""
         assert self.state is not None
         fighters = [pid for pid, ch in self.state.characters.items() if not ch.is_ko]
@@ -410,21 +436,30 @@ class GameStateMachine:
             ch = state.characters.get(r.player_id)
             if ch is None or ch.is_ko:
                 continue
-            new_val = min(self.balance.stat_max, getattr(ch.stats, r.stat) + 1)
+            old_val = getattr(ch.stats, r.stat)
+            new_val = min(self.balance.stat_max, old_val + 1)
             setattr(ch.stats, r.stat, new_val)
-            # Stat formula deltas (v4: Power AND Weird both feed HP; Speed feeds
-            # initiative and the passive dodge, neither of which is stored).
+            # HP formula deltas (v5: Power, Weird, and floor(Speed/2) all feed HP).
             gain = 0
             if r.stat == "power":
-                gain = self.balance.hp_per_power
+                gain = self.balance.hp_per_power * (new_val - old_val)
             elif r.stat == "weird":
-                gain = self.balance.hp_per_weird
-            if gain:
+                gain = self.balance.hp_per_weird * (new_val - old_val)
+            elif r.stat == "speed":
+                gain = new_val // self.balance.hp_speed_divisor - \
+                    old_val // self.balance.hp_speed_divisor
+            if gain > 0:
                 ch.max_hp += gain
                 ch.hp = min(ch.max_hp, ch.hp + gain)     # +max HP, healed by the gain
             png = montage_pngs.get(r.player_id)
             if png:
                 ch.character_png_b64 = png               # the new original everywhere
+
+    def _max_hp(self, stats) -> int:
+        """The v5 HP formula: 27 + 2*POW + WRD + floor(SPD/2) (config-driven)."""
+        b = self.balance
+        return (b.hp_base + b.hp_per_power * stats.power + b.hp_per_weird * stats.weird
+                + stats.speed // b.hp_speed_divisor)
 
     async def _process_characters(self) -> list[str]:
         """Generate characters and build the initial game state. Returns the intro
@@ -443,9 +478,7 @@ class GameStateMachine:
         chars: dict[str, Character] = {}
         for p in self.room.players:
             g = generated[p.id]
-            hp = (self.balance.hp_base
-                  + self.balance.hp_per_power * g.stats.power
-                  + self.balance.hp_per_weird * g.stats.weird)
+            hp = self._max_hp(g.stats)
             chars[p.id] = Character(
                 player_id=p.id,
                 name=g.name,
@@ -479,22 +512,28 @@ class GameStateMachine:
         assert self.state is not None
         state_for_round = self.state.model_copy(update={"round": drawn.round_num})
 
+        _blank = ("", None, 0, None)
         fighter_subs = {
             pid: ActionSubmission(
                 pid, drawn.action_pngs.get(pid, ""),
-                move_id=drawn.taps.get(pid, ("", None))[0],
-                target_id=drawn.taps.get(pid, ("", None))[1],
+                move_id=drawn.taps.get(pid, _blank)[0],
+                target_id=drawn.taps.get(pid, _blank)[1],
+                escape_direction=drawn.taps.get(pid, _blank)[2],
             )
             for pid in drawn.fighters
         }
         actions = await asyncio.to_thread(
             self.ai.classify_actions, state_for_round, fighter_subs, drawn.round_num
         )
-        # Arena Gremlins are classified separately (drawings → hazard palette) and
-        # merged in; the resolver's gremlin pass reads them off the same list.
+        # Arena Gremlins are classified separately (trap drawing → creativity;
+        # the zone is the tapped ground truth) and merged in; the resolver's
+        # trap pass reads them off the same list.
         if drawn.gremlins:
-            grem_subs = {pid: ActionSubmission(pid, drawn.action_pngs.get(pid, ""))
-                         for pid in drawn.gremlins}
+            grem_subs = {
+                pid: ActionSubmission(pid, drawn.action_pngs.get(pid, ""),
+                                      trap_zone=drawn.taps.get(pid, _blank)[3])
+                for pid in drawn.gremlins
+            }
             grem_actions = await asyncio.to_thread(
                 self.ai.classify_gremlin, state_for_round, grem_subs, drawn.round_num
             )
@@ -503,7 +542,7 @@ class GameStateMachine:
         result = resolve_round(state_for_round, actions, rng, self.balance)
         await self._check_degraded()
         self.snapshots.write_round(drawn.round_num, result.new_state, result.events)
-        self.snapshots.append_wildcards(drawn.round_num, actions)
+        self.snapshots.append_flavor(drawn.round_num, actions)
         cameos = self._sample_cameos(result.new_state)
         narration = await asyncio.to_thread(
             self.ai.narrate_round, result.events, result.new_state.characters,
@@ -525,8 +564,12 @@ class GameStateMachine:
         self._accumulate_audience(processed.actions)
         await self._reveal(processed.round_num, processed.narration, processed.events,
                            processed.initiative_order, action_pngs=processed.action_pngs)
-        # The revealed action drawings are now the persistent battlefield sprites.
+        # The revealed action drawings are now the persistent battlefield sprites,
+        # each carrying its creativity tier for the host's star badges (§13).
         self._latest_action_png.update(processed.action_pngs)
+        for a in processed.actions:
+            if a.player_id in processed.action_pngs:
+                self._latest_action_creativity[a.player_id] = max(0, a.creativity_tier)
         await self._send_all_player_states()
         await self._broadcast_arena()
 
@@ -631,7 +674,7 @@ class GameStateMachine:
                 # manager plays it when the beat lands. Event stingers map
                 # client-side from ui.audio.events_sfx using type/result.
                 "sfx": self._beat_sfx(ev) if ev else None,
-                # Attack outcome (hit/devastating/dodge/backfire/...) so the host
+                # Attack outcome (hit/devastating/reflect/trap/...) so the host
                 # can fire the right stinger without parsing narration text.
                 "result": (ev.data.get("result") or None) if ev else None,
                 # The plain-language math lines under the arena (§13).
@@ -673,8 +716,8 @@ class GameStateMachine:
     def _readout(self, ev) -> list[str]:
         """The host's plain-language math for this beat (GAME_DESIGN §13):
 
-            🎯 SHOOT → 🎲 3 + ⚡ Speed 5 + ⭐⭐ Creative 3 = 11 damage
-            🛡️ Gerald's shield blocks 7 → 4 damage gets through
+            🔥 BLAST → 🎲 5 + 🌀 Weird 5 + ⭐⭐ Creative 3 = 13 damage
+            🛡️ Blob's shield reflects 3 back at Stabby!
 
         One addition and one total per line; zero terms omitted; reductions get
         their own line rather than rewriting the first. All terms come from the
@@ -693,18 +736,13 @@ class GameStateMachine:
             ch = self.state.characters.get(pid or "")
             return ch.name if ch else "Someone"
 
-        # Reduction-only lines: nothing was added up, so there is no first line.
-        if result == "dodge":
-            return [cfg.dodge_line.format(target=name_of(ev.target_id))]
+        # A reflect is reduction-only: the shield bounced part of the blow back.
         if result == "reflect":
             return [cfg.reflect_line.format(
                 target=name_of(ev.player_id), attacker=name_of(ev.target_id),
                 total=d.get("damage", 0))]
-        if result == "backfire":
-            return [cfg.backfire_line.format(
-                attacker=name_of(ev.player_id), total=d.get("self_damage", 0))]
         if "raw" not in d:
-            return []      # hazards and other events carry no addition to show
+            return []      # traps and other events carry no addition to show
 
         move = self.rules.moves.moves.get(d.get("move_id", ""))
         if move is None:
@@ -724,28 +762,21 @@ class GameStateMachine:
             terms.append(str(d["riders"]))
 
         template = cfg.heal_line if t == "healed" else cfg.damage_line
-        lines = [template.format(
+        return [template.format(
             icon=move.icon, move=move.button, terms=" + ".join(terms),
             total=d["raw"],
         )]
-        # Reductions, each on their own line, never a rewrite of the first.
-        if d.get("blocked"):
-            lines.append(cfg.shield_line.format(
-                shielder=name_of(d.get("shielder_id")), blocked=d["blocked"],
-                total=d.get("damage", 0)))
-        return lines
 
     def _hurt_target(self, ev) -> str | None:
         """The player negatively impacted by an event (damaged, KO'd),
         or None for neutral/positive events."""
         t = ev.type.value
         d = ev.data
-        if t == "attack_resolved":
-            if d.get("result") in _DAMAGING_RESULTS:
-                return ev.target_id
-            if d.get("result") == "backfire":
-                return ev.player_id      # WILD CARD turned on its caster
-        elif t == "ko":
+        if t == "attack_resolved" and d.get("result") in _DAMAGING_RESULTS:
+            return ev.target_id
+        if t == "trap_triggered":
+            return ev.target_id      # the enemy the trap sprang on
+        if t == "ko":
             return ev.player_id
         return None
 
@@ -755,8 +786,8 @@ class GameStateMachine:
         t = ev.type.value
         if t == "healed":
             return ev.target_id or ev.player_id
-        if t == "shielded":
-            return ev.player_id       # the caster raises the zone-wide shield
+        if t == "protected":
+            return ev.target_id       # the ally cloaked in a reflecting shield
         return None
 
     def _floats(self, ev) -> list[dict]:
@@ -770,9 +801,9 @@ class GameStateMachine:
             if res in _DAMAGING_RESULTS and d.get("damage"):
                 return [{"player_id": ev.target_id, "amount": d["damage"],
                          "kind": "damage", "devastating": res == "devastating"}]
-            if res == "backfire" and d.get("self_damage"):
-                return [{"player_id": ev.player_id, "amount": d["self_damage"],
-                         "kind": "damage", "devastating": False}]
+        elif t == "trap_triggered" and d.get("damage"):
+            return [{"player_id": ev.target_id, "amount": d["damage"],
+                     "kind": "damage", "devastating": False}]
         elif t == "healed" and d.get("amount"):
             return [{"player_id": ev.target_id or ev.player_id, "amount": d["amount"],
                      "kind": "heal", "devastating": False}]
@@ -793,7 +824,7 @@ class GameStateMachine:
 
     # -- awards ceremony match summary (GAME_DESIGN §10.2) ----------------
     def _accumulate_match(self, actions, events, narration) -> None:
-        """Tally match-wide highlights (creativity, backfires, combos, titles, a
+        """Tally match-wide highlights (creativity, reflects, combos, titles, a
         best line) as rounds resolve, so the finale can hand out awards."""
         for a in actions:
             self._creativity_totals[a.player_id] = (
@@ -808,16 +839,16 @@ class GameStateMachine:
         for e in events:
             if e.type.value == "attack_resolved":
                 res = e.data.get("result")
-                if res == "backfire" and e.player_id:
-                    self._backfire_counts[e.player_id] = (
-                        self._backfire_counts.get(e.player_id, 0) + 1
+                if res == "reflect" and e.player_id:
+                    self._reflect_counts[e.player_id] = (
+                        self._reflect_counts.get(e.player_id, 0) + 1
                     )
                 elif res == "devastating":
                     highlight_ids.add(e.id)
         if narration is not None:
             if narration.round_title:
                 self._round_titles.append(narration.round_title)
-            # The highlight line is the latest DEVASTATING beat (v4's spike
+            # The highlight line is the latest DEVASTATING beat (the spike
             # moment); fall back to the first beat.
             for b in narration.beats:
                 if b.event_id in highlight_ids:
@@ -840,7 +871,7 @@ class GameStateMachine:
             winner_team_id=self.state.winner_team_id if self.state else None,
             players=players,
             creativity=dict(self._creativity_totals),
-            backfires=dict(self._backfire_counts),
+            reflects=dict(self._reflect_counts),
             combos=list(self._combos_seen),
             round_titles=list(self._round_titles),
             best_line=self._best_line,
@@ -1015,20 +1046,23 @@ class GameStateMachine:
         if ch is None:
             return
         payload = _char_payload(ch, self.room.team_of(player_id))
-        # COMBAT V4: the phone's button grid — each move with this character's
-        # live math and its disabled state (no-repeat / arena edge).
+        # COMBAT V5: the phone's five-button grid — each move with this
+        # character's live math and its disabled state (no-repeat / legality).
         payload["last_move_id"] = ch.last_move_id
         payload["moves"] = self._moves_payload(ch)
         await self.room.send(player_id, S2C.PLAYER_STATE, payload)
 
     def _moves_payload(self, ch: Character) -> list[dict]:
-        """The eight buttons for one character: label, live math ("2d4+8"),
-        targeting mode for the picker, and why a button is greyed out.
+        """The five buttons for one character: label, live math ("2d4+8"),
+        targeting mode for the picker, and why a button is greyed out (no-repeat,
+        SMASH with no same-zone enemy, PROTECT with no living ally).
 
         The math is the move's base only — creativity is unknowable at draw time,
         which is the point: the button promises the floor, the drawing raises it.
         """
         env = _formula_env(ch)
+        has_enemy_here = self._enemy_in_zone(ch.player_id, ch.zone_id)
+        has_ally = self._living_ally(ch.player_id)
         out = []
         for move_id, move in self.rules.moves.moves.items():
             math = ""
@@ -1036,21 +1070,21 @@ class GameStateMachine:
                 math = describe_formula(move.damage, env)
             elif move.heal:
                 math = "♥ " + describe_formula(move.heal, env)
-            elif move.mitigate:
-                math = f"block {describe_formula(move.mitigate, env)}"
             disabled_reason = None
-            if move.is_movement:
-                if self._zone_reg.step(ch.zone_id, move.move) is None:
-                    disabled_reason = "edge"
-            elif move_id == ch.last_move_id:
+            if move_id == ch.last_move_id:
                 disabled_reason = "no_repeat"
+            elif move_id == "smash" and not has_enemy_here:
+                disabled_reason = "no_enemy_here"
+            elif move.target == "ally" and not has_ally:
+                disabled_reason = "no_ally"
             out.append({
                 "id": move_id,
                 "button": move.button,
                 "icon": move.icon,
                 "desc": move.desc,
                 "math": math,
-                "target": move.target,
+                "target": move.target,          # "single_enemy" | "ally"
+                "moves_one_zone": move.moves_one_zone,   # ESCAPE asks ◀/▶
                 "disabled": disabled_reason is not None,
                 "disabled_reason": disabled_reason,
             })
@@ -1067,7 +1101,19 @@ class GameStateMachine:
                       for z in self.rules.zones.zones],
             "teams": self._teams_payload(),
             "characters": self._character_deltas(include_png=True),
+            # Arena Gremlin traps: small drawn icons in their planted zone that
+            # persist until an enemy triggers them (§10).
+            "traps": self._traps_payload(),
         }
+
+    def _traps_payload(self) -> list[dict]:
+        if self.state is None:
+            return []
+        return [
+            {"trap_id": t.trap_id, "zone_id": t.zone_id, "owner_id": t.owner_id,
+             "creativity": t.creativity, "png": t.png_b64}
+            for t in self.state.traps
+        ]
 
     def _zone_label(self, zone) -> str:
         team_id = next((t.id for t in self.room.teams if t.id in zone.tags), None)
@@ -1098,11 +1144,13 @@ class GameStateMachine:
             payload = _char_payload(ch, self.room.team_of(pid))
             if include_png:
                 # png = original portrait (rail); sprite_png = persistent action
-                # drawing shown on the battlefield (falls back to the original).
+                # drawing shown on the battlefield (falls back to the original);
+                # action_creativity = the star badges under the sprite (§13).
                 payload["png"] = ch.character_png_b64
                 payload["sprite_png"] = (
                     self._latest_action_png.get(pid) or ch.character_png_b64
                 )
+                payload["action_creativity"] = self._latest_action_creativity.get(pid, 0)
             out.append(payload)
         return out
 
@@ -1110,22 +1158,6 @@ class GameStateMachine:
 def _formula_env(ch: Character) -> dict[str, int]:
     """The formula-evaluation environment for one character (see engine/dice.py)."""
     return {"POW": ch.stats.power, "SPD": ch.stats.speed, "WRD": ch.stats.weird}
-
-
-def _stat_term(move_stat: str, ch: Character) -> tuple[str, int]:
-    """Resolve a move's headline stat for one character → (stat name, value).
-
-    A "max(speed,weird)" move picks whichever is higher (Speed on a tie). No
-    shipped move uses it now that SHOOT keys off Weird, but the branch stays for
-    a future catalog formula.
-    """
-    if move_stat == "max(speed,weird)":
-        if ch.stats.weird > ch.stats.speed:
-            return "weird", ch.stats.weird
-        return "speed", ch.stats.speed
-    if move_stat in ("power", "speed", "weird"):
-        return move_stat, getattr(ch.stats, move_stat)
-    return "", 0
 
 
 def _char_payload(ch: Character, team_id: str | None) -> dict:

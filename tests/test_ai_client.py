@@ -86,18 +86,18 @@ _PNG = "data:image/png;base64,QUJD"
 
 def _two_player_state():
     a = Character(player_id="p1", name="A", stats=Stats(power=2, speed=2, weird=4),
-                  hp=20, max_hp=20, ac=13, zone_id="glitter_back", character_png_b64=_PNG)
+                  hp=20, max_hp=20, zone_id="glitter_back", character_png_b64=_PNG)
     b = Character(player_id="p2", name="B", stats=Stats(power=2, speed=2, weird=4),
-                  hp=20, max_hp=20, ac=13, zone_id="thunder_back", character_png_b64=_PNG)
+                  hp=20, max_hp=20, zone_id="thunder_back", character_png_b64=_PNG)
     teams = [Team(id="team_a", name="A", color="#f0f", player_ids=["p1"]),
              Team(id="team_b", name="B", color="#0ff", player_ids=["p2"])]
     return GameState(room_id="T", characters={"p1": a, "p2": b}, teams=teams)
 
 
-# COMBAT V2: taps (move + target) arrive from the phone with each submission;
+# COMBAT V5: taps (move + target) arrive from the phone with each submission;
 # p2's canvas is blank — the tapped move still resolves at creativity 0.
 _SUBS = {"p1": ActionSubmission("p1", "data:image/png;base64,QUJD",
-                                move_id="shoot", target_id="p2"),
+                                move_id="blast", target_id="p2"),
          "p2": ActionSubmission("p2", "", move_id="smash", target_id="p1")}
 
 
@@ -110,8 +110,8 @@ def test_classify_parses_forced_tool_use():
          "flavor_summary": "glitter arrows"}]}]
     ai = LiveAI(RULES, client=FakeAnthropic(script))
     actions = {a.player_id: a for a in ai.classify_actions(_two_player_state(), _SUBS, 1)}
-    # The AI decorated p1's tapped SHOOT; the tap itself is untouched.
-    assert actions["p1"].move_id == "shoot" and actions["p1"].target_id == "p2"
+    # The AI decorated p1's tapped BLAST; the tap itself is untouched.
+    assert actions["p1"].move_id == "blast" and actions["p1"].target_id == "p2"
     assert actions["p1"].creativity_tier == 2
     assert actions["p1"].flavor_summary == "glitter arrows"
     # p2 was skipped by the AI → tapped move resolves at creativity 0.
@@ -129,7 +129,7 @@ def test_classify_request_echoes_taps_and_labeled_image_pairs():
     ai.classify_actions(_two_player_state(), _SUBS, 1)
     content = ai.client.messages.last_kwargs["messages"][0]["content"]
     texts = " | ".join(b["text"] for b in content if b.get("type") == "text")
-    assert "tapped move: SHOOT" in texts and "targeting B (p2)" in texts
+    assert "tapped move: BLAST" in texts and "targeting B (p2)" in texts
     assert "p1 ORIGINAL CHARACTER" in texts and "p1 ACTION THIS ROUND" in texts
     assert "blank canvas" in texts        # p2 drew nothing — still judged
     # The system prompt is the v2 template, sent with prompt caching.
@@ -154,7 +154,7 @@ def test_classify_falls_back_to_tapped_moves_when_api_errors():
     creativity 0 (the server owns the move, §11.1)."""
     ai = LiveAI(RULES, client=FakeAnthropic([RuntimeError("api down")]))
     actions = {a.player_id: a for a in ai.classify_actions(_two_player_state(), _SUBS, 1)}
-    assert actions["p1"].move_id == "shoot" and actions["p2"].move_id == "smash"
+    assert actions["p1"].move_id == "blast" and actions["p2"].move_id == "smash"
     assert all(a.creativity_tier == 0 for a in actions.values())
     assert ai.degraded is True                      # host banner trigger
     assert ai.client.messages.calls == RULES.settings.ai.max_retries + 1
@@ -254,11 +254,11 @@ def test_mock_narration_uses_both_announcers():
     against AI_MODE=mock (the S1 mock fixtures)."""
     hit = Event(id="hit", type=EventType.ATTACK_RESOLVED, round=1, player_id="p1",
                 target_id="p2", data={"result": "hit", "damage": 5})
-    dodge = Event(id="dodge", type=EventType.ATTACK_RESOLVED, round=1, player_id="p2",
-                  target_id="p1", data={"result": "dodge"})
-    n = MockAI().narrate_round([hit, dodge], _two_player_state().characters)
+    reflect = Event(id="reflect", type=EventType.ATTACK_RESOLVED, round=1, player_id="p2",
+                    target_id="p1", data={"result": "reflect", "damage": 3})
+    n = MockAI().narrate_round([hit, reflect], _two_player_state().characters)
     by = {b.event_id: b.speaker for b in n.beats}
-    assert by["hit"] == "pbp" and by["dodge"] == "color"
+    assert by["hit"] == "pbp" and by["reflect"] == "color"
 
 
 def test_narration_never_leaks_zone_ids():
@@ -268,8 +268,8 @@ def test_narration_never_leaks_zone_ids():
     from server.ai.client import _narration_text
 
     zn = {"glitter_back": "The Sparkle Snacks' backline", "frontline": "The Pit"}
-    grem = Event(id="g1", type=EventType.GREMLIN_HAZARD, round=2, player_id="p1",
-                 data={"hazard_id": "bees", "zone": "glitter_back", "affected": []})
+    grem = Event(id="g1", type=EventType.TRAP_PLACED, round=2, player_id="p1",
+                 data={"zone": "glitter_back", "creativity_tier": 0})
     mv = Event(id="m1", type=EventType.MOVED, round=2, player_id="p1",
                data={"from": "glitter_back", "to": "frontline"})
 
@@ -347,16 +347,19 @@ def _gremlin_state():
     return st
 
 
-def test_classify_gremlin_parses_hazard():
-    script = [{"round": 2, "hazards": [
-        {"player_id": "p1", "hazard_id": "bees", "adaptation_note": "an angry swarm"}]}]
+def test_classify_gremlin_parses_trap():
+    script = [{"round": 2, "traps": [
+        {"player_id": "p1", "creativity_tier": 2, "flavor_summary": "a spring-loaded boot"}]}]
     ai = LiveAI(RULES, client=FakeAnthropic(script))
-    out = ai.classify_gremlin(_gremlin_state(), {"p1": ActionSubmission("p1", _PNG)}, 2)
-    assert len(out) == 1 and out[0].player_id == "p1" and out[0].move_id == "bees"
+    out = ai.classify_gremlin(
+        _gremlin_state(),
+        {"p1": ActionSubmission("p1", _PNG, trap_zone="frontline")}, 2)
+    assert len(out) == 1 and out[0].player_id == "p1"
+    assert out[0].trap_zone == "frontline" and out[0].creativity_tier == 2
     assert ai.degraded is False and ai.client.messages.calls == 1
 
 
 def test_classify_gremlin_skips_api_when_no_drawings():
-    ai = LiveAI(RULES, client=FakeAnthropic([{"round": 2, "hazards": []}]))
+    ai = LiveAI(RULES, client=FakeAnthropic([{"round": 2, "traps": []}]))
     out = ai.classify_gremlin(_gremlin_state(), {"p1": ActionSubmission("p1", "")}, 2)
     assert out == [] and ai.client.messages.calls == 0   # nothing drawn → no API call

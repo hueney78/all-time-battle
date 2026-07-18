@@ -30,14 +30,14 @@ class ZoneRegistry:
         return self.get(zone_id).adjacent
 
     def modifier(self, zone_id: str, key: str, default: float = 0) -> float:
-        """Read a zone rider generically (GAME_DESIGN §6). Returns the value as
-        declared: int for the damage keys, float for the dodge keys."""
+        """Read a zone rider generically (GAME_DESIGN §6): damage_bonus /
+        incoming_damage_bonus / heal_bonus, all flat ints."""
         zone = self.get(zone_id)
         return getattr(zone.modifiers, key, default) or default
 
     def step(self, zone_id: str, delta: int) -> str | None:
         """The zone `delta` steps left(-)/right(+) of zone_id, or None past an
-        arena edge — edge-illegal movement renders disabled on the phone."""
+        arena edge. ESCAPE uses this for ◀/▶ (edge → inward); CHARGE to path."""
         idx = self.ordered_ids.index(zone_id) + delta
         if 0 <= idx < len(self.ordered_ids):
             return self.ordered_ids[idx]

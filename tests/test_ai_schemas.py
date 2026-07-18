@@ -28,20 +28,18 @@ def test_response_models_emit_object_json_schemas():
 
 
 def test_classify_schema_exposes_action_fields():
-    """COMBAT V2: the judge fills drawing-judgment fields only — the move and
+    """COMBAT V5: the judge fills drawing-judgment fields only — the move and
     target are tapped on the phone and never appear in the response schema."""
     schema = ClassifyActionsResponse.model_json_schema()
     assert "actions" in schema["properties"]
     action = schema["$defs"]["AIAction"]["properties"]
-    for field in ("creativity_tier", "similar_to_previous", "flavor_summary",
-                  "wild_interpretation", "flagged"):
+    for field in ("creativity_tier", "similar_to_previous", "flavor_summary", "flagged"):
         assert field in action
-    # v2.1: no conditions anywhere — trick_condition is gone with TRICK itself,
-    # and the WILD read carries no status rider.
-    for gone in ("catalog_id", "action_cost", "targets", "move_to", "trick_condition"):
+    # v5: no conditions, no WILD CARD interpretation, no move/target choice.
+    for gone in ("catalog_id", "action_cost", "targets", "move_to", "trick_condition",
+                 "wild_interpretation", "move_id", "target_id"):
         assert gone not in action
-    wild = schema["$defs"]["AIWildInterpretation"]["properties"]
-    assert "description" in wild and "condition" not in wild
+    assert "AIWildInterpretation" not in schema.get("$defs", {})
 
 
 def test_narrate_schema_exposes_speaker():
@@ -85,11 +83,12 @@ def test_prompts_render_with_live_config():
         moves=rules.moves.moves,
         zones=rules.zones.zones,
     )
-    assert "SMASH" in classify and "WILD CARD" in classify   # catalog injected
-    assert "SHOOT" in classify                                # v2.1: TRICK is gone
+    assert "SMASH" in classify and "CHARGE" in classify      # catalog injected
+    assert "PROTECT" in classify and "ESCAPE" in classify    # v5 five-move catalog
+    assert "WILD CARD" not in classify                       # v5: WILD is gone
     assert "frontline" in classify                            # zones injected
-    assert "TAPS" in classify and "never choose" in classify  # v2: taps are ground truth
-    assert "condition" not in classify.lower()                # v2.1: no status palette
+    assert "TAPS" in classify and "never choose" in classify  # v5: taps are ground truth
+    assert "condition" not in classify.lower()                # no status palette
     assert "NEVER infer" in classify                          # no movement guessing
 
     narrate = env.get_template("narrate.md.j2").render()
@@ -97,9 +96,9 @@ def test_prompts_render_with_live_config():
     assert "pbp" in narrate and "color" in narrate    # the announcer duo + speaker field
 
     gremlin = env.get_template("gremlin_classify.md.j2").render(
-        hazards=rules.hazards.hazards, zones=rules.zones.zones,
+        zones=rules.zones.zones,
     )
-    assert "banana_peel" in gremlin and "Gremlin" in gremlin   # hazard palette injected
+    assert "trap" in gremlin.lower() and "Gremlin" in gremlin   # v5: traps, not hazards
 
     montage = env.get_template("montage_classify.md.j2").render()
     assert "power" in montage and "Montage" in montage         # stat-choice rules present

@@ -1,9 +1,9 @@
-"""Engine demo — scripted COMBAT V4 rounds.
+"""Engine demo — scripted COMBAT V5 rounds.
 
 Runs 3 scripted rounds of the GAME_DESIGN §12 2v2 fixture and prints a
 play-by-play of events so a human can sanity-check the math. Every move lands:
-the only non-hits you should ever see here are dodges, WILD backfires, and
-structural outcomes (out_of_reach / no_target).
+the only reduction you should ever see is a PROTECT shield reflecting part of a
+blow back at the attacker; the only non-hit is the structural `no_target`.
 
 Run with: python -m server.engine.demo
 """
@@ -19,7 +19,8 @@ _CFG = load_balance()
 
 
 def _char(pid: str, name: str, power: int, speed: int, weird: int, zone: str) -> Character:
-    hp = _CFG.hp_base + _CFG.hp_per_power * power + _CFG.hp_per_weird * weird
+    hp = (_CFG.hp_base + _CFG.hp_per_power * power + _CFG.hp_per_weird * weird
+          + speed // _CFG.hp_speed_divisor)
     return Character(
         player_id=pid, name=name,
         stats=Stats(power=power, speed=speed, weird=weird),
@@ -35,38 +36,39 @@ _TEAMS = [
 _SCRIPTS: list[list[ClassifiedAction]] = [
     # ---- Round 1 (the §12 worked round) ----
     [
-        # Stabby SHOOTs Blob from across the arena — glitter arrows, creativity 2
-        ClassifiedAction(player_id="p1", move_id="shoot", target_id="p2",
-                         creativity_tier=2, flavor_summary="glitter arrows"),
-        # Blob BLAST on the front zone (creativity 1)
+        # Gerald PROTECTs Stabby — acts first, heals + cloaks her (creativity 2)
+        ClassifiedAction(player_id="p4", move_id="protect", target_id="p1",
+                         creativity_tier=2, flavor_summary="a shimmering aegis"),
+        # Stabby CHARGEs into Blob's zone and swings (creativity 1)
+        ClassifiedAction(player_id="p1", move_id="charge", target_id="p2",
+                         creativity_tier=1, flavor_summary="glitter dropkick"),
+        # Lawnmower CHARGEs Stabby (already in her zone → just swings)
+        ClassifiedAction(player_id="p3", move_id="charge", target_id="p1"),
+        # Blob BLASTs Stabby point-blank — a DEVASTATING drawing (creativity 3)
         ClassifiedAction(player_id="p2", move_id="blast", target_id="p1",
-                         creativity_tier=1),
-        # Lawnmower SMASH on Gerald (auto-step, creativity 0)
-        ClassifiedAction(player_id="p3", move_id="smash", target_id="p4"),
-        # Gerald SHIELDs his zone — Speed 1 means he acts last, so it covers
-        # nobody against this round's attackers (§12; and see §4.1's ablation)
-        ClassifiedAction(player_id="p4", move_id="shield"),
+                         creativity_tier=3),
     ],
     # ---- Round 2 ----
     [
-        # Stabby can't repeat SHOOT — WILD CARD gamble on Lawnmower
-        ClassifiedAction(player_id="p1", move_id="wild", target_id="p3",
-                         creativity_tier=1),
-        # Blob SHOOTs Stabby
-        ClassifiedAction(player_id="p2", move_id="shoot", target_id="p1"),
-        # Lawnmower steps back toward its backline (v4: a step is just a step)
-        ClassifiedAction(player_id="p3", move_id="move_r"),
-        # Gerald RALLIES himself with a table-losing-it drawing
-        ClassifiedAction(player_id="p4", move_id="rally", target_id="p4",
+        # Stabby can't repeat CHARGE — ESCAPE back toward her backline, then shoot
+        ClassifiedAction(player_id="p1", move_id="escape", target_id="p2",
+                         escape_direction=-1, creativity_tier=1),
+        # Blob BLASTs Stabby
+        ClassifiedAction(player_id="p2", move_id="charge", target_id="p1"),
+        # Lawnmower BLASTs Gerald from across the arena
+        ClassifiedAction(player_id="p3", move_id="blast", target_id="p4",
+                         creativity_tier=2),
+        # Gerald PROTECTs himself's teammate again with a table-losing-it drawing
+        ClassifiedAction(player_id="p4", move_id="protect", target_id="p1",
                          creativity_tier=3),
     ],
     # ---- Round 3 ----
     [
-        ClassifiedAction(player_id="p1", move_id="smash", target_id="p3"),
+        ClassifiedAction(player_id="p1", move_id="blast", target_id="p3"),
         ClassifiedAction(player_id="p2", move_id="blast", target_id="p4",
                          creativity_tier=2),
-        ClassifiedAction(player_id="p3", move_id="blast", target_id="p1"),
-        ClassifiedAction(player_id="p4", move_id="shoot", target_id="p2",
+        ClassifiedAction(player_id="p3", move_id="charge", target_id="p1"),
+        ClassifiedAction(player_id="p4", move_id="blast", target_id="p2",
                          creativity_tier=1),
     ],
 ]
@@ -87,30 +89,25 @@ def _print_event(ev: Event) -> None:
                 terms += f" + creativity={d.get('creativity_bonus')}"
             if d.get("riders"):
                 terms += f" + riders={d.get('riders')}"
-            blocked = (f"  (shield blocked {d['blocked']})" if d.get("blocked") else "")
+            absorbed = (f"  (shield reflected {d['absorbed']})" if d.get("absorbed") else "")
             print(f"  [{pid}->{tid}] {d.get('move_id','')} {result.upper()}"
-                  f"  {terms} = {d.get('raw')}  dmg={d.get('damage')}{pb}{blocked}")
-        elif result == "dodge":
-            print(f"  [{pid}->{tid}] DODGED — {tid} isn't even there")
-        elif result == "backfire":
-            print(f"  [{pid}] WILD CARD BACKFIRE  self_dmg={d.get('self_damage')}")
+                  f"  {terms} = {d.get('raw')}  dmg={d.get('damage')}{pb}{absorbed}")
         elif result == "reflect":
-            print(f"  [{pid}] SHIELD REFLECT -> {tid} for {d.get('damage')}")
-        elif result == "hazard":
-            print(f"  [{tid}] takes {d.get('damage')} from {d.get('move_id')}")
-        elif result == "out_of_reach":
-            print(f"  [{pid}] can't reach {tid} — the swing hits air")
+            print(f"  [{pid}] SHIELD REFLECTS -> {tid} for {d.get('damage')}")
         elif result == "no_target":
             print(f"  [{pid}] no valid target for {d.get('move_id')}")
     elif t == "moved":
         print(f"  [{pid}] moves {d.get('from')} -> {d.get('to')}")
     elif t == "combo":
         print(f"  ** COMBO! {d.get('combo_name')} ({', '.join(d.get('partners', []))}) **")
-    elif t == "shielded":
-        print(f"  [{pid}] SHIELDS the zone: blocks {d.get('mitigate')} per hit for "
-              f"{', '.join(d.get('protected', []))}")
+    elif t == "protected":
+        print(f"  [{pid}] PROTECTS {tid}: cloaks them at {d.get('reflect_pct', 0):.0%} reflect")
     elif t == "healed":
         print(f"  [{pid}] heals {tid or pid} +{d.get('amount')}")
+    elif t == "trap_placed":
+        print(f"  [{pid}] plants a trap in {d.get('zone')}")
+    elif t == "trap_triggered":
+        print(f"  [{tid}] springs {pid}'s trap in {d.get('zone')} for {d.get('damage')}")
     elif t == "ko":
         print(f"  *** {pid} IS KO'd -> becomes Arena Gremlin! ***")
     elif t == "stumble":
@@ -118,25 +115,26 @@ def _print_event(ev: Event) -> None:
     elif t == "victory":
         print(f"\n  ====== VICTORY: {d.get('winner_team_id')} wins! ======")
     elif t == "sudden_death":
-        print("\n  ** SUDDEN DEATH -- all attacks deal +2 damage, healing disabled! **")
+        print("\n  ** SUDDEN DEATH -- all damage gains +3! **")
 
 
 def main() -> None:
     rules = load_game_rules()
-    print("=== Doodle Brawl — Engine Demo (COMBAT V4) ===\n")
+    print("=== Doodle Brawl — Engine Demo (COMBAT V5) ===\n")
     print(f"Zones:      {[z.id for z in rules.zones.zones]}")
     print(f"Moves:      {list(rules.moves.moves)}")
     print(f"HP formula: {rules.balance.hp_base} + {rules.balance.hp_per_power} x Power"
-          f" + {rules.balance.hp_per_weird} x Weird")
-    print(f"Dodge:      {rules.balance.dodge_per_speed:.0%} x Speed "
-          f"(cap {rules.balance.dodge_cap:.0%}) — no AC, no attack roll: every move lands")
+          f" + {rules.balance.hp_per_weird} x Weird"
+          f" + floor(Speed/{rules.balance.hp_speed_divisor})")
+    print(f"Shield:     PROTECT reflects {rules.balance.reflect_per_weird:.0%} x Weird "
+          f"(cap {rules.balance.reflect_cap:.0%}) — no AC, no dodge: every move lands")
     print()
 
     # GAME_DESIGN §12 fixture: 2v2, seed 42.
     chars = [
-        _char("p1", "Princess Stabby", power=1, speed=5, weird=3, zone="frontline"),
+        _char("p1", "Princess Stabby", power=1, speed=5, weird=3, zone="glitter_back"),
         _char("p2", "The Blob",        power=0, speed=3, weird=6, zone="thunder_back"),
-        _char("p3", "Sir Lawnmower",   power=6, speed=2, weird=1, zone="frontline"),
+        _char("p3", "Sir Lawnmower",   power=6, speed=2, weird=1, zone="thunder_back"),
         _char("p4", "Gerald",          power=3, speed=1, weird=5, zone="glitter_back"),
     ]
 

@@ -1,38 +1,39 @@
-"""Pure game engine — resolves one round of COMBAT V4 actions into events.
+"""Pure game engine — resolves one round of COMBAT V5 actions into events.
 
-Resolution (GAME_DESIGN §5). There is **no AC and no attack roll**: a selected
-move always takes effect. Only the magnitude varies.
+Resolution (GAME_DESIGN §5). There is **no AC, no attack roll, and no dodge**: a
+selected move always takes effect. The ONLY thing that reduces a hit is PROTECT's
+reflect shield. Only the magnitude varies.
 
     effect = move's damage/heal formula + creativity bonus (+0/+1/+3/+5)
-             + zone/underdog/sudden-death damage riders
-    dodge  = the target's passive Speed check (5% x Speed, cap 30%), rolled per
-             incoming hit — the ONLY thing that can negate a hit
-    shield = if the target is covered, subtract `4 + POW` mitigation, then a
-             10% x POW chance to reflect the mitigated amount at the attacker;
-             resolved AFTER dodge
-    backfire = WILD CARD only (15%): self-damage, no target effects
+             + zone/underdog/sudden-death riders
+    shield = if the target carries a PROTECT shield, it absorbs
+             `reflect_per_weird × caster's Weird` (cap reflect_cap) of the hit and
+             bounces exactly that much back at the attacker.
 
 Spike moments come from the drawing, not the dice: creativity tier 3 lands as
-result="devastating" (replay + stinger + gold log line), replacing v2's crit.
+result="devastating" (replay + stinger + gold log line).
 
-SHIELD's mitigation covers every ally in the caster's zone and is round-scoped:
-it exists only inside this function's round state and vanishes when the round
-ends — there is no condition system (v2.1). It is applied in a PRE-PASS at the
-start of the round, before any attack, so a slow shielder still protects the
-whole zone for the entire round (GAME_DESIGN §4.1 balance lever). The flat
-`4 + POW` mitigation consumes no dice, so the pre-pass never shifts the stream.
+Initiative: PROTECT casters act first (they cloak allies before any blow lands),
+then by Speed, ties broken by a seeded roll. A character reduced to 0 HP loses
+its action immediately, even if it had already tapped one — the loop re-checks
+`is_ko` before every action (GAME_DESIGN §4.1 / §10 bug fix).
+
+Movement lives inside attacks now: CHARGE rushes into the target's zone before
+swinging; ESCAPE slips one zone (player picks ◀/▶) and then fires from there.
+There are no movement buttons and no condition system.
+
+Arena Gremlins plant traps (GAME_DESIGN §10): a KO'd player picks a zone and
+draws a trap that PERSISTS in `GameState.traps` until an enemy is in that zone at
+end of round, then fires `trap_damage + creativity` at one random enemy there and
+is consumed. Traps are placed after combat and triggered in an end-of-round pass.
 
 Dice consumption order (deterministic, seed-stable):
-    1. Initiative tie-break shuffles (per tied-speed group, speed desc).
-    1b. SHIELD pre-pass — flat `4 + POW`, no draws consumed.
-    2. For each actor (initiative order):
-       a. WILD CARD backfire check, then its self-damage roll if it fires
-       b. one shared damage-formula roll if the move has any target
-       c. per target (sorted): dodge check, then reflect check if mitigated
-       d. heal-formula roll (RALLY)
-    3. Gremlin hazard zone choice, then damage roll / forced-move choices.
-    Note: Dice.chance() short-circuits at p<=0 and p>=1 without consuming a
-    draw, so a Speed-0 target's dodge check never shifts the stream.
+    1. Initiative tie-break shuffles (per group: PROTECT-casters then the rest,
+       each grouped by speed desc).
+    2. For each actor (initiative order): the move's formula roll, then any
+       movement is deterministic (no draws).
+    3. Trap placement (no draws), then the trap-trigger pass: per triggered trap,
+       a victim choice then a damage roll.
 """
 
 from __future__ import annotations
@@ -41,7 +42,6 @@ import uuid
 
 from server.config import Balance, MoveDef
 from server.engine.dice import Dice, formula_parts
-from server.engine.hazards import HazardRegistry
 from server.engine.models import (
     Character,
     ClassifiedAction,
@@ -50,6 +50,7 @@ from server.engine.models import (
     GameState,
     RoundResult,
     Team,
+    Trap,
 )
 from server.engine.moves import MoveRegistry
 from server.engine.zones import ZoneRegistry
@@ -57,15 +58,6 @@ from server.engine.zones import ZoneRegistry
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
-
-
-class _RoundBuffs:
-    """Round-scoped defensive state: SHIELD's mitigation and reflect rider,
-    keyed by protected player. Created fresh each round — nothing persists."""
-
-    def __init__(self) -> None:
-        # protected pid → (mitigation amount, reflect chance, shielder pid)
-        self.mitigate: dict[str, tuple[int, float, str]] = {}
 
 
 def resolve_round(
@@ -76,61 +68,46 @@ def resolve_round(
 ) -> RoundResult:
     """No I/O, no AI, no globals. Same inputs → same outputs.
 
-    Handles: initiative, the eight v4 moves, combo creativity escalation, damage
-    and healing (every move lands), passive dodge, round-scoped SHIELD
-    mitigation/reflect, WILD CARD backfire, absolute movement, KO → Gremlin
-    conversion, victory detection, sudden death.
+    Handles: PROTECT-first initiative, the five v5 moves and their formulas,
+    combo creativity escalation, damage and healing (every move lands), PROTECT's
+    reflect shield, CHARGE/ESCAPE movement, KO → Gremlin conversion, Gremlin trap
+    placement/persistence/triggering, victory detection, sudden death.
 
     Returns an ordered list of Events (input to the narrator) and the new GameState.
     """
     zone_reg = ZoneRegistry()
     move_reg = MoveRegistry()
-    haz_reg = HazardRegistry()
 
     chars: dict[str, Character] = {
         pid: ch.model_copy(deep=True) for pid, ch in state.characters.items()
     }
     events: list[Event] = []
     round_num = state.round
-    buffs = _RoundBuffs()
+    # Round-scoped PROTECT shields: protected pid → (reflect fraction, shielder pid).
+    shields: dict[str, tuple[float, str]] = {}
 
     # Arena Gremlins that were already KO'd coming into this round — a fighter
-    # KO'd *this* round only starts dropping hazards next round (GAME_DESIGN §10).
+    # KO'd *this* round only starts planting traps next round (GAME_DESIGN §10).
     start_gremlins = [pid for pid, ch in chars.items() if ch.is_gremlin]
 
     # ------------------------------------------------------------------
-    # 1. Initiative order (speed desc, seeded-roll tiebreak)
-    # ------------------------------------------------------------------
-    order = _initiative_order(_living(chars), rng)
-
-    # ------------------------------------------------------------------
-    # 2. Build action map (default missing actions to a stumble)
+    # 1. Initiative order (PROTECT casters first, then speed desc, seeded ties)
     # ------------------------------------------------------------------
     action_map: dict[str, ClassifiedAction] = {a.player_id: a for a in actions}
+    first_actors = {
+        pid for pid, a in action_map.items()
+        if a.move_id in move_reg and move_reg.get(a.move_id).acts_first
+    }
+    order = _initiative_order(_living(chars), first_actors, rng)
 
     # ------------------------------------------------------------------
-    # 2b. SHIELD pre-pass — shields go up at the START of the round, before any
-    # attack, regardless of the caster's initiative, so a slow tank still covers
-    # the whole zone for the round (GAME_DESIGN §4.1 lever). Flat 4+POW consumes
-    # no dice, so this never shifts the seeded stream.
-    # ------------------------------------------------------------------
-    for pid in order:
-        action = action_map.get(pid)
-        ch = chars.get(pid)
-        if ch is None or ch.is_ko or action is None or action.move_id not in move_reg:
-            continue
-        if move_reg.get(action.move_id).mitigate:
-            _apply_shield(pid, move_reg.get(action.move_id), ch, chars, events,
-                          round_num, rng, buffs, state)
-
-    # ------------------------------------------------------------------
-    # 3. Process actions in initiative order
+    # 2. Process actions in initiative order
     # ------------------------------------------------------------------
     combos_announced: set[frozenset[str]] = set()
     for pid in order:
         ch = chars.get(pid)
         if ch is None or ch.is_ko:
-            continue  # KO'd/gremlin fighters are handled in the gremlin pass below
+            continue  # KO'd earlier this round → the tapped action never resolves
 
         action = action_map.get(pid)
         if action is None or action.move_id not in move_reg:
@@ -150,30 +127,27 @@ def resolve_round(
                 ))
 
         _resolve_action(pid, action, chars, events, round_num, rng, cfg,
-                        buffs, zone_reg, move_reg, state)
+                        shields, zone_reg, move_reg, state)
 
     # ------------------------------------------------------------------
-    # 3b. Arena Gremlins drop hazards (GAME_DESIGN §10)
-    # ------------------------------------------------------------------
-    # Runs after the round's combat so a hazard sets up the arena for the *next*
-    # round rather than retroactively changing fights already resolved. Only
-    # gremlins present at round start act, in stable player_id order.
-    for pid in sorted(start_gremlins):
-        action = action_map.get(pid)
-        if action is not None:
-            _resolve_gremlin(
-                pid, action, chars, events, round_num, rng, zone_reg, haz_reg
-            )
-
-    # ------------------------------------------------------------------
-    # 4. Record last combat move (no-repeat rule; movement is exempt)
+    # 3. Record last move (no-repeat rule — every move is subject to it now)
     # ------------------------------------------------------------------
     for pid, action in action_map.items():
         ch = chars.get(pid)
         if ch is None or ch.is_ko:
             continue
-        if action.move_id in move_reg and not move_reg.get(action.move_id).is_movement:
+        if action.move_id in move_reg:
             ch.last_move_id = action.move_id
+
+    # ------------------------------------------------------------------
+    # 4. Arena Gremlins plant traps, then all traps are triggered (GAME_DESIGN §10)
+    # ------------------------------------------------------------------
+    traps: list[Trap] = [t.model_copy(deep=True) for t in state.traps]
+    for pid in sorted(start_gremlins):
+        action = action_map.get(pid)
+        if action is not None and action.trap_zone:
+            _place_trap(pid, action, traps, events, round_num, cfg, zone_reg, state)
+    traps = _trigger_traps(traps, chars, events, round_num, rng, cfg, state)
 
     # ------------------------------------------------------------------
     # 5. Victory / sudden death
@@ -181,6 +155,7 @@ def resolve_round(
     new_state = state.model_copy(deep=True)
     new_state.characters = chars
     new_state.round = round_num
+    new_state.traps = traps
 
     if not state.sudden_death and round_num >= cfg.max_rounds:
         new_state.sudden_death = True
@@ -203,19 +178,27 @@ def resolve_round(
 # ---------------------------------------------------------------------------
 
 
-def _initiative_order(living: dict[str, Character], rng: Dice) -> list[str]:
-    # Group by speed (descending); ties broken by seeded roll (§5).
-    groups: dict[int, list[str]] = {}
-    for pid, ch in living.items():
-        groups.setdefault(ch.stats.speed, []).append(pid)
+def _initiative_order(
+    living: dict[str, Character], first_actors: set[str], rng: Dice
+) -> list[str]:
+    """PROTECT casters first, then everyone else; each block ordered by speed
+    desc, ties broken by a seeded shuffle (§5)."""
 
-    order: list[str] = []
-    for spd in sorted(groups.keys(), reverse=True):
-        tier = sorted(groups[spd])   # stable base order before the seeded shuffle
-        if len(tier) > 1:
-            rng.shuffle(tier)
-        order.extend(tier)
-    return order
+    def by_speed(pids: list[str]) -> list[str]:
+        groups: dict[int, list[str]] = {}
+        for pid in pids:
+            groups.setdefault(living[pid].stats.speed, []).append(pid)
+        out: list[str] = []
+        for spd in sorted(groups.keys(), reverse=True):
+            tier = sorted(groups[spd])   # stable base order before the seeded shuffle
+            if len(tier) > 1:
+                rng.shuffle(tier)
+            out.extend(tier)
+        return out
+
+    firsts = [pid for pid in living if pid in first_actors]
+    rest = [pid for pid in living if pid not in first_actors]
+    return by_speed(firsts) + by_speed(rest)
 
 
 # ---------------------------------------------------------------------------
@@ -231,41 +214,40 @@ def _resolve_action(
     round_num: int,
     rng: Dice,
     cfg: Balance,
-    buffs: _RoundBuffs,
+    shields: dict[str, tuple[float, str]],
     zone_reg: ZoneRegistry,
     move_reg: MoveRegistry,
     state: GameState,
 ) -> None:
-    attacker = chars[pid]
     move = move_reg.get(action.move_id)
 
-    # ------ Movement (◀/▶: absolute, edge-checked) ------
-    if move.is_movement:
-        dest = zone_reg.step(attacker.zone_id, move.move)
-        if dest is None:
-            # Server disables edge-illegal buttons; defend anyway.
-            events.append(Event(id=_eid("stmb"), type=EventType.STUMBLE,
-                                round=round_num, player_id=pid,
-                                data={"reason": "arena_edge"}))
-            return
-        _do_move(pid, attacker, dest, events, round_num)
-        return
-
-    # ------ Support moves (SHIELD / RALLY) ------
-    # SHIELD was already resolved in the round-start pre-pass; its actor's turn
-    # here is a no-op (the combo announcement above still fires for it).
-    if move.mitigate:
-        return
+    # ------ PROTECT (heal an ally + raise a reflecting shield) ------
     if move.heal:
-        _resolve_heal(pid, action, move, attacker, chars, events, round_num,
-                      rng, cfg, state)
+        _resolve_protect(pid, action, move, chars, events, round_num, rng, cfg,
+                         shields, zone_reg, state)
         return
 
-    # ------ Attack moves (SMASH / BLAST / SHOOT / WILD) ------
-    targets, auto_stepped = _resolve_targets(
-        pid, action, move, attacker, chars, events, round_num, zone_reg, state,
-    )
-    if not targets:
+    # ------ Attacks (SMASH / BLAST / CHARGE / ESCAPE) ------
+    _resolve_attack(pid, action, move, chars, events, round_num, rng, cfg,
+                    shields, zone_reg, state)
+
+
+def _resolve_attack(
+    pid: str,
+    action: ClassifiedAction,
+    move: MoveDef,
+    chars: dict[str, Character],
+    events: list[Event],
+    round_num: int,
+    rng: Dice,
+    cfg: Balance,
+    shields: dict[str, tuple[float, str]],
+    zone_reg: ZoneRegistry,
+    state: GameState,
+) -> None:
+    attacker = chars[pid]
+    target_id = _resolve_target(pid, action, move, attacker, chars, zone_reg, state)
+    if target_id is None:
         events.append(Event(
             id=_eid("atk"), type=EventType.ATTACK_RESOLVED, round=round_num,
             player_id=pid,
@@ -273,218 +255,121 @@ def _resolve_action(
                   "adaptation_note": action.adaptation_note},
         ))
         return
+    target = chars[target_id]
+
+    # ------ Movement carried inside the attack ------
+    if move.moves_to_target and target.zone_id != attacker.zone_id:
+        _do_move(pid, attacker, target.zone_id, events, round_num)   # CHARGE rushes in
+    elif move.moves_one_zone:
+        direction = action.escape_direction or 1
+        dest = zone_reg.step(attacker.zone_id, direction)
+        if dest is None:                      # edge zones can only move inward
+            dest = zone_reg.step(attacker.zone_id, -direction)
+        if dest is not None and dest != attacker.zone_id:
+            _do_move(pid, attacker, dest, events, round_num)          # ESCAPE slips away
 
     tier = _effective_tier(action, cfg)
-
-    # WILD CARD is the only move that can turn on its caster (§4.1). Checked
-    # before any target math: a backfire has no target effects at all.
-    if move.backfire_chance and rng.chance(move.backfire_chance):
-        _apply_backfire(pid, action, attacker, events, round_num, rng, cfg)
-        return
-
-    # One shared damage roll: the swarm stings everyone alike (BLAST). Dodge is
-    # still checked per target, so victims still differ.
     rolled = rng.roll_formula(move.damage or "0", _stat_env(attacker))
-    attacker_riders = (
+    riders = (
         int(zone_reg.modifier(attacker.zone_id, "damage_bonus"))
+        + int(zone_reg.modifier(target.zone_id, "incoming_damage_bonus"))
         + _underdog_bonus(pid, chars, state, cfg)
         + (cfg.sudden_death_damage_bonus if state.sudden_death else 0)
     )
+    breakdown = _breakdown(move, attacker, rolled, tier, riders, cfg)
+    dmg = max(0, breakdown["raw"])
 
-    for target_id in targets:
-        target = chars.get(target_id)
-        if target is None or target.is_ko:
-            continue
+    # BLAST's point-blank penalty: half damage (round up) in the same zone.
+    point_blank = move.same_zone_penalty == "half" and target.zone_id == attacker.zone_id
+    if point_blank:
+        dmg = (dmg + 1) // 2
 
-        # 1. DODGE — the only thing that negates a hit.
-        if rng.chance(_dodge_chance(target, cfg, zone_reg)):
-            events.append(Event(
-                id=_eid("atk"), type=EventType.ATTACK_RESOLVED, round=round_num,
-                player_id=pid, target_id=target_id,
-                data={"result": "dodge", "move_id": action.move_id,
-                      "creativity_tier": tier,
-                      "adaptation_note": action.adaptation_note},
-            ))
-            continue
+    # PROTECT's shield — the only damage reduction: absorb a share, bounce it back.
+    absorbed = 0
+    shielder_id = ""
+    cover = shields.get(target_id)
+    if cover is not None:
+        pct, shielder_id = cover
+        absorbed = int(dmg * pct + 0.5)
+        dmg -= absorbed
 
-        riders = attacker_riders + int(
-            zone_reg.modifier(target.zone_id, "incoming_damage_bonus")
-        )
-        # The arithmetic, split for the host's plain-language readout (§13).
-        # `raw` is the addition's total — reductions below get their own line
-        # rather than rewriting it.
-        breakdown = _breakdown(move, attacker, rolled, tier, riders, cfg)
-        dmg = max(0, breakdown["raw"])
-
-        # SHOOT's point-blank penalty: half damage (rounded up) in the same zone.
-        point_blank = (
-            move.same_zone_penalty == "half"
-            and target.zone_id == attacker.zone_id
-        )
-        if point_blank:
-            dmg = (dmg + 1) // 2
-
-        # 2. SHIELD — flat mitigation, then a chance to bounce it back.
-        blocked = 0
-        shielder_id = ""
-        cover = buffs.mitigate.get(target_id)
-        if cover is not None:
-            amount, reflect_chance, shielder_id = cover
-            blocked = min(amount, dmg)
-            dmg -= blocked
-
-        target.hp = max(0, target.hp - dmg)
-        data = {
-            "result": "devastating" if tier >= 3 else "hit",
-            "move_id": action.move_id, "damage": dmg,
-            "point_blank": point_blank, "creativity_tier": tier,
-            "adaptation_note": action.adaptation_note,
-            **breakdown,
-        }
-        if blocked:
-            data["blocked"] = blocked
-            data["shielder_id"] = shielder_id
-        events.append(Event(
-            id=_eid("atk"), type=EventType.ATTACK_RESOLVED, round=round_num,
-            player_id=pid, target_id=target_id, data=data,
-        ))
-
-        if target.hp <= 0 and not target.is_ko:
-            _ko(target_id, target, events, round_num)
-
-        if blocked:
-            _maybe_reflect(pid, attacker, target_id, blocked, reflect_chance,
-                           events, round_num, rng)
-
-    del auto_stepped  # informational only; the MOVED event already tells the story
-
-
-def _apply_backfire(
-    pid: str,
-    action: ClassifiedAction,
-    attacker: Character,
-    events: list[Event],
-    round_num: int,
-    rng: Dice,
-    cfg: Balance,
-) -> None:
-    """WILD CARD's opt-in chaos: the only self-damage in the game. Creativity
-    does not soften it — the comedy is the point (§4.1)."""
-    dmg = rng.roll(cfg.wild_backfire_damage or "0")
-    attacker.hp = max(0, attacker.hp - dmg)
+    target.hp = max(0, target.hp - dmg)
+    data = {
+        "result": "devastating" if tier >= 3 else "hit",
+        "move_id": action.move_id, "damage": dmg,
+        "point_blank": point_blank, "absorbed": absorbed, "creativity_tier": tier,
+        "adaptation_note": action.adaptation_note,
+        **breakdown,
+    }
+    if absorbed:
+        data["shielder_id"] = shielder_id
     events.append(Event(
         id=_eid("atk"), type=EventType.ATTACK_RESOLVED, round=round_num,
-        player_id=pid, target_id=action.target_id,
-        data={"result": "backfire", "move_id": action.move_id,
-              "self_damage": dmg,
-              "adaptation_note": action.adaptation_note},
+        player_id=pid, target_id=target_id, data=data,
     ))
-    if attacker.hp <= 0 and not attacker.is_ko:
-        _ko(pid, attacker, events, round_num)
+    if target.hp <= 0 and not target.is_ko:
+        _ko(target_id, target, events, round_num)
 
-
-def _maybe_reflect(
-    pid: str,
-    attacker: Character,
-    target_id: str,
-    blocked: int,
-    reflect_chance: float,
-    events: list[Event],
-    round_num: int,
-    rng: Dice,
-) -> None:
-    """SHIELD's rider: a 10% x POW chance that the damage the shield swallowed
-    bounces straight back at the attacker (§4.1). Tanks punish attackers."""
-    if blocked <= 0 or not rng.chance(reflect_chance):
-        return
-    attacker.hp = max(0, attacker.hp - blocked)
-    events.append(Event(
-        id=_eid("rfl"), type=EventType.ATTACK_RESOLVED, round=round_num,
-        player_id=target_id, target_id=pid,
-        data={"result": "reflect", "move_id": "shield", "damage": blocked},
-    ))
-    if attacker.hp <= 0 and not attacker.is_ko:
-        _ko(pid, attacker, events, round_num)
+    # The shield throws what it swallowed right back at the attacker (§5).
+    if absorbed > 0:
+        attacker.hp = max(0, attacker.hp - absorbed)
+        events.append(Event(
+            id=_eid("rfl"), type=EventType.ATTACK_RESOLVED, round=round_num,
+            player_id=target_id, target_id=pid,
+            data={"result": "reflect", "move_id": "protect", "damage": absorbed},
+        ))
+        if attacker.hp <= 0 and not attacker.is_ko:
+            _ko(pid, attacker, events, round_num)
 
 
 # ---------------------------------------------------------------------------
-# Support moves (SHIELD / RALLY)
+# PROTECT
 # ---------------------------------------------------------------------------
 
 
-def _apply_shield(
-    pid: str,
-    move: MoveDef,
-    attacker: Character,
-    chars: dict[str, Character],
-    events: list[Event],
-    round_num: int,
-    rng: Dice,
-    buffs: _RoundBuffs,
-    state: GameState,
-) -> None:
-    """SHIELD, resolved in the round-start pre-pass: protect every living
-    teammate (and self) in the caster's zone for the whole round. Because it
-    lands before any attack, a slow shielder still covers faster-hit allies
-    (GAME_DESIGN §4.1 lever). Flat `4 + POW` mitigation → no dice consumed."""
-    amount = rng.roll_formula(move.mitigate, _stat_env(attacker))
-    reflect_chance = move.reflect_chance_per_power * attacker.stats.power
-    protected = sorted(
-        p for p, c in chars.items()
-        if not c.is_ko and c.zone_id == attacker.zone_id
-        and (p == pid or _same_team_bool(pid, p, state))
-    )
-    for p in protected:
-        buffs.mitigate[p] = (amount, reflect_chance, pid)
-    events.append(Event(
-        id=_eid("shl"), type=EventType.SHIELDED, round=round_num,
-        player_id=pid,
-        data={"protected": protected, "mitigate": amount},
-    ))
-
-
-def _resolve_heal(
+def _resolve_protect(
     pid: str,
     action: ClassifiedAction,
     move: MoveDef,
-    attacker: Character,
     chars: dict[str, Character],
     events: list[Event],
     round_num: int,
     rng: Dice,
     cfg: Balance,
+    shields: dict[str, tuple[float, str]],
+    zone_reg: ZoneRegistry,
     state: GameState,
 ) -> None:
-    # RALLY (ally_or_self): the tapped target if it's a living teammate, else self.
-    target_id = pid
-    if (
-        action.target_id
-        and action.target_id in chars
-        and not chars[action.target_id].is_ko
-        and _same_team_bool(pid, action.target_id, state)
-    ):
-        target_id = action.target_id
-    target = chars[target_id]
+    """PROTECT (acts first): heal an ally and cloak them in a reflecting shield.
+    It never self-targets; with no living ally the phone greys it out, so this is
+    only reached with a valid ally (redirected to the neediest if the tapped one
+    fell)."""
+    caster = chars[pid]
+    ally = _resolve_ally(pid, action, chars, state)
+    if ally is None:
+        return  # no living teammate to protect — fizzles (should be greyed anyway)
+    target = chars[ally]
 
-    if state.sudden_death:
-        events.append(Event(
-            id=_eid("heal"), type=EventType.HEALED, round=round_num,
-            player_id=pid, target_id=target_id,
-            data={"amount": 0, "blocked": "sudden_death"},
-        ))
-        return
-
-    # A better drawing heals more — the creativity bonus is the medicine (§8).
     tier = _effective_tier(action, cfg)
-    rolled = rng.roll_formula(move.heal or "0", _stat_env(attacker))
-    breakdown = _breakdown(move, attacker, rolled, tier, 0, cfg)
+    rolled = rng.roll_formula(move.heal or "0", _stat_env(caster))
+    heal_rider = int(zone_reg.modifier(target.zone_id, "heal_bonus"))
+    breakdown = _breakdown(move, caster, rolled, tier, heal_rider, cfg)
     amount = max(0, breakdown["raw"])
     target.hp = min(target.max_hp, target.hp + amount)
     events.append(Event(
         id=_eid("heal"), type=EventType.HEALED, round=round_num,
-        player_id=pid, target_id=target_id,
+        player_id=pid, target_id=ally,
         data={"amount": amount, "creativity_tier": tier, **breakdown},
     ))
+
+    if move.applies_shield:
+        pct = min(cfg.reflect_cap, cfg.reflect_per_weird * caster.stats.weird)
+        shields[ally] = (pct, pid)
+        events.append(Event(
+            id=_eid("prot"), type=EventType.PROTECTED, round=round_num,
+            player_id=pid, target_id=ally,
+            data={"reflect_pct": pct},
+        ))
 
 
 # ---------------------------------------------------------------------------
@@ -492,129 +377,128 @@ def _resolve_heal(
 # ---------------------------------------------------------------------------
 
 
-def _resolve_targets(
+def _resolve_target(
     pid: str,
     action: ClassifiedAction,
     move: MoveDef,
     attacker: Character,
     chars: dict[str, Character],
-    events: list[Event],
-    round_num: int,
     zone_reg: ZoneRegistry,
     state: GameState,
-) -> tuple[list[str], bool]:
-    """The attack's target list. Handles dead-target redirection (intent
-    adaptation §9), SMASH's auto-step, and BLAST's zone.
-    Returns (target_ids, auto_stepped)."""
+) -> str | None:
+    """The single enemy this attack lands on, with dead-target redirection
+    (adapt, never reject — §9). Melee (SMASH) can only hit same-zone enemies;
+    ranged (BLAST/CHARGE/ESCAPE) can hit any enemy."""
     living = _living(chars)
-
     enemies = [p for p in living if p != pid and not _same_team_bool(pid, p, state)]
     if not enemies:
-        return [], False
+        return None
 
-    # The tapped enemy — redirected to the nearest living enemy if it fell to a
-    # faster teammate earlier this round (adapt, never reject).
-    intended = action.target_id
-    if intended not in enemies:
-        same_zone = [p for p in enemies if chars[p].zone_id == attacker.zone_id]
-        redirect = sorted(same_zone)[0] if same_zone else sorted(enemies)[0]
-        if intended is not None:
-            events.append(Event(
-                id=_eid("adapt"), type=EventType.MOVED, round=round_num,
-                player_id=pid, target_id=redirect,
-                data={"redirected_from": intended, "reason": "target_down"},
-            ))
-        intended = redirect
+    if move.range == "same_zone":
+        cands = [p for p in enemies if chars[p].zone_id == attacker.zone_id]
+        if not cands:
+            return None  # SMASH with no enemy in the zone whiffs
+        if action.target_id in cands:
+            return action.target_id
+        return sorted(cands)[0]
 
-    if move.target == "zone_all":
-        zone = chars[intended].zone_id
-        return [
-            p for p in sorted(living)
-            if p != pid and chars[p].zone_id == zone
-            and (move.friendly_fire or not _same_team_bool(pid, p, state))
-        ], False
-
-    # single_enemy — melee needs the same zone; SMASH auto-steps toward the target.
-    auto_stepped = False
-    if move.range == "same_zone" and chars[intended].zone_id != attacker.zone_id:
-        if move.auto_step:
-            toward = zone_reg.steps_between(attacker.zone_id, chars[intended].zone_id)
-            dest = zone_reg.step(attacker.zone_id, 1 if toward > 0 else -1)
-            if dest is not None:
-                _do_move(pid, attacker, dest, events, round_num)
-                auto_stepped = True
-        if chars[intended].zone_id != attacker.zone_id:
-            events.append(Event(
-                id=_eid("atk"), type=EventType.ATTACK_RESOLVED, round=round_num,
-                player_id=pid, target_id=intended,
-                data={"result": "out_of_reach", "move_id": action.move_id,
-                      "adaptation_note": action.adaptation_note},
-            ))
-            return [], auto_stepped
-    return [intended], auto_stepped
+    # Ranged — the tapped enemy, or the nearest living enemy if it fell.
+    if action.target_id in enemies:
+        return action.target_id
+    return min(
+        sorted(enemies),
+        key=lambda e: abs(zone_reg.steps_between(attacker.zone_id, chars[e].zone_id)),
+    )
 
 
-# ---------------------------------------------------------------------------
-# Gremlin hazards
-# ---------------------------------------------------------------------------
-
-
-def _resolve_gremlin(
+def _resolve_ally(
     pid: str,
     action: ClassifiedAction,
+    chars: dict[str, Character],
+    state: GameState,
+) -> str | None:
+    """PROTECT's target: the tapped living teammate, else the neediest living
+    teammate (lowest HP fraction). Never the self."""
+    allies = [
+        p for p, c in chars.items()
+        if p != pid and not c.is_ko and _same_team_bool(pid, p, state)
+    ]
+    if not allies:
+        return None
+    if action.target_id in allies:
+        return action.target_id
+    return min(sorted(allies), key=lambda a: chars[a].hp / max(1, chars[a].max_hp))
+
+
+# ---------------------------------------------------------------------------
+# Arena Gremlin traps (GAME_DESIGN §10)
+# ---------------------------------------------------------------------------
+
+
+def _place_trap(
+    pid: str,
+    action: ClassifiedAction,
+    traps: list[Trap],
+    events: list[Event],
+    round_num: int,
+    cfg: Balance,
+    zone_reg: ZoneRegistry,
+    state: GameState,
+) -> None:
+    """A gremlin plants a trap in the chosen zone; it joins the persistent trap
+    list and only fires when an enemy is in that zone at end of round."""
+    zone = action.trap_zone
+    if zone not in zone_reg:
+        return
+    tier = _effective_tier(action, cfg)
+    traps.append(Trap(
+        trap_id=_eid("trap"), zone_id=zone, owner_id=pid,
+        owner_team_id=_team_of(pid, state), creativity=tier,
+        png_b64=action.action_png_b64,
+    ))
+    events.append(Event(
+        id=_eid("tset"), type=EventType.TRAP_PLACED, round=round_num,
+        player_id=pid,
+        data={"zone": zone, "creativity_tier": tier,
+              "adaptation_note": action.adaptation_note},
+    ))
+
+
+def _trigger_traps(
+    traps: list[Trap],
     chars: dict[str, Character],
     events: list[Event],
     round_num: int,
     rng: Dice,
-    zone_reg: ZoneRegistry,
-    haz_reg: HazardRegistry,
-) -> None:
-    """A gremlin drops a hazard on a random zone; every living fighter standing
-    there suffers its effect — zone damage or a forced move (v2.1: hazards are
-    damage-or-push only). The hazard id comes from the gremlin's classified
-    drawing (config/hazards.yaml), so adding a hazard type is a YAML-only change."""
-    all_zones = zone_reg.all_ids
-    if not all_zones:
-        return
-    target_zone = rng.choice(all_zones)
-    hazard_id = action.move_id
-    hdef = haz_reg.get(hazard_id) if hazard_id in haz_reg else None
-
-    # Snapshot occupants before any forced move mutates zones.
-    occupants = [c for c in chars.values() if not c.is_ko and c.zone_id == target_zone]
-    events.append(Event(
-        id=_eid("grem"), type=EventType.GREMLIN_HAZARD, round=round_num,
-        player_id=pid,
-        data={
-            "hazard_id": hazard_id,
-            "zone": target_zone,
-            "damage_spec": hdef.damage if hdef else "",
-            "forces_move": bool(hdef.forces_move) if hdef else False,
-            "affected": [c.player_id for c in occupants],
-            "adaptation_note": action.adaptation_note,
-        },
-    ))
-    if hdef is None or not occupants:
-        return
-
-    # One shared damage roll for the whole zone — the swarm stings everyone alike.
-    if hdef.damage:
-        dmg = rng.roll(hdef.damage)
-        for occ in occupants:
-            occ.hp = max(0, occ.hp - dmg)
-            events.append(Event(
-                id=_eid("hzd"), type=EventType.ATTACK_RESOLVED, round=round_num,
-                player_id=pid, target_id=occ.player_id,
-                data={"result": "hazard", "move_id": hazard_id, "damage": dmg},
-            ))
-            if occ.hp <= 0 and not occ.is_ko:
-                _ko(occ.player_id, occ, events, round_num)
-
-    if hdef.forces_move:
-        for occ in occupants:
-            adj = zone_reg.adjacent(target_zone)
-            if adj:
-                _do_move(occ.player_id, occ, rng.choice(adj), events, round_num)
+    cfg: Balance,
+    state: GameState,
+) -> list[Trap]:
+    """End-of-round pass over every planted trap: if a living enemy of the
+    owner's team stands in its zone, it springs on one random such enemy for
+    `trap_damage + creativity` and is consumed. Untriggered traps persist."""
+    survivors: list[Trap] = []
+    for trap in traps:
+        foes = sorted(
+            p for p, c in chars.items()
+            if not c.is_ko and c.zone_id == trap.zone_id
+            and _team_of(p, state) != trap.owner_team_id
+        )
+        if not foes:
+            survivors.append(trap)
+            continue
+        victim_id = rng.choice(foes)
+        victim = chars[victim_id]
+        dmg = max(0, rng.roll(cfg.trap_damage) + _creativity_bonus(trap.creativity, cfg))
+        victim.hp = max(0, victim.hp - dmg)
+        events.append(Event(
+            id=_eid("trap"), type=EventType.TRAP_TRIGGERED, round=round_num,
+            player_id=trap.owner_id, target_id=victim_id,
+            data={"result": "trap", "zone": trap.zone_id, "damage": dmg,
+                  "trap_id": trap.trap_id},
+        ))
+        if victim.hp <= 0 and not victim.is_ko:
+            _ko(victim_id, victim, events, round_num)
+    return survivors
 
 
 # ---------------------------------------------------------------------------
@@ -655,14 +539,12 @@ def headline_stat(move_stat: str, ch: Character) -> tuple[str, set[str]]:
     """A move's headline stat resolved for one character → (name, formula keys).
 
     The keys are every stat the expression reads, which is what the readout has
-    to zero out to isolate the stat's contribution — for a "max(speed,weird)"
-    move that's BOTH, since zeroing only Speed would just leave Weird as the max
-    and understate the term. (No shipped move uses max() now that SHOOT keys off
-    Weird, but the branch stays so a future catalog formula can.)
+    to zero out to isolate the stat's contribution — for an "avg(power,speed)"
+    move that's BOTH, and the printed name is the higher of the two.
     """
-    if move_stat == "max(speed,weird)":
-        name = "weird" if ch.stats.weird > ch.stats.speed else "speed"
-        return name, {"SPD", "WRD"}
+    if move_stat == "avg(power,speed)":
+        name = "power" if ch.stats.power >= ch.stats.speed else "speed"
+        return name, {"POW", "SPD"}
     if move_stat in _STAT_KEYS:
         return move_stat, {_STAT_KEYS[move_stat]}
     return "", set()
@@ -670,7 +552,7 @@ def headline_stat(move_stat: str, ch: Character) -> tuple[str, set[str]]:
 
 def _breakdown(
     move: MoveDef,
-    attacker: Character,
+    actor: Character,
     rolled: int,
     tier: int,
     riders: int,
@@ -678,18 +560,18 @@ def _breakdown(
 ) -> dict:
     """Split a rolled effect into the terms the host readout adds up (§13):
 
-        🎯 SHOOT → 🎲 3 + ⚡ Speed 5 + ⭐⭐ Creative 3 = 11 damage
+        🔥 BLAST → 🎲 5 + 🌀 Weird 5 + ⭐⭐ Creative 3 = 13 damage
 
     The formula's flat mod already folds in the stat, so re-resolving it with
     that stat's inputs zeroed isolates the stat term without the catalog having
     to declare it separately. `dice` carries the move's own constant along with
-    the roll (SMASH's "+2" rides inside 🎲) — that keeps the line to one
-    addition of three readable terms, as both §13 examples show.
+    the roll (SMASH's "+2" rides inside 🎲) — keeping the line to one addition of
+    three readable terms, as both §13 examples show.
     """
-    env = _stat_env(attacker)
+    env = _stat_env(actor)
     spec = move.damage or move.heal or "0"
     _, _, mod = formula_parts(spec, env)
-    stat_name, stat_keys = headline_stat(move.stat, attacker)
+    stat_name, stat_keys = headline_stat(move.stat, actor)
     if stat_keys:
         _, _, mod_without_stat = formula_parts(spec, env | dict.fromkeys(stat_keys, 0))
     else:
@@ -709,14 +591,6 @@ def _breakdown(
 def _creativity_bonus(tier: int, cfg: Balance) -> int:
     return [cfg.creativity_tier_0, cfg.creativity_tier_1,
             cfg.creativity_tier_2, cfg.creativity_tier_3][max(0, min(tier, 3))]
-
-
-def _dodge_chance(target: Character, cfg: Balance, zone_reg: ZoneRegistry) -> float:
-    """Passive, Speed-driven, capped — the one way a hit is negated (§5)."""
-    chance = cfg.dodge_per_speed * target.stats.speed
-    chance += zone_reg.modifier(target.zone_id, "dodge_bonus")
-    chance -= zone_reg.modifier(target.zone_id, "incoming_dodge_penalty")
-    return min(chance, cfg.dodge_cap)
 
 
 def _team_of(pid: str, state: GameState) -> str | None:

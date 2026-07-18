@@ -52,6 +52,28 @@
       }
     }
 
+    // Arena Gremlin traps (GAME_DESIGN §10): small drawn icons that sit in their
+    // planted zone until an enemy triggers them. traps: [{trap_id, zone_id,
+    // creativity, png}]. Re-rendered wholesale from arena_state each update.
+    setTraps(traps) {
+      for (const band of Object.values(this.zoneEls)) {
+        band.querySelectorAll('.trap').forEach(t => t.remove());
+      }
+      const perZone = {};
+      for (const tr of traps || []) {
+        const band = this.zoneEls[tr.zone_id];
+        if (!band) continue;
+        const idx = perZone[tr.zone_id] = (perZone[tr.zone_id] || 0) + 1;
+        const el = document.createElement('div');
+        el.className = 'trap';
+        el.style.left = (8 + (idx - 1) * 30) + 'px';
+        if (tr.png) el.style.backgroundImage = 'url(' + tr.png + ')';
+        else el.textContent = '🪤';
+        el.title = 'a lurking trap';
+        band.appendChild(el);
+      }
+    }
+
     // -- the Doodle Crowd: rotating spectators in the stands (GAME_DESIGN §15) --
     // The host receives the full gallery roster once (bootstrap message); we show
     // a shuffled handful and reshuffle every stands.rotate_seconds. Purely
@@ -94,10 +116,17 @@
       });
     }
 
-    // chars: {player_id,name,zone_id,hp,max_hp,team_id,is_ko,png,sprite_png}
+    // chars: {player_id,name,zone_id,hp,max_hp,team_id,is_ko,png,sprite_png,action_creativity}
     render(chars) {
       if (!this.zoneIds.length) return;
       for (const c of chars) {
+        // KO'd fighters are removed from the battlefield entirely (§13): no
+        // sprite, HP bar, or star badges — only the rail's imp badge remains.
+        if (c.is_ko) {
+          const gone = this.sprites[c.player_id];
+          if (gone) { gone.el.remove(); delete this.sprites[c.player_id]; }
+          continue;
+        }
         let s = this.sprites[c.player_id];
         if (!s) s = this._make(c);
         const zone = this.zoneEls[c.zone_id] || this.zoneEls[this.zoneIds[0]];
@@ -108,7 +137,7 @@
         this._setImg(s, s.spritePng);
         s.el.style.setProperty('--team', c.team_id === 'team_b' ? '#2F6FE0' : '#E24FA0');
         this.setHP(c.player_id, c.hp, c.max_hp);
-        s.el.classList.toggle('ko', !!c.is_ko);
+        this.setStars(c.player_id, c.action_creativity || 0);
         s.name.textContent = c.name;
       }
     }
@@ -118,15 +147,24 @@
       el.className = 'fighter';
       el.innerHTML =
         '<div class="pic"></div>' +
+        '<div class="stars"></div>' +
         '<div class="nametag"></div>' +
         '<div class="hpbar"><i></i></div>';
       const s = {
         el, pic: el.querySelector('.pic'), name: el.querySelector('.nametag'),
-        hp: el.querySelector('.hpbar > i'),
+        hp: el.querySelector('.hpbar > i'), stars: el.querySelector('.stars'),
         spritePng: c.sprite_png || c.png || '',
       };
       this.sprites[c.player_id] = s;
       return s;
+    }
+
+    // Creativity star badges under the action drawing (§13): ⭐ per tier, tier 3
+    // is DEVASTATING (⭐⭐⭐); tier 0 shows none.
+    setStars(pid, tier) {
+      const s = this.sprites[pid]; if (!s || !s.stars) return;
+      const t = Math.max(0, Math.min(3, tier | 0));
+      s.stars.textContent = '⭐'.repeat(t);
     }
 
     _setImg(s, dataUrl) {

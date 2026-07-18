@@ -1,8 +1,9 @@
 """JSON state persistence for crash recovery, debug, and replay.
 
-Writes snapshots/<room>/round-N.json after each resolved round and appends
-unplaced `wildcard` classifications to snapshots/<room>/wildcards.jsonl so the
-human can mine playtests for new catalog archetypes (see ARCHITECTURE.md §4.4).
+Writes snapshots/<room>/round-N.json after each resolved round and appends the
+AI's per-drawing flavor reads to snapshots/<room>/flavor.jsonl so the human can
+mine playtests for drawings that didn't fit any of the five moves — the signal
+for what the catalog might be missing (see GAME_DESIGN §14).
 """
 
 from __future__ import annotations
@@ -54,27 +55,27 @@ class SnapshotWriter:
                     "text": b.text,
                 }) + "\n")
 
-    def append_wildcards(self, round_num: int, actions: list[Any]) -> None:
-        """Log every WILD CARD play + the AI's read — recurring interpretations
-        are the designer's signal for what the six moves might be missing (§14)."""
+    def append_flavor(self, round_num: int, actions: list[Any]) -> None:
+        """Log each drawing's move + the AI's flavor read — recurring notes about
+        drawings that strain one of the five moves are the designer's signal for
+        what the catalog might be missing (GAME_DESIGN §14)."""
         if not self.enabled:
             return
         rows = [
             {
                 "round": round_num,
                 "player_id": a.player_id,
-                "wild_interpretation": (
-                    a.wild_interpretation.model_dump() if a.wild_interpretation else None
-                ),
+                "move_id": getattr(a, "move_id", "") or ("trap" if a.trap_zone else ""),
+                "flavor_summary": getattr(a, "flavor_summary", ""),
                 "adaptation_note": a.adaptation_note,
             }
             for a in actions
-            if getattr(a, "move_id", None) == "wild"
+            if getattr(a, "flavor_summary", "") or a.adaptation_note
         ]
         if not rows:
             return
         self._ensure_dir()
-        path = self.dir / "wildcards.jsonl"
+        path = self.dir / "flavor.jsonl"
         with path.open("a", encoding="utf-8") as f:
             for row in rows:
                 f.write(json.dumps(row) + "\n")

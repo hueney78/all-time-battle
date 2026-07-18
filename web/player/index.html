@@ -56,8 +56,8 @@
     #waitRules li{font-weight:700; font-size:13px; line-height:1.3;
       background:#F1EADB; border-radius:10px; padding:7px 10px}
 
-    /* COMBAT V2 move grid [spec: 8 big buttons, live per-character math,
-       no-repeat greying, edge-disabled movement] */
+    /* COMBAT V5 move grid [spec: 5 big buttons, live per-character math,
+       no-repeat / legality greying] */
     #moveGrid{display:grid; grid-template-columns:repeat(2, 1fr); gap:6px; margin:.5rem 0}
     .movebtn{border:3px solid var(--ink); background:#fff; color:var(--ink);
       border-radius:14px; padding:7px 6px 6px; font-weight:900; text-align:center;
@@ -66,8 +66,11 @@
     .movebtn .mmath{font-size:11.5px; opacity:.75}
     .movebtn.sel{background:var(--gold); box-shadow:0 0 0 3px var(--team)}
     .movebtn:disabled{opacity:.38}
-    .movebtn.mv{grid-column:span 1; background:#F1EADB}
     .gridnote{font-size:11px; font-weight:800; opacity:.6; text-align:center}
+    /* ESCAPE ◀/▶ direction picker + Gremlin zone picker (reuse target styling) */
+    #escapeRow, #zoneRow{display:flex; gap:6px; overflow-x:auto; padding:4px 2px; margin:.3rem 0}
+    #escapeRow.hidden{display:none}
+    #gremlinWrap.hidden{display:none}
 
     /* target picker [spec: enemy portraits, defaults to nearest] */
     #targetRow{display:flex; gap:6px; overflow-x:auto; padding:4px 2px; margin:.3rem 0}
@@ -160,11 +163,17 @@
       <div id="hintWrap" class="hidden" style="margin:.5rem 0">
         <input id="hint" type="text" placeholder="optional hint (e.g. 'a very angry teapot')" style="width:100%">
       </div>
-      <!-- COMBAT V2: tap the move, tap the target, then draw the style -->
+      <!-- COMBAT V5: tap the move (+ target / ◀▶), then draw the style -->
       <div id="moveWrap" class="hidden">
         <div id="moveGrid"></div>
+        <div id="escapeRow" class="hidden"></div>
         <div id="targetRow" class="hidden"></div>
         <div class="gridnote" id="gridNote">tap a move, then draw how you do it ✏️</div>
+      </div>
+      <!-- Arena Gremlin: pick a zone to trap, then draw the trap on a blank canvas -->
+      <div id="gremlinWrap" class="hidden">
+        <div class="gridnote">😈 pick a zone to trap, then draw your trap!</div>
+        <div id="zoneRow"></div>
       </div>
       <div id="canvasWrap">
         <div class="ribbon" id="ribbon"><span>🏠 your side</span><span>⟵ &nbsp; ⟶</span><span>enemies 💥</span></div>
@@ -222,10 +231,12 @@
     let phase = '', round = 0, characterPng = '', isKo = false;
     let submitted = false, deadline = 0, timerHandle = null;
     let prevStats = null;
-    // COMBAT V2 tap state: the button grid (server-computed math + disabled
+    // COMBAT V5 tap state: the button grid (server-computed math + disabled
     // flags), the current selection, and the roster for the target picker.
+    // ESCAPE also carries a ◀/▶ direction; a Gremlin carries the trap zone.
     let movesList = [], selectedMove = null, selectedTarget = null;
-    let roster = {}, zoneOrder = [], myZone = null;
+    let selectedEscapeDir = 0, selectedTrapZone = null;
+    let roster = {}, zoneOrder = [], zoneLabels = {}, myZone = null;
 
     // ---- drawing tools ----
     function buildTools() {
@@ -268,18 +279,18 @@
       r.children[2].textContent = (teamSide === 'right') ? home : foe;
     }
 
-    // ---- COMBAT V2: move grid + target picker ----
+    // ---- COMBAT V5: move grid + target / direction pickers ----
     function needsTarget(m) {
       if (!m) return null;
-      if (m.target === 'single_enemy' || m.target === 'zone_all') return 'enemy';
-      if (m.target === 'ally_or_self') return 'ally';
-      return null;   // self / movement / zone_allies (SHIELD) — no picker
+      if (m.target === 'single_enemy') return 'enemy';
+      if (m.target === 'ally') return 'ally';        // PROTECT — a teammate, never self
+      return null;
     }
     function candidates(kind) {
       // Intros precede Round 1 (v2.1), so the roster always has portraits.
       const chars = Object.values(roster).filter(c => !c.is_ko);
-      return chars.filter(c => kind === 'enemy' ? c.team_id !== teamId
-                                                : c.team_id === teamId);
+      if (kind === 'ally') return chars.filter(c => c.team_id === teamId && c.player_id !== myId);
+      return chars.filter(c => c.team_id !== teamId);
     }
     function zdist(a, b) {
       const i = zoneOrder.indexOf(a), j = zoneOrder.indexOf(b);
@@ -288,7 +299,10 @@
     function defaultTarget(kind) {
       const cs = candidates(kind);
       if (!cs.length) return null;
-      if (kind === 'ally') return myId;             // shield/rally default: yourself
+      if (kind === 'ally') {
+        cs.sort((a, b) => (a.hp / a.max_hp) - (b.hp / b.max_hp));
+        return cs[0].player_id;                      // PROTECT default: neediest ally
+      }
       cs.sort((a, b) => zdist(myZone, a.zone_id) - zdist(myZone, b.zone_id));
       return cs[0].player_id;                        // nearest enemy
     }
@@ -297,10 +311,11 @@
       grid.innerHTML = '';
       movesList.forEach(m => {
         const b = document.createElement('button');
-        b.className = 'movebtn' + (m.id === 'move_l' || m.id === 'move_r' ? ' mv' : '')
-          + (selectedMove === m.id ? ' sel' : '');
+        b.className = 'movebtn' + (selectedMove === m.id ? ' sel' : '');
         b.disabled = !!m.disabled;
-        b.title = m.disabled_reason === 'no_repeat' ? 'no repeats!' : (m.desc || '');
+        b.title = m.disabled_reason === 'no_repeat' ? 'no repeats!'
+          : m.disabled_reason === 'no_enemy_here' ? 'no enemy in your zone'
+          : m.disabled_reason === 'no_ally' ? 'no teammate to protect' : (m.desc || '');
         b.innerHTML = '<span class="mname"></span>' + (m.math ? '<span class="mmath"></span>' : '');
         b.querySelector('.mname').textContent = m.button || m.id;
         if (m.math) b.querySelector('.mmath').textContent = m.math;
@@ -312,11 +327,28 @@
       selectedMove = m.id;
       const kind = needsTarget(m);
       selectedTarget = kind ? defaultTarget(kind) : null;
+      // ESCAPE slips one zone: default to retreating toward your own backline.
+      selectedEscapeDir = m.moves_one_zone ? (teamSide === 'right' ? 1 : -1) : 0;
       renderMoveGrid();
       renderTargetPicker(kind);
-      $('gridNote').textContent = kind
-        ? (kind === 'enemy' ? 'who gets it? then draw it! ✏️' : 'who do you help? then draw it! ✏️')
+      renderEscapeRow(m.moves_one_zone);
+      $('gridNote').textContent = m.moves_one_zone ? 'which way, then draw it! ◀▶ ✏️'
+        : kind === 'enemy' ? 'who gets it? then draw it! ✏️'
+        : kind === 'ally' ? 'who do you help? then draw it! ✏️'
         : 'now draw how you do it ✏️';
+    }
+    function renderEscapeRow(show) {
+      const row = $('escapeRow');
+      row.classList.toggle('hidden', !show);
+      row.innerHTML = '';
+      if (!show) return;
+      [[-1, '◀ left'], [1, 'right ▶']].forEach(([dir, label]) => {
+        const b = document.createElement('button');
+        b.className = 'tbtn' + (selectedEscapeDir === dir ? ' sel' : '');
+        b.textContent = label;
+        b.onclick = () => { selectedEscapeDir = dir; renderEscapeRow(true); };
+        row.appendChild(b);
+      });
     }
     function renderTargetPicker(kind) {
       const row = $('targetRow');
@@ -330,10 +362,22 @@
         if (c.png || c.sprite_png) {
           b.querySelector('.tpic').style.backgroundImage = 'url(' + (c.png || c.sprite_png) + ')';
         } else {
-          b.querySelector('.tpic').textContent = c.player_id === myId ? '🫵' : '❓';
+          b.querySelector('.tpic').textContent = '❓';
         }
-        b.lastChild.textContent = c.player_id === myId ? 'yourself' : (c.name || '???');
+        b.lastChild.textContent = c.name || '???';
         b.onclick = () => { selectedTarget = c.player_id; renderTargetPicker(kind); };
+        row.appendChild(b);
+      });
+    }
+    // Arena Gremlin zone picker — pick a zone to plant a trap (§10).
+    function renderZonePicker() {
+      const row = $('zoneRow');
+      row.innerHTML = '';
+      zoneOrder.forEach(zid => {
+        const b = document.createElement('button');
+        b.className = 'tbtn' + (selectedTrapZone === zid ? ' sel' : '');
+        b.textContent = zoneLabels[zid] || zid;
+        b.onclick = () => { selectedTrapZone = zid; renderZonePicker(); };
         row.appendChild(b);
       });
     }
@@ -350,6 +394,15 @@
         sock.send('submit_action', {
           round: round, png_base64: pad.toPNG(),
           move_id: selectedMove || '', target_id: selectedTarget,
+          escape_direction: selectedEscapeDir,
+        });
+      } else if (phase === 'draw_action' && isKo) {
+        // Arena Gremlin: plant a trap in the tapped zone (default to the first
+        // zone if none tapped) with the trap drawing.
+        submitted = true;
+        sock.send('submit_action', {
+          round: round, png_base64: pad.toPNG(),
+          trap_zone: selectedTrapZone || zoneOrder[0] || null,
         });
       } else {
         submitted = true;
@@ -402,23 +455,31 @@
       const isChar = kind === 'draw_characters';
       const isMontage = kind === 'montage';
       const isAction = kind === 'draw_action' && !isKo;
+      const isGremlin = kind === 'draw_action' && isKo;
       $('hintWrap').classList.toggle('hidden', !isChar);
-      $('ribbon').classList.toggle('hidden', isChar || isMontage);  // no sides in a montage
-      $('restore').classList.toggle('hidden', isChar);
-      // COMBAT V2: tap the move + target, then draw the style. Gremlins draw
-      // hazards with no tap.
+      // No orientation ribbon in a montage or for a character-less Gremlin.
+      $('ribbon').classList.toggle('hidden', isChar || isMontage || isGremlin);
+      $('restore').classList.toggle('hidden', isChar || isGremlin);
+      // COMBAT V5: fighters tap a move (+ target / ◀▶), Gremlins pick a zone.
       $('moveWrap').classList.toggle('hidden', !isAction);
+      $('gremlinWrap').classList.toggle('hidden', !isGremlin);
       if (isAction) {
-        selectedMove = null; selectedTarget = null;
+        selectedMove = null; selectedTarget = null; selectedEscapeDir = 0;
         $('gridNote').textContent = 'tap a move, then draw how you do it ✏️';
         renderMoveGrid();
         renderTargetPicker(null);
+        renderEscapeRow(false);
+      }
+      if (isGremlin) {
+        selectedTrapZone = null;
+        renderZonePicker();
       }
       $('prompt').textContent = isChar ? 'Draw your fighter!'
         : isMontage ? '🎵 Upgrade your fighter! Add armor, wings, flames… 🎵'
-        : isKo ? 'Draw a hazard, Gremlin! 😈 (round ' + round + ')'
+        : isGremlin ? 'Draw a trap, Gremlin! 😈 (round ' + round + ')'
         : 'Round ' + round + ' — tap your move, draw your style!';
-      if (isChar) { pad.bgSide = 'center'; pad.clear(); }
+      // Gremlins draw the trap on a BLANK canvas (no character prefill, §10).
+      if (isChar || isGremlin) { pad.bgSide = 'center'; pad.clear(); }
       else { loadCharacter(true); }   // draw the move/upgrade on top of the character
     }
 
@@ -475,6 +536,9 @@
         if (t) { document.documentElement.style.setProperty('--team', t.color); $('teamName').textContent = t.name.toUpperCase(); }
       } else if (m.type === 'arena_state') {
         zoneOrder = (m.payload.zones || []).map(z => z.id || z);
+        (m.payload.zones || []).forEach(z => {
+          zoneLabels[z.id || z] = z.label || (z.id || z);
+        });
         // Team labels: "Team A/B" until the intro reveal swaps in the AI names.
         const mine = (m.payload.teams || []).find(t => t.id === teamId);
         if (mine) $('teamName').textContent = mine.name.toUpperCase();

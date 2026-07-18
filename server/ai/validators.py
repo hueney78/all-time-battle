@@ -27,12 +27,10 @@ from server.ai.provider import (
     Narration,
 )
 from server.config import Balance, GameRules
-from server.engine.hazards import HazardRegistry
 from server.engine.models import (
     ClassifiedAction,
     GameState,
     Stats,
-    WildInterpretation,
 )
 
 _STATS = ("power", "speed", "weird")
@@ -124,17 +122,18 @@ def build_generated_characters(
 def build_classified_actions(
     resp: S.ClassifyActionsResponse,
     state: GameState,
-    taps: dict[str, tuple[str, str | None]],
+    taps: dict[str, tuple[str, str | None, int]],
     rules: GameRules,
 ) -> list[ClassifiedAction]:
     """Merge the AI's drawing judgment onto the tapped moves.
 
-    `taps` maps each living player to their (move_id, target_id) from the
-    phone — the server owns both; the AI response may only decorate them.
-    Combo partners must be living teammates; both partners carry each other so
-    the resolver grants the roll bonus to each (no fusion in v2).
+    `taps` maps each living player to their (move_id, target_id,
+    escape_direction) from the phone — the server owns all three; the AI
+    response may only decorate them. Combo partners must be living teammates;
+    both partners carry each other so the resolver grants the tier bonus to each
+    (no fusion in v5).
     """
-    # combo → both partners carry the group (each gets the roll bonus).
+    # combo → both partners carry the group (each gets the tier bonus).
     combo_of: dict[str, S.AIComboSpec] = {}
     for combo in resp.combos:
         parts = [p for p in combo.partners if p in taps]
@@ -144,29 +143,25 @@ def build_classified_actions(
 
     by_pid = {a.player_id: a for a in resp.actions}
     out: list[ClassifiedAction] = []
-    for pid, (move_id, target_id) in taps.items():
+    for pid, (move_id, target_id, escape_direction) in taps.items():
         a = by_pid.get(pid)
-        move = rules.moves.moves.get(move_id)
         if a is None:
             # AI skipped this player → the tapped move still resolves at
             # creativity 0 (the fallback contract, §11.1).
             out.append(ClassifiedAction(player_id=pid, move_id=move_id,
-                                        target_id=target_id))
+                                        target_id=target_id,
+                                        escape_direction=escape_direction))
             continue
-
-        wild = None
-        if move is not None and move.ai_interprets and a.wild_interpretation:
-            wild = WildInterpretation(description=a.wild_interpretation.description or "")
 
         ca = ClassifiedAction(
             player_id=pid,
             move_id=move_id,
             target_id=target_id,
+            escape_direction=escape_direction,
             creativity_tier=max(0, min(3, int(a.creativity_tier))),
             creativity_reason=a.creativity_reason or "",
             similar_to_previous=bool(a.similar_to_previous),
             flavor_summary=a.flavor_summary or "",
-            wild_interpretation=wild,
             adaptation_note=a.adaptation_note,
             flagged=bool(a.flagged),
         )
@@ -184,35 +179,32 @@ def _same_team_all(pids: list[str], state: GameState) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# classify_gremlin
+# classify_gremlin — a KO'd player plants a trap in a TAPPED zone (GAME_DESIGN §10)
 # ---------------------------------------------------------------------------
-def build_gremlin_hazards(
+def build_gremlin_traps(
     resp: S.ClassifyGremlinsResponse,
-    gremlins: list[str],
+    gremlin_taps: dict[str, str | None],
     rules: GameRules,
 ) -> list[ClassifiedAction]:
-    """Turn gremlin hazard classifications into resolver actions. An unknown
-    hazard_id falls back to the palette's first entry (never rejected, like
-    intent adaptation); a gremlin with no classification drops no hazard this round.
-    The catalog_id carries the hazard id — the resolver's gremlin pass reads it
-    against the hazard registry."""
-    haz_reg = HazardRegistry(rules.hazards)
-    ids = haz_reg.all_ids
-    if not ids:
-        return []
-    default = ids[0]
-    by_pid = {h.player_id: h for h in resp.hazards}
+    """Turn gremlin trap drawings into resolver actions. The zone is ground
+    truth from the phone (`gremlin_taps`, pid → zone); the AI supplies only the
+    trap's creativity/flavor. A gremlin with no valid zone plants nothing."""
+    zone_ids = {z.id for z in rules.zones.zones}
+    by_pid = {t.player_id: t for t in resp.traps}
     out: list[ClassifiedAction] = []
-    for pid in gremlins:
-        h = by_pid.get(pid)
-        if h is None:
-            continue  # blank canvas → no hazard this round
-        hazard_id = h.hazard_id if h.hazard_id in haz_reg else default
+    for pid, zone in gremlin_taps.items():
+        if not zone or zone not in zone_ids:
+            continue  # no valid zone tapped → no trap this round
+        t = by_pid.get(pid)
         out.append(ClassifiedAction(
             player_id=pid,
-            move_id=hazard_id,
-            adaptation_note=h.adaptation_note,
-            flagged=bool(h.flagged),
+            move_id="",
+            trap_zone=zone,
+            creativity_tier=max(0, min(3, int(t.creativity_tier))) if t else 0,
+            similar_to_previous=bool(t.similar_to_previous) if t else False,
+            flavor_summary=(t.flavor_summary if t else "") or "",
+            adaptation_note=t.adaptation_note if t else None,
+            flagged=bool(t.flagged) if t else False,
         ))
     return out
 
