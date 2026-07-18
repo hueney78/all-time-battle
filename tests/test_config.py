@@ -48,7 +48,7 @@ def test_settings_timers():
 
 def test_settings_game():
     s = load_settings()
-    assert s.game.max_players == 6
+    assert s.game.max_players == 8
     assert s.game.min_players == 2
 
 

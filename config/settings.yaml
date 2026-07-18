@@ -3,7 +3,7 @@ server:
   port: 8000
 
 game:
-  max_players: 6
+  max_players: 8
   min_players: 2
   room_code_length: 4
   montage_every_rounds: 3   # Power-Up Montage cadence (GAME_DESIGN §10.1)

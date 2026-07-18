@@ -44,7 +44,7 @@ class ServerConfig(BaseModel):
 
 
 class GameConfig(BaseModel):
-    max_players: int = 6
+    max_players: int = 8
     min_players: int = 2
     room_code_length: int = 4
     montage_every_rounds: int = 3   # 0 disables the Power-Up Montage
