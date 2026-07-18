@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**Doodle Brawl** — a local-network couch party game where players sketch heroes on phones, an AI assigns stats and writes narration, and a deterministic server engine resolves all mechanics. 2–6 players, Jackbox-style (phones + one shared TV browser).
+**Doodle Brawl** — a local-network couch party game where players sketch heroes on phones, an AI assigns stats and writes narration, and a deterministic server engine resolves all mechanics. 2–8 players, Jackbox-style (phones + one shared TV browser).
 
 Read `ARCHITECTURE.md` and `GAME_DESIGN.md` before writing code. They are the spec.
 

@@ -4,7 +4,7 @@
 
 Doodle Brawl is a couch party game where your family's terrible drawings come to life and beat the snot out of each other. Players sketch heroes on their phones; an AI game master assigns stats and announces them like a wrestling promoter. Teams then battle by drawing their moves each round — the AI judges how creative each drawing is, that creativity decides how hard it lands, and a fresh comedic narrative recounts every devastating blow and last-second save.
 
-- **Players:** 2–6, two teams, phones + one shared screen (LAN, Jackbox-style)
+- **Players:** 2–8, two teams, phones + one shared screen (LAN, Jackbox-style)
 - **Session length target:** 15–25 minutes
 - **Tone:** family-friendly, chaotic, funny. The AI is a hype-man, never mean.
 
@@ -32,7 +32,7 @@ Three stats, each **0–6**, assigned by the AI from the character drawing on a 
 
 Derived (formulas in `balance.yaml`): `HP = 27 + 2 × Power + Weird + ⌊Speed / 2⌋` (27–45). There is **no AC, no attack roll, and no dodge** (§5) — every move lands. Each stat drives exactly two moves, and **the phone shows the math** on every button ("SMASH — 2d4 + 8"), so stat identity is visible each round.
 
-Balance note (v5 sim): the three specialists form a clean rock-paper-scissors — Speed edges Power, Power beats Weird, Weird beats Speed — and a balanced 3/3/3 build beats Power and Weird but loses to Speed. No stat is a dump stat, and no build is a trap.
+Balance note: the three specialists form a clean rock-paper-scissors — Speed edges Power, Power beats Weird, Weird beats Speed — and a balanced 3/3/3 build beats Power and Weird but loses to Speed. No stat is a dump stat, and no build is a trap.
 
 AI also returns a one-line personality and an announcer intro, plus a **funny character name capped at two words** (three only if the middle word is a connector like "of" or "the" — "Gerald the Buff," "Duke of Spikes"). The announcers say these names constantly, so longer ones become a mouthful; grand for elaborate drawings, deadpan for bland ones (a plain circle with eyes gets "Tim").
 
@@ -153,15 +153,15 @@ rules:
 ```
 The resolver reads `modifiers` generically (any key it knows: `damage_bonus`, `incoming_damage_bonus`, `heal_bonus`, `entry_cost`, `capacity`). Unknown keys log a warning. The zone list, names, and adjacency are also injected into the AI prompts automatically so classification understands the arena.
 
-## 7. Conditions: Removed (design note)
+## 7. No Status Conditions (by design)
 
-Earlier versions had a condition system (burning, sticky, frightened, …). Playtesting showed it complicated play and bloated the announcing without earning its keep, so **v2.1 removes conditions entirely**: no registry, no ticks, no status emojis. Everything a condition used to do is now either direct (damage, healing, PROTECT's shield) or narrative — the announcers can still *say* someone is soggy and embarrassed; it just doesn't need rules.
+Doodle Brawl has no status-effect system (no burning/stunned/etc.), and this is deliberate: it keeps play fast and the announcing clean. Everything is either direct (damage, healing, PROTECT's reflect shield) or purely narrative — the announcers can still *say* a character is soggy and rattled; it simply carries no rules. If a future version wants a status effect, add it sparingly and only where it earns the extra announcing.
 
 ## 8. Creativity, Combos & Variety
 
 - **Creativity tiers** (AI-assigned from the drawing, server-capped): 0 (+0), 1 (+1), 2 (+3), 3 (+5 “DEVASTATING”), added **directly to the move's effectiveness** (there is no roll to add to). Tier 3 triggers the spike-moment presentation. The prompt instructs: judge *idea* creativity, not drawing skill. Creativity is now the drawing's entire mechanical contribution, which keeps the sketching central even though moves are tapped. PROTECT heals more with a better drawing (creativity adds to the heal) — support players earn potency by drawing well.
 - **Drawing staleness:** re-submitting essentially the same drawing concept as your last round scores creativity 0 (`similar_to_previous`) — variety in *art*, while the no-repeat button rule (§4) forces variety in *moves*.
-- **Combos:** with every move single-target, combos are pure drawing synergy — the AI checks teammate drawings for intentional connection (`combo: {partners, concept, combo_name}`). Since moves are individually tapped, a combo no longer fuses actions — instead **both partners gain +1 effective creativity tier** (bigger effect, and more likely to hit DEVASTATING) and the narrator merges their beats into one named spectacle ("GLITTERNADO SURF STRIKE"). Each partner's move still resolves on its own target — combos amplify, they never merge effects. Couch-whispering stays the metagame, without new rules to track.
+- **Combos:** with every move single-target, combos are pure drawing synergy — the AI checks teammate drawings for intentional connection (`combo: {partners, concept, combo_name}`). A combo does not fuse actions — instead **both partners gain +1 effective creativity tier** (bigger effect, and more likely to hit DEVASTATING) and the narrator merges their beats into one named spectacle ("GLITTERNADO SURF STRIKE"). Each partner's move still resolves on its own target — combos amplify, they never merge effects. Couch-whispering stays the metagame, without new rules to track.
 - **Rubber-banding (optional, on by default for kids):** losing team gets `underdog_bonus: +1` when down ≥ 2 characters' worth of HP share. Config flag.
 
 ## 9. Intent Adaptation (adapt, never reject)
@@ -182,7 +182,7 @@ Every `montage_every_rounds: 3` rounds, after that round's reveal, surviving pla
 
 ### 10.2 Victory: Awards Ceremony & Match Poster
 
-When a team wins, the host plays the finale, then an **awards ceremony**: one extra narration call (`generate_awards`, Sonnet) receives the match summary — creativity tiers, fumbles, combos, best beats, drawing references — and returns 5–7 superlatives (`{title, player_id, blurb}`), displayed one at a time with the winning drawing enlarged. Hard prompt rules: **every player receives at least one award**, losing team included; titles are affectionate, never mocking ("Fumble of the Match" celebrates the comedy, not the failure). Suggested palette: Most Creative Doodle, Fumble of the Match, Best Combo Name, Crowd Favorite (from the audience meter), Bravest Use of a Household Object.
+When a team wins, the host first shows a **victory splash screen**: the winning **team name** in huge display type, the winning **characters' sprites** side by side, the announcers' **final commentary line** of the match (the last narration beat of the deciding blow), and a footer line — *“🏆 The judges are deciding awards…”*. This splash **stays up until the awards are ready** (it masks the `generate_awards` call the same way the deliberation interlude masks a round), then transitions into the ceremony. Then the **awards ceremony**: one extra narration call (`generate_awards`, Sonnet) receives the match summary — creativity tiers, fumbles, combos, best beats, drawing references — and returns 5–7 superlatives (`{title, player_id, blurb}`), displayed one at a time with the winning drawing enlarged. Hard prompt rules: **every player receives at least one award**, losing team included; titles are affectionate, never mocking ("Fumble of the Match" celebrates the comedy, not the failure). Suggested palette: Most Creative Doodle, Fumble of the Match, Best Combo Name, Crowd Favorite (from the audience meter), Bravest Use of a Household Object.
 
 The server then composes a **match poster** (Pillow): arena background, final character sprites, team names and score, the round titles, and the match's best narrated line — saved to `snapshots/<room>/poster.png` and offered on the victory screen as a download/QR. A season of game nights becomes a scrapbook.
 
@@ -229,6 +229,18 @@ Each template receives: rules summary, zone list, compact state, and hard instru
 - **Never reference mechanics:** no “rolls,” “dice,” “modifiers,” “DCs,” “AC,” “hit chance,” or “creativity score” in narration. Describe the battle as if watching it live — a big hit is devastating, a shield swallows the blow and stings the attacker back, a trap springs
 - Keep beats tight (1–3 sentences) — funny dies in paragraphs
 - **One move = one beat:** CHARGE and ESCAPE cover movement and attack in a single beat, never two lines
+
+**Inside-joke lore (`config/lore.yaml`).** A player-editable list of family in-jokes — terms with definitions — that the AI may **occasionally** weave into announcer commentary and character intros, so the game speaks your household's language. Format:
+```yaml
+# config/lore.yaml — add your own; leave empty to disable.
+lore:
+  - term: "the Kevin Special"
+    definition: "any move that looks cool but accomplishes nothing"
+  - term: "grandma rules"
+    definition: "when someone wins by doing the most boring safe thing"
+usage: occasional        # how often to lean on lore: never | occasional | frequent
+```
+A few random entries are injected into the narrate/intro prompt each call with instructions to use them **sparingly and only when they fit naturally** — never forced. Empty file = feature off. This preserves the AI's own witty commentary (which stays the default voice) and just seasons it with home references.
 
 **The announcer duo.** The narrator writes as two personalities bantering: an over-caffeinated **play-by-play announcer** and a deadpan **color commentator** ("A bold strategy from Sir Lawnmower." "It is not."). Each beat carries an optional `speaker: "pbp" | "color"` field so the host can style them differently (and, later, give them different TTS voices). Persona descriptions live in the narrate template — editable text like everything else — and the duo also delivers character intros and the awards ceremony, giving the whole match one consistent broadcast voice.
 
@@ -284,6 +296,6 @@ Seed `42`, 2v2 fixture: Stabby (P1/S5/W3 → HP 34) and Gerald (P3/S1/W5 → HP 
 
 Want faster games? Lower `hp_base`. Too swingy? Reduce `creativity_tier_3` from +5→+4. PROTECT too strong? Lower `reflect_per_weird` (5%→4%) or its cap. Kids losing? Raise `underdog_bonus`. One move dominating playtests? Its whole formula is one line in moves.yaml. Every knob named in this doc exists in `balance.yaml` with a comment. Change YAML → start a new room → new rules apply. After each game night, skim the **flavor log** (`snapshots/<room>/flavor.jsonl`) — recurring notes about drawings that didn't fit any of the five moves are your signal for what the catalog might be missing.
 
-## 15. Legacy: The Doodle Crowd (Phase 8)
+## 15. The Doodle Crowd (cross-session legacy)
 
 Every character ever drawn persists to a `gallery/` folder (PNG + AI-given name + match record; plain files, no database). When `gallery_enabled: true`, the host renders a rotating handful of past characters as **tiny spectators in the colosseum stands**, and the narrate prompt receives 2–3 random gallery names each round so the announcers can drop cameos ("Princess Stabby watches from the stands. She is judging."). New players literally see the family history they're joining, and every match adds to the crowd. Gallery entries can be deleted by removing files; a config cap keeps the stands from becoming a mob.
