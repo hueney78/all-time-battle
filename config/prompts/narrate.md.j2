@@ -53,5 +53,9 @@ OUTPUT: a list of `beats`, each tagging the primary `event_id` it narrates, its
 `text`, its `speaker` ("pbp" or "color"), and optional `mood`; then a short
 punchy `round_title`. Only reference event_ids that were given to you.
 Family-friendly always.
-
+{% if lore %}
+FAMILY IN-JOKES ({{ lore_usage }} — season, never force): you MAY nod to ONE of
+these household references when it fits a beat naturally; skip them otherwise:
+{% for l in lore %}- "{{ l.term }}": {{ l.definition }}
+{% endfor %}{% endif %}
 Return ONLY the tool call.

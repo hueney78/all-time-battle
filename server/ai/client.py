@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 from pathlib import Path
 from typing import Any
 
@@ -64,7 +65,14 @@ class LiveAI:
         self.client = client
 
         env = Environment(loader=FileSystemLoader(str(_PROMPTS_DIR)), autoescape=False)
-        self._sys_chargen = env.get_template("character_gen.md.j2").render(balance=rules.balance)
+        # Family in-jokes (GAME_DESIGN §11.3): a fixed per-room sample baked into
+        # the narrate / character-intro / awards system prompts. Sampling once
+        # keeps the prompts stable across a game's calls (prompt caching intact)
+        # while differing room to room.
+        lore = _lore_sample(rules.lore)
+        lore_usage = rules.lore.usage
+        self._sys_chargen = env.get_template("character_gen.md.j2").render(
+            balance=rules.balance, lore=lore, lore_usage=lore_usage)
         self._sys_classify = env.get_template("action_classify.md.j2").render(
             moves=rules.moves.moves,
             zones=rules.zones.zones,
@@ -73,8 +81,10 @@ class LiveAI:
             zones=rules.zones.zones,
         )
         self._sys_montage = env.get_template("montage_classify.md.j2").render()
-        self._sys_narrate = env.get_template("narrate.md.j2").render()
-        self._sys_awards = env.get_template("awards.md.j2").render()
+        self._sys_narrate = env.get_template("narrate.md.j2").render(
+            lore=lore, lore_usage=lore_usage)
+        self._sys_awards = env.get_template("awards.md.j2").render(
+            lore=lore, lore_usage=lore_usage)
 
         # cost/telemetry + degraded state (read by the state machine for a banner)
         self._cost = 0.0
@@ -313,6 +323,19 @@ class LiveAI:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+def _lore_sample(lore_cfg) -> list:
+    """A fixed sample of family in-jokes for a room's prompts (GAME_DESIGN
+    §11.3). usage: never → none; occasional → up to 3; frequent → up to 6.
+    Sampled once per LiveAI (per room) so it stays stable across the game's
+    calls yet varies between rooms."""
+    usage = (getattr(lore_cfg, "usage", "occasional") or "occasional").lower()
+    entries = list(getattr(lore_cfg, "lore", []) or [])
+    if usage == "never" or not entries:
+        return []
+    n = {"occasional": 3, "frequent": 6}.get(usage, 3)
+    return entries if len(entries) <= n else random.sample(entries, n)
+
+
 def _image_block(data_url: str) -> dict | None:
     data = (data_url or "").strip()
     if not data:

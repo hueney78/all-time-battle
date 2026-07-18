@@ -184,6 +184,33 @@ def test_narrate_fallback_uses_template():
     assert ai.degraded is True
 
 
+def test_lore_sampled_into_narrate_chargen_awards_prompts():
+    """A configured in-joke reaches the narrate / character-intro / awards
+    system prompts (GAME_DESIGN §11.3), but never the judging prompts."""
+    from server.config import LoreConfig, LoreEntry
+    rules = RULES.model_copy(update={"lore": LoreConfig(
+        lore=[LoreEntry(term="the Kevin Special", definition="looks cool, does nothing")],
+        usage="occasional")})
+    ai = LiveAI(rules, client=FakeAnthropic([{"beats": [], "round_title": "x"}]))
+    assert "the Kevin Special" in ai._sys_narrate
+    assert "the Kevin Special" in ai._sys_chargen
+    assert "the Kevin Special" in ai._sys_awards
+    # Judging calls stay lean — lore is for narration/intros/awards only.
+    assert "Kevin Special" not in ai._sys_classify
+    assert "Kevin Special" not in ai._sys_gremlin
+
+
+def test_lore_usage_never_injects_nothing():
+    """usage: never (or an empty file) keeps every prompt lore-free."""
+    from server.config import LoreConfig, LoreEntry
+    rules = RULES.model_copy(update={"lore": LoreConfig(
+        lore=[LoreEntry(term="the Kevin Special", definition="x")], usage="never")})
+    ai = LiveAI(rules, client=FakeAnthropic([{"beats": [], "round_title": "x"}]))
+    assert "Kevin Special" not in ai._sys_narrate
+    assert "Kevin Special" not in ai._sys_chargen
+    assert "Kevin Special" not in ai._sys_awards
+
+
 def test_narrate_parses_speaker_per_beat():
     """The announcer duo comes through structured: each beat keeps its voice."""
     script = [{"round_title": "Boom", "beats": [

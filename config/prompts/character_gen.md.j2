@@ -36,5 +36,9 @@ TEAM NAMES — the same response names BOTH teams (`teams.team_a`,
 
 FAMILY-FRIENDLY: if a drawing or hint is inappropriate, set `flagged: true` and
 give a tame, silly name instead.
-
+{% if lore %}
+FAMILY IN-JOKES ({{ lore_usage }} — season, never force): you MAY nod to ONE of
+these household references in an `announcer_intro` when it fits naturally:
+{% for l in lore %}- "{{ l.term }}": {{ l.definition }}
+{% endfor %}{% endif %}
 Return ONLY the tool call, with one entry per player.

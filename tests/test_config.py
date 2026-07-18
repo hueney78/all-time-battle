@@ -15,6 +15,7 @@ import server.config as cfg_mod
 from server.config import (
     load_balance,
     load_game_rules,
+    load_lore,
     load_moves,
     load_settings,
     load_zones,
@@ -66,6 +67,21 @@ def test_settings_gallery():
     assert s.gallery.dir == "gallery"
     assert s.gallery.cap == 60
     assert s.gallery.cameo_count == 3
+
+
+def test_lore_config_loads():
+    """Optional family in-jokes (GAME_DESIGN §11.3): the file loads, usage is a
+    known level, and every entry carries a term."""
+    lore = load_lore()
+    assert lore.usage in ("never", "occasional", "frequent")
+    assert isinstance(lore.lore, list)
+    assert all(e.term for e in lore.lore)
+
+
+def test_game_rules_bundles_lore():
+    """load_game_rules exposes lore alongside settings/balance/zones/moves."""
+    rules = load_game_rules()
+    assert rules.lore.usage in ("never", "occasional", "frequent")
 
 
 def test_settings_ui_tokens():

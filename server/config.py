@@ -344,6 +344,35 @@ def load_moves(config_dir: Path | None = None) -> MovesConfig:
 
 
 # ---------------------------------------------------------------------------
+# lore.yaml — optional family in-jokes (GAME_DESIGN §11.3)
+# ---------------------------------------------------------------------------
+
+
+class LoreEntry(BaseModel):
+    term: str
+    definition: str = ""
+
+
+class LoreConfig(BaseModel):
+    """Household in-jokes the announcers may weave in sparingly (GAME_DESIGN
+    §11.3). A fixed sample is injected into the narrate / character-intro /
+    awards prompts. Empty `lore` (or usage: never) disables the feature."""
+
+    lore: list[LoreEntry] = []
+    usage: str = "occasional"   # never | occasional | frequent
+
+
+def load_lore(config_dir: Path | None = None) -> LoreConfig:
+    """Load lore.yaml. The file is optional — a missing one just means the
+    in-joke feature is off."""
+    try:
+        data = _load_yaml("lore.yaml", config_dir)
+    except FileNotFoundError:
+        return LoreConfig()
+    return _parse(LoreConfig, data, "lore.yaml")
+
+
+# ---------------------------------------------------------------------------
 # Bundle — passed to resolver and AI layer
 # ---------------------------------------------------------------------------
 
@@ -353,6 +382,7 @@ class GameRules(BaseModel):
     balance: Balance
     zones: ZonesConfig
     moves: MovesConfig
+    lore: LoreConfig = LoreConfig()
 
 
 def load_game_rules(config_dir: Path | None = None) -> GameRules:
@@ -361,4 +391,5 @@ def load_game_rules(config_dir: Path | None = None) -> GameRules:
         balance=load_balance(config_dir),
         zones=load_zones(config_dir),
         moves=load_moves(config_dir),
+        lore=load_lore(config_dir),
     )

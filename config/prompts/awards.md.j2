@@ -21,4 +21,9 @@ of the Match, Best Combo Name, Crowd Favorite, Bravest Use of a Household
 Object, Heart of a Champion.
 
 Each award carries a `title`, the winning `player_id`, and a one-line `blurb`.
+{% if lore %}
+FAMILY IN-JOKES ({{ lore_usage }} — season, never force): you MAY nod to ONE of
+these household references in a blurb when it fits naturally:
+{% for l in lore %}- "{{ l.term }}": {{ l.definition }}
+{% endfor %}{% endif %}
 Return ONLY the tool call.

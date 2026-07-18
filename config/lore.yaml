@@ -1,0 +1,13 @@
+# config/lore.yaml — optional family in-jokes the announcers may sprinkle in
+# (GAME_DESIGN §11.3). Replace these examples with your household's own terms;
+# leave `lore:` empty (or set `usage: never`) to turn the feature off entirely.
+# A few entries are sampled into each game's narrate / character-intro / awards
+# prompts with instructions to use them sparingly and only when they fit.
+#
+# usage: how much lore to lean on — never | occasional | frequent
+lore:
+  - term: "the Kevin Special"
+    definition: "any move that looks cool but accomplishes nothing"
+  - term: "grandma rules"
+    definition: "when someone wins by doing the most boring safe thing"
+usage: occasional
