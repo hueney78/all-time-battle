@@ -972,6 +972,23 @@ class GameStateMachine:
                 totals[tid] = totals.get(tid, 0.0) + v
         return self._fraction_b(totals) if totals else 0.5
 
+    def _victory_splash_payload(self, winner: str) -> dict:
+        """The champions + the match's final commentary line, shown the instant a
+        team wins while the awards call runs behind it (GAME_DESIGN §10.2). The
+        host holds it at least `min_seconds` before the ceremony begins."""
+        ui = self.rules.settings.ui
+        winner_name = next((t.name for t in self.room.teams if t.id == winner), None)
+        champions = [c for c in self._character_deltas(include_png=True)
+                     if c.get("team_id") == winner]
+        return {
+            "winner_team_id": winner,
+            "winner_team_name": winner_name,
+            "footer": ui.victory_splash_footer,
+            "final_line": self._best_line,
+            "min_seconds": ui.victory_splash_min_seconds,
+            "characters": champions,
+        }
+
     async def _game_over(self) -> None:
         self._phase = "game_over"
         winner = self.state.winner_team_id if self.state else None
@@ -982,6 +999,10 @@ class GameStateMachine:
             await asyncio.to_thread(self.gallery.save_match, self._gallery_entries())
         # Only a real victory earns the ceremony (a crashed loop leaves winner unset).
         if winner and self.state is not None:
+            # Victory splash (GAME_DESIGN §10.2): reveal the champions immediately;
+            # it masks the awards call the way the deliberation interlude masks a
+            # round. GAME_OVER (below) then transitions the host to the ceremony.
+            await self.room.broadcast(S2C.VICTORY_SPLASH, self._victory_splash_payload(winner))
             summary = self._build_match_summary()
             awards = await asyncio.to_thread(self.ai.generate_awards, summary)
             poster_path = await asyncio.to_thread(self._compose_poster, summary)

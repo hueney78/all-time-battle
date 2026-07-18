@@ -1209,6 +1209,46 @@ async def test_game_over_carries_awards_and_poster(tmp_path):
     assert all("png" in c for c in pay["characters"])
 
 
+async def test_victory_splash_precedes_awards_ceremony():
+    """A real win shows the champions (winner-team sprites + final line) BEFORE
+    the awards ceremony, masking the generate_awards call (GAME_DESIGN §10.2)."""
+    rules = _rules()
+    room = Room("VIC", rules)
+    a = room.add_player("A", "player", FakeSocket(), None)
+    b = room.add_player("B", "player", FakeSocket(), None)
+    machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
+    machine._best_line = "And Blob hits the sand!"
+    ca = Character(player_id=a.id, name="A", stats=Stats(power=2, speed=2, weird=2),
+                   hp=20, max_hp=20, zone_id="glitter_back")
+    cb = Character(player_id=b.id, name="B", stats=Stats(power=2, speed=2, weird=2),
+                   hp=0, max_hp=20, zone_id="thunder_back", is_ko=True)
+    machine.state = GameState(room_id="VIC", characters={a.id: ca, b.id: cb},
+                              teams=room.teams, winner_team_id="team_a")
+
+    await machine._game_over()
+
+    sock = room.participants[a.id].socket
+    types, splash, over = [], None, None
+    for _ in range(10):
+        e = await asyncio.wait_for(sock.client_recv(), 1.0)
+        types.append(e.type)
+        if e.type == "victory_splash":
+            splash = e
+        if e.type == "game_over":
+            over = e
+            break
+    assert splash is not None and over is not None
+    assert types.index("victory_splash") < types.index("game_over")   # champions first
+    p = splash.payload
+    assert p["winner_team_id"] == "team_a"
+    assert p["winner_team_name"] == "Team A"           # display name, not raw id
+    assert p["final_line"] == "And Blob hits the sand!"
+    assert p["footer"] and p["min_seconds"] >= 0        # editable copy + client hold
+    # only the winning team's fighters, each with a sprite for the splash
+    assert {c["player_id"] for c in p["characters"]} == {a.id}
+    assert all("png" in c for c in p["characters"])
+
+
 async def test_game_over_without_winner_skips_ceremony():
     """A crash/no-winner finale still sends game_over — just no awards/poster."""
     rules = _rules()

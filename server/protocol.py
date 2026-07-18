@@ -77,6 +77,11 @@ class S2C:
     MONTAGE = "montage_reveal"    # Power-Up Montage stat pulses (S2)
     GALLERY = "gallery_roster"    # past characters for the host stands (S4)
     PLAYER_STATE = "player_state"
+    # Victory splash (GAME_DESIGN §10.2): champions + final line shown the moment
+    # a team wins, masking the generate_awards call before GAME_OVER (the awards
+    # ceremony) arrives. Payload: {winner_team_id, winner_team_name, footer,
+    # final_line, characters}.
+    VICTORY_SPLASH = "victory_splash"
     GAME_OVER = "game_over"
     ERROR = "error"
     TOAST = "toast"

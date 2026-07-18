@@ -300,6 +300,22 @@
       transform:rotate(-2deg); animation:splashin .5s cubic-bezier(.5,1.7,.4,1)}
     @keyframes splashin{from{transform:scale(.3) rotate(-8deg); opacity:0}}
 
+    /* victory splash [§10.2: champions held on screen while awards compute] */
+    #victorySplash{position:fixed; inset:0; z-index:56; display:none; place-items:center;
+      background:#2B2338ee; text-align:center; padding:30px}
+    #victorySplash.show{display:grid}
+    #victorySplash .vcard{animation:splashin .6s cubic-bezier(.5,1.7,.4,1)}
+    #victorySplash .vwin{font-family:'Titan One'; font-size:22px; color:#fff; letter-spacing:2px}
+    #victorySplash .vteam{font-family:'Titan One',cursive; font-size:56px; line-height:1.05;
+      color:var(--gold); -webkit-text-stroke:2px var(--ink)}
+    #victorySplash .vsprites{display:flex; gap:24px; justify-content:center; margin:16px 0 4px; flex-wrap:wrap}
+    #victorySplash .vsprite{width:150px; height:150px; background:var(--sand) center/contain no-repeat;
+      border:4px solid var(--ink); border-radius:16px}
+    #victorySplash .vname{font-weight:900; margin-top:6px; color:#fff; font-size:15px}
+    #victorySplash .vline{font-style:italic; font-weight:700; color:#fff; max-width:680px;
+      margin:10px auto 0; font-size:20px}
+    #victorySplash .vfoot{font-weight:900; color:var(--gold); margin-top:20px; font-size:18px}
+
     /* transient AI status toast (e.g. "AI is napping — chaos mode") */
     #toast{position:fixed; top:10px; left:50%; transform:translateX(-50%) translateY(-140%);
       background:var(--gold); color:var(--ink); border:3px solid var(--ink); border-radius:14px;
@@ -312,6 +328,13 @@
   <div id="banner">Reconnecting…</div>
   <div id="toast"></div>
   <div id="phaseSplash"><span class="stext"></span></div>
+  <div id="victorySplash"><div class="vcard">
+    <div class="vwin">🏆 WINNER 🏆</div>
+    <div class="vteam" id="vTeam"></div>
+    <div class="vsprites" id="vSprites"></div>
+    <div class="vline" id="vLine"></div>
+    <div class="vfoot" id="vFoot"></div>
+  </div></div>
 
   <section id="lobby">
     <h1>Doodle Brawl</h1>
@@ -921,6 +944,27 @@
       }
     }
 
+    // ---- victory splash (§10.2): champions shown the instant a team wins,
+    // held at least min_seconds while generate_awards runs, then the ceremony.
+    let victoryShownAt = 0, victoryMinMs = 0;
+    function showVictorySplash(p) {
+      victoryShownAt = Date.now();
+      victoryMinMs = (p.min_seconds || 3) * 1000;
+      (p.characters || []).forEach(upsert);
+      $('vTeam').textContent = p.winner_team_name || teamNames[p.winner_team_id] || 'The Champions';
+      $('vLine').textContent = p.final_line || '';
+      $('vFoot').textContent = p.footer || '';
+      $('vSprites').innerHTML = (p.characters || []).map(c => {
+        const pic = c.sprite_png || c.png || '';
+        return '<div><div class="vsprite" style="background-image:'
+          + (pic ? 'url(' + pic + ')' : 'none') + '"></div>'
+          + '<div class="vname">' + (c.name || '') + '</div></div>';
+      }).join('');
+      $('victorySplash').classList.add('show');
+      if (audio) audio.play(STING.devastating);   // crowd roar for the champions
+    }
+    function hideVictorySplash() { $('victorySplash').classList.remove('show'); }
+
     // Arena snapshots re-render the battlefield + rail; the montage showcase
     // holds them back so the final state doesn't spoil the beat-by-beat play.
     function applyArena(payload) {
@@ -982,8 +1026,15 @@
         runMontage(m.payload);
       } else if (m.type === 'reveal_step') {
         runReveal(m.payload);
+      } else if (m.type === 'victory_splash') {
+        showVictorySplash(m.payload);
       } else if (m.type === 'game_over') {
-        runCeremony(m.payload);
+        // Hold the champions at least min_seconds (even if awards returned
+        // instantly), then transition into the ceremony. No splash shown
+        // (a no-winner finale) → run immediately.
+        const wait = victoryShownAt
+          ? Math.max(0, victoryMinMs - (Date.now() - victoryShownAt)) : 0;
+        setTimeout(() => { hideVictorySplash(); runCeremony(m.payload); }, wait);
       } else if (m.type === 'gallery_roster') {
         // The Doodle Crowd (S4/§15): past characters fill the stands.
         arena.setSpectators(m.payload.spectators || []);

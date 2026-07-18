@@ -193,6 +193,11 @@ class UIConfig(BaseModel):
     float_number_seconds: float = 1.5
     audience_recent_rounds: int = 3
     combo_splash_seconds: float = 2.0
+    # Victory splash (GAME_DESIGN §10.2): footer copy + the minimum time the
+    # champions hold the screen before the awards ceremony begins (a client-side
+    # floor so the splash is savored even when the awards call returns instantly).
+    victory_splash_footer: str = "🏆 The judges are deciding awards…"
+    victory_splash_min_seconds: float = 3.0
     how_to_play: HowToPlayConfig = HowToPlayConfig()
     stands: StandsConfig = StandsConfig()
     readout: ReadoutConfig = ReadoutConfig()

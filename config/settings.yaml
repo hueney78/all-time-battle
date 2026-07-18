@@ -49,6 +49,9 @@ ui:
   float_number_seconds: 2.5            # floating damage/heal number lifetime
   audience_recent_rounds: 3            # Crowd Favorite meter recency window (rounds)
   combo_splash_seconds: 2.0            # how long the COMBO! splash holds on screen
+  victory_splash_footer: "🏆 The judges are deciding awards…"   # §10.2 splash footer
+  victory_splash_min_seconds: 3.0      # min time the champions hold the screen before
+                                       # the awards ceremony (masks the awards call)
   how_to_play:                         # lobby rules (§13): host lobby panel beside the QR,
                                        # + condensed on the player waiting screen. Fully editable.
     title: "How to Play"
