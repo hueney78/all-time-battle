@@ -44,8 +44,9 @@ h1,h2,.display{font-family:'Titan One',cursive;letter-spacing:.5px}
   border-radius:50%;background:var(--ink);color:#fff;font-weight:900;font-size:11px;
   display:grid;place-items:center}
 .rail .who{font-weight:900;font-size:11px;line-height:1}
-.stats{display:flex;gap:5px;font-size:10.5px;font-weight:900;margin-top:2px}
-.stats span{background:#F1EADB;border-radius:7px;padding:1px 4px}
+.stats{display:flex;gap:4px;font-size:10.5px;font-weight:900;margin-top:3px}
+.stats span{background:#F1EADB;border-radius:7px;padding:1px 0;width:26px;text-align:center;
+  display:inline-flex;align-items:center;justify-content:center;gap:2px;line-height:1.4}
 .team-a{box-shadow:inset 4px 0 0 var(--glitter)}
 .team-b{box-shadow:inset 4px 0 0 var(--thunder)}
 .pulse{animation:statpulse 1.6s ease-in-out infinite}
@@ -105,6 +106,11 @@ h1,h2,.display{font-family:'Titan One',cursive;letter-spacing:.5px}
 .hit svg{animation:shake .5s infinite}
 .hit{outline:4px solid var(--dmg);outline-offset:4px;border-radius:14px}
 .helped{outline:4px solid var(--posit);outline-offset:4px;border-radius:14px}
+/* PROTECT blue glow persists on the shielded ally for the whole round */
+.shielded{filter:drop-shadow(0 0 7px var(--posit)) drop-shadow(0 0 12px var(--posit))}
+/* action badge shown under a fighter once their move is revealed */
+.actionbadge{font-family:'Titan One';font-size:9.5px;background:var(--ink);color:#fff;
+  border-radius:8px;padding:1px 7px;margin-top:2px;display:inline-block;letter-spacing:.3px}
 .helped svg{animation:pop 1.4s ease-in-out infinite}
 @keyframes shake{25%{transform:translateX(-4px) rotate(-2deg)}75%{transform:translateX(4px) rotate(2deg)}}
 @keyframes pop{30%{transform:scale(1.14)}55%{transform:scale(1)}}
@@ -166,22 +172,22 @@ footer{grid-column:1/-1;font-size:11px;font-weight:700;opacity:.6;text-align:cen
   <div class="slot team-a"><span class="order">1</span>
     <svg class="portrait" viewBox="0 0 60 60"><path d="M14 44 Q10 24 26 18 Q44 12 48 30 Q50 44 34 47 Q20 50 14 44Z" fill="#F7C8E2" stroke="#2B2338" stroke-width="3"/><path d="M30 18 L38 4 L41 20" fill="#fff" stroke="#2B2338" stroke-width="2.5"/><path d="M38 4 L38 -2" stroke="#8b8b8b" stroke-width="3"/><circle cx="24" cy="30" r="2.6" fill="#2B2338"/><circle cx="36" cy="30" r="2.6" fill="#2B2338"/><path d="M24 39 Q30 43 36 39" stroke="#2B2338" stroke-width="2.5" fill="none"/></svg>
     <div><div class="who">P. Stabby</div>
-      <div class="stats"><span>💪2</span><span>⚡3</span><span>🌀4</span></div></div>
+      <div class="stats"><span>💪 2</span><span>⚡ 3</span><span>🌀 4</span></div></div>
   </div>
   <div class="slot team-b"><span class="order">2</span>
     <svg class="portrait" viewBox="0 0 60 60"><path d="M10 34 Q14 12 34 14 Q52 16 50 34 Q48 50 30 50 Q12 50 10 34Z" fill="#B9E27A" stroke="#2B2338" stroke-width="3" stroke-dasharray="4 2"/><circle cx="22" cy="28" r="3" fill="#2B2338"/><circle cx="33" cy="24" r="3" fill="#2B2338"/><circle cx="42" cy="30" r="3" fill="#2B2338"/><path d="M22 40 Q30 36 40 41" stroke="#2B2338" stroke-width="2.5" fill="none"/></svg>
     <div><div class="who">The Blob</div>
-      <div class="stats"><span>💪1</span><span>⚡2</span><span>🌀4</span></div></div>
+      <div class="stats"><span>💪 1</span><span>⚡ 2</span><span>🌀 4</span></div></div>
   </div>
   <div class="slot team-b"><span class="order">3</span>
     <svg class="portrait" viewBox="0 0 60 60"><rect x="14" y="30" width="34" height="16" rx="5" fill="#9AA7B8" stroke="#2B2338" stroke-width="3"/><circle cx="20" cy="48" r="6" fill="#2B2338"/><circle cx="42" cy="48" r="6" fill="#2B2338"/><path d="M24 30 Q24 12 34 12 Q40 12 40 30" fill="#D7DEE8" stroke="#2B2338" stroke-width="3"/><rect x="28" y="18" width="10" height="4" fill="#2B2338"/></svg>
     <div><div class="who">Sir Lawnm.</div>
-      <div class="stats"><span class="pulse">💪4</span><span>⚡2</span><span>🌀1</span></div></div>
+      <div class="stats"><span class="pulse">💪 4</span><span>⚡ 2</span><span>🌀 1</span></div></div>
   </div>
   <div class="slot team-a"><span class="order">4</span>
     <svg class="portrait" viewBox="0 0 60 60"><ellipse cx="30" cy="30" rx="17" ry="13" fill="#FFB84D" stroke="#2B2338" stroke-width="3"/><path d="M45 30 L56 22 L56 38 Z" fill="#FFB84D" stroke="#2B2338" stroke-width="3"/><circle cx="24" cy="27" r="2.8" fill="#2B2338"/><path d="M18 34 Q22 37 26 34" stroke="#2B2338" stroke-width="2.5" fill="none"/><path d="M22 43 L20 52 M30 43 L30 52" stroke="#2B2338" stroke-width="3"/></svg>
     <div><div class="who">Gerald</div>
-      <div class="stats"><span>💪3</span><span>⚡1</span><span>🌀3</span></div></div>
+      <div class="stats"><span>💪 3</span><span>⚡ 1</span><span>🌀 3</span></div></div>
   </div>
 </aside>
 
@@ -198,11 +204,12 @@ footer{grid-column:1/-1;font-size:11px;font-weight:700;opacity:.6;text-align:cen
     <div class="zones">
       <div class="zone"><span class="zonelabel" style="border-color:var(--glitter)">🏠 Glitter Backline</span>
         <!-- Gerald: positive impact [blue border + pop] + green heal float -->
-        <div class="fighter helped">
+        <div class="fighter helped shielded">
           <span class="floatnum heal">+6</span>
           <svg viewBox="0 0 60 60"><ellipse cx="30" cy="30" rx="17" ry="13" fill="#FFB84D" stroke="#2B2338" stroke-width="3"/><path d="M45 30 L56 22 L56 38 Z" fill="#FFB84D" stroke="#2B2338" stroke-width="3"/><circle cx="24" cy="27" r="2.8" fill="#2B2338"/><path d="M18 34 Q22 37 26 34" stroke="#2B2338" stroke-width="2.5" fill="none"/><path d="M14 20 Q10 14 16 12 M46 44 L52 50" stroke="#2B2338" stroke-width="3" fill="none"/><path d="M22 43 L20 52 M30 43 L30 52 M38 43 L38 52" stroke="#2B2338" stroke-width="3"/></svg>
           <div class="stars">⭐</div>
           <div class="nametag">Gerald</div>
+          <div class="actionbadge">PROTECT</div>
           <div class="hpbar"><i style="width:42%"></i></div>
         </div>
       </div>
@@ -213,6 +220,7 @@ footer{grid-column:1/-1;font-size:11px;font-weight:700;opacity:.6;text-align:cen
           <svg viewBox="0 0 60 60"><path d="M14 44 Q10 24 26 18 Q44 12 48 30 Q50 44 34 47 Q20 50 14 44Z" fill="#F7C8E2" stroke="#2B2338" stroke-width="3"/><path d="M30 18 L38 4 L41 20" fill="#fff" stroke="#2B2338" stroke-width="2.5"/><path d="M39 6 L58 0 M40 9 L59 6 M41 12 L58 12" stroke="#E24FA0" stroke-width="3"/><circle cx="24" cy="30" r="2.6" fill="#2B2338"/><circle cx="36" cy="30" r="2.6" fill="#2B2338"/><path d="M24 39 Q30 43 36 39" stroke="#2B2338" stroke-width="2.5" fill="none"/></svg>
           <div class="stars">⭐⭐</div>
           <div class="nametag">Princess Stabby</div>
+          <div class="actionbadge">SHOOT</div>
           <div class="stars">⭐⭐</div>
           <div class="hpbar hp-low"><i style="width:8%"></i></div>
         </div>
@@ -222,6 +230,7 @@ footer{grid-column:1/-1;font-size:11px;font-weight:700;opacity:.6;text-align:cen
           <svg viewBox="0 0 60 60"><path d="M10 34 Q14 12 34 14 Q52 16 50 34 Q48 50 30 50 Q12 50 10 34Z" fill="#B9E27A" stroke="#2B2338" stroke-width="3" stroke-dasharray="4 2"/><circle cx="22" cy="28" r="3" fill="#2B2338"/><circle cx="33" cy="24" r="3" fill="#2B2338"/><circle cx="42" cy="30" r="3" fill="#2B2338"/><path d="M20 42 Q30 47 42 42" stroke="#2B2338" stroke-width="2.5" fill="none" transform="rotate(180 31 44)"/></svg>
           <div class="stars">⭐⭐⭐</div>
           <div class="nametag">The Blob of Doom</div>
+          <div class="actionbadge">SMASH</div>
           <div class="hpbar hp-low"><i style="width:10%"></i></div>
         </div>
       </div>
@@ -231,6 +240,7 @@ footer{grid-column:1/-1;font-size:11px;font-weight:700;opacity:.6;text-align:cen
         <div class="fighter">
           <svg viewBox="0 0 60 60"><rect x="14" y="30" width="34" height="16" rx="5" fill="#9AA7B8" stroke="#2B2338" stroke-width="3"/><circle cx="20" cy="48" r="6" fill="#2B2338"/><circle cx="42" cy="48" r="6" fill="#2B2338"/><path d="M24 30 Q24 12 34 12 Q40 12 40 30" fill="#D7DEE8" stroke="#2B2338" stroke-width="3"/><rect x="28" y="18" width="10" height="4" fill="#2B2338"/><path d="M8 52 Q14 46 8 42 M52 52 Q46 48 52 44" stroke="#2B2338" stroke-width="2.5" fill="none"/></svg>
           <div class="nametag">Sir Lawnmower</div>
+          <div class="actionbadge">CHARGE</div>
           <div class="stars">⭐⭐⭐</div>
           <div class="hpbar"><i style="width:23%"></i></div>
         </div>
@@ -270,7 +280,7 @@ footer{grid-column:1/-1;font-size:11px;font-weight:700;opacity:.6;text-align:cen
 </main>
 
 <footer>
-  Mockup notes — ⭐ badges under each action image = that drawing's creativity score. “Glitter/Thunder” here are examples of AI-generated team names (labels read Team A/B until the intro reveal). Sprites have NO shadow/card (PNG bg blends into uniform sand floor); name bubbles sit ABOVE sprites; ⭐ badges under action images = creativity tier. Configs demonstrated: arena_background · reveal_action_zoom_scale/seconds (Stabby) ·
+  Mockup notes — action badges (SMASH/PROTECT/…) under each fighter post-reveal; Gerald has the PROTECT blue glow; move animations + per-reveal HP updates are runtime behavior. ⭐ badges under each action image = that drawing's creativity score. “Glitter/Thunder” here are examples of AI-generated team names (labels read Team A/B until the intro reveal). Sprites have NO shadow/card (PNG bg blends into uniform sand floor); name bubbles sit ABOVE sprites; ⭐ badges under action images = creativity tier. Configs demonstrated: arena_background · reveal_action_zoom_scale/seconds (Stabby) ·
   impact borders (Blob = red+shake, Gerald = blue+pop) · float_number_seconds (crit oversized) ·
   initiative rail w/ stat strips (Lawnmower 💪 pulsing = montage change) · persistent action sprites ·
   speaker-tagged beats · HP + audience meters. Knot positions come from reveal_step meter values.

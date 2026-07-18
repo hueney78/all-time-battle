@@ -110,6 +110,47 @@ def test_host_renders_the_doodle_crowd_stands():
     assert ".stands" in host and ".spectator" in host
 
 
+def test_v6_move_buttons_show_stat_icons():
+    """v6 §13: each move button is prefixed with the stat icon(s) that power it
+    (💪 SMASH / 🌀 BLAST / 💪⚡ CHARGE / ⚡ ESCAPE / 🌀 PROTECT)."""
+    with TestClient(app) as client:
+        body = client.get("/play").text
+    assert "stat_icon" in body, "move buttons must render the move's stat icon(s)"
+
+
+def test_v6_host_reveal_features_present():
+    """v6 §13: move-name badge under a fighter, PROTECT's round-long blue glow,
+    and CHARGE/ESCAPE sprite travel between zones during the reveal."""
+    with TestClient(app) as client:
+        host = client.get("/host").text
+        arena = client.get("/static/host/arena.js").text
+    # CSS + sequencer hooks live on the host page
+    assert ".actionbadge" in host and ".shielded" in host
+    for field in ("move_name", "shield_on", "to_zone"):
+        assert field in host, f"host sequencer must consume {field}"
+    # the arena renderer exposes the helpers the sequencer drives
+    for fn in ("setActionBadge", "clearBadges", "setShield", "clearShields", "moveTo"):
+        assert fn in arena, fn
+
+
+def test_pages_cache_bust_scripts_and_are_no_store():
+    """A freshly-served page must never pair with a stale cached script: local
+    /static/*.js|css refs carry a content hash and the HTML itself is no-store.
+    (This is what made a mid-deploy arena.js crash the reveal sequencer.)"""
+    with TestClient(app) as client:
+        for path in ["/host", "/play"]:
+            r = client.get(path)
+            assert "no-store" in r.headers.get("cache-control", ""), path
+            # every local script/style ref is versioned
+            refs = re.findall(r'(?:src|href)="(/static/[^"]+\.(?:js|css))(\?v=[0-9a-f]+)?"', r.text)
+            assert refs, f"{path} has no local static refs?"
+            for base, ver in refs:
+                assert ver, f"{path} ref not cache-busted: {base}"
+        # arena.js gets a hash on the host page specifically
+        host = client.get("/host").text
+        assert re.search(r"/static/host/arena\.js\?v=[0-9a-f]+", host)
+
+
 def test_static_assets_available():
     with TestClient(app) as client:
         for path in [

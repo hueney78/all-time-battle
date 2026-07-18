@@ -148,11 +148,13 @@
       el.innerHTML =
         '<div class="pic"></div>' +
         '<div class="stars"></div>' +
+        '<div class="actionbadge"></div>' +
         '<div class="nametag"></div>' +
         '<div class="hpbar"><i></i></div>';
       const s = {
         el, pic: el.querySelector('.pic'), name: el.querySelector('.nametag'),
         hp: el.querySelector('.hpbar > i'), stars: el.querySelector('.stars'),
+        badge: el.querySelector('.actionbadge'),
         spritePng: c.sprite_png || c.png || '',
       };
       this.sprites[c.player_id] = s;
@@ -165,6 +167,28 @@
       const s = this.sprites[pid]; if (!s || !s.stars) return;
       const t = Math.max(0, Math.min(3, tier | 0));
       s.stars.textContent = '⭐'.repeat(t);
+    }
+
+    // The move-name badge under a fighter once their move is revealed
+    // (SMASH/BLAST/CHARGE/ESCAPE/PROTECT — v6 §13). Persists the round; cleared
+    // at the next reveal's start.
+    setActionBadge(pid, name) {
+      const s = this.sprites[pid]; if (!s || !s.badge) return;
+      s.badge.textContent = name || '';
+      s.badge.classList.toggle('show', !!name);
+    }
+    clearBadges() {
+      for (const s of Object.values(this.sprites)) {
+        if (s.badge) { s.badge.textContent = ''; s.badge.classList.remove('show'); }
+      }
+    }
+
+    // PROTECT's round-long blue glow on the shielded ally (v6 §13).
+    setShield(pid) {
+      const s = this.sprites[pid]; if (s) s.el.classList.add('shielded');
+    }
+    clearShields() {
+      for (const s of Object.values(this.sprites)) s.el.classList.remove('shielded');
     }
 
     _setImg(s, dataUrl) {
@@ -195,6 +219,33 @@
       const s = this.sprites[pid]; if (!s || !dataUrl) return;
       s.spritePng = dataUrl;
       this._setImg(s, dataUrl);
+    }
+    // Animate a fighter travelling from its current zone into `zoneId` as its
+    // beat plays — CHARGE/ESCAPE relocate the sprite DURING the reveal, not at
+    // end of round (v6 §13). FLIP: reparent into the destination band, then
+    // transition the sprite from its old screen position to the new one. The
+    // translate composes with the acting zoom via the --mx/--my CSS vars, so it
+    // never fights the scale. mult > 1 stretches the travel for the replay.
+    moveTo(pid, zoneId, mult) {
+      const s = this.sprites[pid]; if (!s) return;
+      const dest = this.zoneEls[zoneId];
+      if (!dest || s.el.parentElement === dest) return;
+      if (!s.el.getBoundingClientRect) { dest.appendChild(s.el); return; }  // no layout (tests)
+      const first = s.el.getBoundingClientRect();
+      dest.appendChild(s.el);
+      const last = s.el.getBoundingClientRect();
+      const dx = Math.round(first.left - last.left), dy = Math.round(first.top - last.top);
+      if (!dx && !dy) return;
+      const secs = (CFG.reveal_move_seconds || 0.7) * (mult || 1);
+      s.el.style.transition = 'none';
+      s.el.style.setProperty('--mx', dx + 'px');
+      s.el.style.setProperty('--my', dy + 'px');
+      void s.el.offsetWidth;                       // commit the pre-move offset
+      s.el.style.transition = 'transform ' + secs + 's cubic-bezier(.34,1.25,.5,1)';
+      s.el.style.setProperty('--mx', '0px');
+      s.el.style.setProperty('--my', '0px');
+      clearTimeout(s._moveT);
+      s._moveT = setTimeout(() => { s.el.style.transition = ''; }, secs * 1000 + 80);
     }
     // Zoom the acting fighter up (scale/duration from config) then settle back.
     // mult > 1 = slow-mo (instant replay) — every duration stretches by it.

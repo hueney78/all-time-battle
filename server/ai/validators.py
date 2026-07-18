@@ -79,6 +79,25 @@ def _fallback_character(pid: str, cfg: Balance) -> GeneratedCharacter:
     )
 
 
+# Character names are capped at TWO words — three only when the middle word is a
+# short connector ("Gerald the Buff", "Duke of Spikes"). The announcers say these
+# names constantly, so anything longer becomes a mouthful (GAME_DESIGN §3).
+_NAME_WORD_CAP = 2
+_NAME_CONNECTORS = {"of", "the", "de", "von", "van", "da", "der", "la", "le", "du"}
+
+
+def cap_character_name(name: str) -> str:
+    """Trim an AI name to the two-word cap (three if the middle word is a
+    connector). Whitespace-collapsed; may return "" (the caller supplies the
+    deadpan 'Tim' fallback)."""
+    words = name.split()
+    if len(words) <= _NAME_WORD_CAP:
+        return " ".join(words)
+    if len(words) == 3 and words[1].lower().strip(".,'\"") in _NAME_CONNECTORS:
+        return " ".join(words)
+    return " ".join(words[:_NAME_WORD_CAP])
+
+
 # Team names must fit meters, zone bands, and phone headers (§3).
 _TEAM_NAME_MAX = 28
 _TEAM_FALLBACKS = {"team_a": "Team A", "team_b": "Team B"}
@@ -107,7 +126,7 @@ def build_generated_characters(
             out[pid] = _fallback_character(pid, cfg)
             continue
         out[pid] = GeneratedCharacter(
-            name=(c.name or "").strip() or "Tim",
+            name=cap_character_name((c.name or "").strip()) or "Tim",
             stats=normalize_stats(c.stats.power, c.stats.speed, c.stats.weird, cfg),
             personality=c.personality,
             announcer_intro=c.announcer_intro,

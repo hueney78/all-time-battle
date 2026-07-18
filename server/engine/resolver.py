@@ -104,6 +104,7 @@ def resolve_round(
     # 2. Process actions in initiative order
     # ------------------------------------------------------------------
     combos_announced: set[frozenset[str]] = set()
+    winner: str | None = None
     for pid in order:
         ch = chars.get(pid)
         if ch is None or ch.is_ko:
@@ -129,25 +130,38 @@ def resolve_round(
         _resolve_action(pid, action, chars, events, round_num, rng, cfg,
                         shields, zone_reg, move_reg, state)
 
-    # ------------------------------------------------------------------
-    # 3. Record last move (no-repeat rule — every move is subject to it now)
-    # ------------------------------------------------------------------
-    for pid, action in action_map.items():
-        ch = chars.get(pid)
-        if ch is None or ch.is_ko:
-            continue
-        if action.move_id in move_reg:
-            ch.last_move_id = action.move_id
+        # Victory ends the round instantly (GAME_DESIGN §6): the moment a team's
+        # last member falls — to this hit or its reflect — resolution stops. No
+        # remaining winning-team fighter takes its queued action, and no traps
+        # fire; the game cuts straight to the finale.
+        winner = _check_victory(chars, state.teams)
+        if winner:
+            break
 
     # ------------------------------------------------------------------
-    # 4. Arena Gremlins plant traps, then all traps are triggered (GAME_DESIGN §10)
+    # 3. Record last move (no-repeat rule — every move is subject to it now).
+    #    Skipped on an instant victory: the game is over, and fighters that
+    #    never got to act must not be credited with a move they didn't make.
+    # ------------------------------------------------------------------
+    if not winner:
+        for pid, action in action_map.items():
+            ch = chars.get(pid)
+            if ch is None or ch.is_ko:
+                continue
+            if action.move_id in move_reg:
+                ch.last_move_id = action.move_id
+
+    # ------------------------------------------------------------------
+    # 4. Arena Gremlins plant traps, then all traps are triggered (GAME_DESIGN
+    #    §10) — but not after an instant victory (resolution has already stopped).
     # ------------------------------------------------------------------
     traps: list[Trap] = [t.model_copy(deep=True) for t in state.traps]
-    for pid in sorted(start_gremlins):
-        action = action_map.get(pid)
-        if action is not None and action.trap_zone:
-            _place_trap(pid, action, traps, events, round_num, cfg, zone_reg, state)
-    traps = _trigger_traps(traps, chars, events, round_num, rng, cfg, state)
+    if not winner:
+        for pid in sorted(start_gremlins):
+            action = action_map.get(pid)
+            if action is not None and action.trap_zone:
+                _place_trap(pid, action, traps, events, round_num, cfg, zone_reg, state)
+        traps = _trigger_traps(traps, chars, events, round_num, rng, cfg, state)
 
     # ------------------------------------------------------------------
     # 5. Victory / sudden death
@@ -157,12 +171,16 @@ def resolve_round(
     new_state.round = round_num
     new_state.traps = traps
 
-    if not state.sudden_death and round_num >= cfg.max_rounds:
+    # Sudden death only escalates a game that is still going — never when this
+    # round already produced a winner.
+    if not winner and not state.sudden_death and round_num >= cfg.max_rounds:
         new_state.sudden_death = True
         events.append(Event(id=_eid("sd"), type=EventType.SUDDEN_DEATH,
                             round=round_num, data={}))
 
-    winner = _check_victory(chars, state.teams)
+    # A trap trigger in step 4 can be what clinches the win, so re-check unless
+    # the action loop already broke on an instant victory.
+    winner = winner or _check_victory(chars, state.teams)
     if winner:
         new_state.winner_team_id = winner
         events.append(Event(id=_eid("win"), type=EventType.VICTORY, round=round_num,

@@ -114,10 +114,17 @@
        shadow / card behind it: the drawing's own background is
        canvas_background_color, so it blends invisibly into the arena floor. */
     .fighter{position:relative; width:120px; text-align:center; transition:transform .3s;
-      transform-origin:bottom center; display:flex; flex-direction:column; align-items:center}
+      transform-origin:bottom center; display:flex; flex-direction:column; align-items:center;
+      /* travel (--mx/--my, set by arena.moveTo) composes with the acting zoom
+         (--sc) so a CHARGE/ESCAPE glide never fights the scale [v6 §13] */
+      transform:translate(var(--mx,0px),var(--my,0px)) scale(var(--sc,1))}
     .fighter .pic{width:104px; height:104px; background:center/contain no-repeat}
     /* creativity star badges under the action drawing [spec §13] */
     .fighter .stars{font-size:12px; letter-spacing:-1px; line-height:1; min-height:12px}
+    /* move-name badge under a fighter after their reveal [v6 §13] */
+    .fighter .actionbadge{display:none; font-family:'Titan One'; font-size:9.5px; letter-spacing:.3px;
+      background:var(--ink); color:#fff; border-radius:8px; padding:1px 7px; margin-top:2px}
+    .fighter .actionbadge.show{display:inline-block}
     /* name bubble floats ABOVE the character image (order:-1); HP bar below */
     .nametag{order:-1; font-family:'Titan One'; font-size:11.5px; background:#fff;
       border:2.5px solid var(--ink); border-radius:9px; padding:1px 5px; display:inline-block;
@@ -134,9 +141,12 @@
     .fighter.ko{opacity:.5; filter:grayscale(1)}
     .fighter.ko .pic{transform:rotate(12deg)}
 
-    /* acting zoom [reveal_action_zoom_scale/_seconds] */
-    .fighter.acting{transform:scale(var(--zoom)); z-index:5}
+    /* acting zoom [reveal_action_zoom_scale/_seconds] — sets the scale term of
+       the composed transform so it stacks with any in-flight travel */
+    .fighter.acting{--sc:var(--zoom); z-index:5}
     .fighter.acting .nametag{background:var(--gold)}
+    /* PROTECT's round-long blue glow on the shielded ally [v6 §13] */
+    .fighter.shielded{filter:drop-shadow(0 0 7px var(--posit)) drop-shadow(0 0 12px var(--posit))}
 
     /* impact feedback [red border+shake / light-blue border+pop] */
     .fighter.hit{outline:4px solid var(--dmg); outline-offset:4px; border-radius:14px}
@@ -672,8 +682,13 @@
       hideDeliberation();
       const beats = payload.beats || [];
       const pngs = payload.action_pngs || {};
-      const finalById = {};
-      (payload.characters || []).forEach(c => finalById[c.player_id] = c);
+      // v6: HP steps per beat from the START-of-round HP — charById still holds
+      // the last render's values here, before the final deltas below overwrite
+      // them; finish() reconciles any un-narrated drift to the final HP.
+      const revealHP = {};
+      Object.values(charById).forEach(c => {
+        if (c && c.player_id != null) revealHP[c.player_id] = { hp: c.hp, max: c.max_hp };
+      });
       let i = 0, timer = null, pending = null;
       // Queue the next step: auto-advance after BEAT_MS, or (manual mode) wait
       // for the host to click "Next ▶". `pending` is what advance() runs.
@@ -688,23 +703,41 @@
         ? (payload.round_title || 'Meet the Fighters')
         : 'Round ' + payload.round
           + (payload.round_title ? ': “' + payload.round_title + '”' : ''));
+      arena.clearBadges();          // v6: move badges + PROTECT glows are per-round
+      arena.clearShields();
       (payload.characters || []).forEach(upsert);
       renderRail(payload.initiative_order || speedOrder());   // the round's acting order
       updateMeters(payload.meters);
 
-      function applyFinal(pid) {
-        const c = finalById[pid]; if (!c) return;
-        arena.setHP(c.player_id, c.hp, c.max_hp);
-        if (c.is_ko) arena.ko(c.player_id);
+      // Step each affected fighter's HP by THIS beat's own floats (damage / heal
+      // / reflect) — cause then effect, never pre-applied at round start (v6 §13).
+      // finish() reconciles any un-narrated drift to the authoritative final HP.
+      function applyBeatHP(b) {
+        (b.floats || []).forEach(f => {
+          const rh = revealHP[f.player_id]; if (!rh) return;
+          rh.hp = Math.max(0, Math.min(rh.max,
+            rh.hp + (f.kind === 'heal' ? f.amount : -f.amount)));
+          arena.setHP(f.player_id, rh.hp, rh.max);
+        });
+        if (b.type === 'ko' && b.player_id) {
+          const rh = revealHP[b.player_id]; if (rh) rh.hp = 0;
+          arena.setHP(b.player_id, 0, rh ? rh.max : 1);
+          arena.ko(b.player_id);
+        }
       }
       // The beat's visual effects — shared by the live pass and the slow-mo
       // replay (mult > 1 stretches every animation by the slowmo factor).
       function playEffects(b, mult) {
+        // Travel first — measured before the zoom so the FLIP is clean — then
+        // the acting drawing becomes the sprite and zooms up (it PERSISTS after).
+        if (b.to_zone && b.player_id) arena.moveTo(b.player_id, b.to_zone, mult);
         if (b.player_id && pngs[b.player_id]) {
-          // The acting drawing becomes the sprite and zooms up; it PERSISTS after.
           arena.swapSprite(b.player_id, pngs[b.player_id]);
           arena.actUp(b.player_id, mult);
         }
+        // Move-name badge under the actor; PROTECT's blue glow on the shielded ally.
+        if (b.move_name && b.player_id) arena.setActionBadge(b.player_id, b.move_name);
+        if (b.shield_on) arena.setShield(b.shield_on);
         (b.floats || []).forEach(f => arena.floatNumber(f.player_id, f.amount, f.kind, f.devastating, mult));
         if (b.hurt) arena.impact(b.hurt, 'hit', mult);
         if (b.helped) arena.impact(b.helped, 'helped', mult);
@@ -761,7 +794,7 @@
         if (b.combo_name) comboSplash(b.combo_name);
         playEffects(b, 1);
         beatSfx(b);
-        [b.player_id, b.target_id, b.hurt, b.helped].forEach(p => { if (p) applyFinal(p); });
+        applyBeatHP(b);
         step(wantsReplay(b) ? () => playReplay(b) : playNext);
       }
       // Crit/KO beats replay once in slow-mo with the REPLAY banner (config

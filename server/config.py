@@ -188,6 +188,7 @@ class UIConfig(BaseModel):
     }
     reveal_action_zoom_scale: float = 1.8
     reveal_action_zoom_seconds: float = 2.5
+    reveal_move_seconds: float = 0.7   # CHARGE/ESCAPE sprite travel time between zones (v6)
     reveal_beat_seconds: float = 3.2   # per-beat auto-advance pace; 0 = manual (host clicks Next ▶)
     float_number_seconds: float = 1.5
     audience_recent_rounds: int = 3

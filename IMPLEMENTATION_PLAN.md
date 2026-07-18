@@ -119,7 +119,7 @@ Acceptance: mock tests green; live smoke test returns valid classification for f
 | ESCAPE | `2d4 + SPD + creativity` | player picks left/right, moves one zone, then a ranged hit; edge zones can only move inward |
 | PROTECT | heal `1d6 + WRD + creativity`; shield reflects `5% × WRD` (cap 30%) of incoming damage back at the attacker | **always acts first in initiative**; targets an ally; **greyed out with no living ally** (no self-target) |
 
-Other v5 rules: `HP = 27 + 2×POW + WRD + ⌊SPD/2⌋` (**restat** — Speed had zero defensive value once dodge was removed; sim-verified to restore rock-paper-scissors); creativity flat `+0/+1/+3/+5`; no-repeat still applies; **the PROTECT shield is the only damage reduction in the game**; initiative = PROTECT first, then Speed. **BUG FIX (observed in playtest):** the resolver must re-check `alive()` **immediately before each action** — a character KO'd earlier in the round forfeits an already-selected action. **Gremlins:** blank canvas (no character prefill) + zone picker; they draw a trap that renders as a small icon in the chosen zone and **persists until triggered**, then damages one random enemy in that zone (`trap_damage`, default `1d4 + creativity`) and is consumed; KO'd characters get **no battlefield sprite, HP bar, or rail slot** (imp badge at rail bottom only). **Host:** action sprites carry **creativity star badges** (⭐/⭐⭐/⭐⭐⭐) along the bottom edge. **Delete:** dodge, WILD CARD, RALLY, SHIELD, move_l/move_r, all AOE/multi-target logic, and any remaining AC/to-hit/crit/fumble code. Balance verified in `balance_sim_v5.py` (committed): five moves in a tight ablation band (0.44–0.55); specialists form rock-paper-scissors (Speed>Power>Weird>Speed, balanced builds beat Power/Weird but lose to Speed); zones actively used (57% of actions away from home, occupancy 31/39/31 — positioning did not collapse).
+Other v5 rules: `HP = 27 + 2×POW + WRD + ⌊SPD/2⌋` (**restat** — Speed had zero defensive value once dodge was removed; sim-verified to restore rock-paper-scissors); creativity flat `+0/+1/+3/+5`; no-repeat still applies; **the PROTECT shield is the only damage reduction in the game**; initiative = PROTECT first, then Speed. **BUG FIXES (observed in playtest):** (a) the resolver must re-check `alive()` **immediately before each action** — a character KO'd earlier in the round forfeits an already-selected action; (b) the instant a team's last member is KO'd, resolution **stops entirely** — no remaining winning-team character acts. **Name cap:** AI character names are limited to **two words** (three only if the middle is a connector like "of"/"the"). **Gremlins:** blank canvas (no character prefill) + zone picker; they draw a trap that renders as a small icon in the chosen zone and **persists until triggered**, then damages one random enemy in that zone (`trap_damage`, default `1d4 + creativity`) and is consumed; KO'd characters get **no battlefield sprite, HP bar, or rail slot** (imp badge at rail bottom only). **Host:** action sprites carry **creativity star badges** (⭐/⭐⭐/⭐⭐⭐) along the bottom edge; a **move-name badge** (SMASH/BLAST/CHARGE/ESCAPE/PROTECT) shows under each fighter after their reveal; CHARGE/ESCAPE reveals **animate the sprite between zones as one combined beat** (sprite lands in its new zone during that reveal, not end of round); **HP bars update per reveal, never pre-round**; PROTECT recipients get a **round-long blue glow**. **Delete:** dodge, WILD CARD, RALLY, SHIELD, move_l/move_r, all AOE/multi-target logic, and any remaining AC/to-hit/crit/fumble code. Balance verified in `balance_sim_v5.py` (committed): five moves in a tight ablation band (0.44–0.55); specialists form rock-paper-scissors (Speed>Power>Weird>Speed, balanced builds beat Power/Weird but lose to Speed); zones actively used (57% of actions away from home, occupancy 31/39/31 — positioning did not collapse).
 
 From here, remaining work (the old Phases 6–8) is organized as **two parallel tracks along the architecture's seam** — engine/server/AI vs presentation — so two people can each direct Claude Code sessions without colliding. Rules of engagement:
 
@@ -176,3 +176,20 @@ From here, remaining work (the old Phases 6–8) is organized as **two parallel 
 | AI layer | Fixture-based schema tests; repair & fallback paths; live smoke script |
 | End-to-end | Scripted mock game over real websockets in CI; human couch playtests at checkpoints |
 
+## 11. Kickoff Prompt (paste into Claude Code to start)
+
+```
+Read ARCHITECTURE.md, GAME_DESIGN.md, and IMPLEMENTATION_PLAN.md in this
+directory. Create CLAUDE.md with the ground rules from the plan's §0. Then
+execute Phase 1 exactly as specified: scaffold the project, config system,
+engine models, and dice module, with tests. Stop at the Phase 1 acceptance
+criteria and tell me how to run the demo checkpoint.
+```
+
+Then proceed one phase at a time: "Execute Phase 2 per IMPLEMENTATION_PLAN.md."
+Resist doing multiple phases in one shot — the checkpoints exist to catch
+design drift while it's cheap. After Phase 5, work splits into the two
+parallel tracks in sections 7-9: kick off sessions with "Execute Track A
+item 4 (montage server side) per IMPLEMENTATION_PLAN.md" and respect the
+sync-point ordering (Track A lands contracts + mock fixtures before Track B
+consumes them).

@@ -61,6 +61,31 @@ def test_generated_characters_flagged_and_missing_fallback():
     assert out["p2"].name == "Mystery Blob"     # AI omitted p2 → deadpan fallback
 
 
+def test_character_names_capped_at_two_words():
+    """AI names are trimmed to two words — three only when the middle is a
+    connector like 'of'/'the' (GAME_DESIGN §3 v6)."""
+    from server.ai.validators import cap_character_name
+
+    assert cap_character_name("Tim") == "Tim"
+    assert cap_character_name("Princess Stabby") == "Princess Stabby"
+    assert cap_character_name("Gerald the Buff") == "Gerald the Buff"      # connector kept
+    assert cap_character_name("Duke of Spikes") == "Duke of Spikes"
+    # Over the cap → truncated to the first two words.
+    assert cap_character_name("Princess Stabby Duchess of Pointy Ends") == "Princess Stabby"
+    assert cap_character_name("Sir Reginald Fancypants") == "Sir Reginald"  # middle not a connector
+    assert cap_character_name("  spaced   out   name  ") == "spaced out"
+    assert cap_character_name("") == ""                                     # caller adds 'Tim'
+
+
+def test_generated_character_name_is_capped():
+    resp = S.GenerateCharactersResponse(characters=[
+        S.AICharacter(player_id="p1", name="Baron Von Sparkle the Third Explosion Machine",
+                      stats=S.AIStats(power=2, speed=2, weird=5)),
+    ])
+    out = build_generated_characters(resp, {"p1": CharacterSubmission("p1")}, CFG).characters
+    assert out["p1"].name == "Baron Von"       # trimmed to two words
+
+
 def test_team_names_trimmed_and_backfilled():
     """AI team names are length-capped to fit meters/labels; blanks fall back
     to plain Team A/B."""

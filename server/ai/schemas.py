@@ -22,7 +22,11 @@ class AIStats(BaseModel):
 
 class AICharacter(BaseModel):
     player_id: str = Field(description="the id from the labeled drawing")
-    name: str = Field(description="a funny AI name (grand for elaborate art, deadpan for plain)")
+    name: str = Field(
+        description="a funny AI name, AT MOST TWO WORDS (three only if the middle "
+                    "is a connector like 'of'/'the' — 'Duke of Spikes'); grand for "
+                    "elaborate art, deadpan for plain"
+    )
     stats: AIStats
     personality: str = Field(default="", description="one witty line")
     announcer_intro: str = Field(default="", description="a punchy wrestling-hype intro")

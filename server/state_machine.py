@@ -650,6 +650,17 @@ class GameStateMachine:
         # impact + floating-number data the host renders (all from engine events,
         # never narration text).
         ev_by_id = {e.id: e for e in events}
+        # Where each fighter that MOVED this round ended up — attached to their
+        # action beat so the host animates the sprite into its new zone as the
+        # beat plays (CHARGE/ESCAPE, one combined beat — v6 §13).
+        moved_to = {e.player_id: e.data.get("to")
+                    for e in events if e.type.value == "moved"}
+        # Allies a PROTECT actually shielded this round (reflect > 0), keyed by
+        # the caster — so the caster's beat lights the ally's round-long blue
+        # glow no matter which PROTECT event the narrator tagged (v6 §13).
+        shield_by_caster = {e.player_id: e.target_id for e in events
+                            if e.type.value == "protected"
+                            and e.data.get("reflect_pct", 0) > 0}
         beats = []
         for b in narration.beats:
             ev = ev_by_id.get(b.event_id)
@@ -662,6 +673,16 @@ class GameStateMachine:
                 "player_id": ev.player_id if ev else None,
                 "target_id": ev.target_id if ev else None,
                 "type": ev.type.value if ev else None,
+                # The move-name badge under the acting fighter after their reveal
+                # (SMASH/BLAST/CHARGE/ESCAPE/PROTECT — v6 §13).
+                "move_name": self._move_name(ev) if ev else None,
+                # Destination zone if this beat's fighter relocated (CHARGE/ESCAPE).
+                "to_zone": (moved_to.get(ev.player_id) if ev else None),
+                # The ally to light with PROTECT's round-long glow, if this beat's
+                # caster raised a shield (v6 §13).
+                "shield_on": (shield_by_caster.get(ev.player_id)
+                              if ev and ev.type.value in ("healed", "protected")
+                              else None),
                 # Who this beat negatively impacts (red border + shake) vs
                 # positively impacts (light-blue border + pop).
                 "hurt": self._hurt_target(ev) if ev else None,
@@ -712,6 +733,21 @@ class GameStateMachine:
         covered by the client-side event stingers)."""
         move = self.rules.moves.moves.get(ev.data.get("move_id", ""))
         return (move.sfx or None) if move else None
+
+    def _move_name(self, ev) -> str | None:
+        """The move-name badge under the acting fighter (v6 §13). Attacks carry
+        their move_id directly; PROTECT's heal/shield events don't, so we resolve
+        the button from the catalog's healing move. Reflects, KOs and traps carry
+        no fresh badge (the bounce lands on someone whose own badge is set)."""
+        t = ev.type.value
+        if t == "attack_resolved" and ev.data.get("result") in ("hit", "devastating"):
+            move = self.rules.moves.moves.get(ev.data.get("move_id", ""))
+            return move.button if move else None
+        if t in ("healed", "protected"):
+            for move in self.rules.moves.moves.values():
+                if move.heal or move.applies_shield:
+                    return move.button
+        return None
 
     def _readout(self, ev) -> list[str]:
         """The host's plain-language math for this beat (GAME_DESIGN §13):
@@ -1081,6 +1117,11 @@ class GameStateMachine:
                 "id": move_id,
                 "button": move.button,
                 "icon": move.icon,
+                # The stat icon(s) that POWER the move (💪/⚡/🌀), shown on the
+                # button so a player sees at a glance which moves their build is
+                # made for — 💪⚡ CHARGE keys off the average of both (v6 §13).
+                "stat": move.stat,
+                "stat_icon": self._stat_icons(move.stat),
                 "desc": move.desc,
                 "math": math,
                 "target": move.target,          # "single_enemy" | "ally"
@@ -1089,6 +1130,15 @@ class GameStateMachine:
                 "disabled_reason": disabled_reason,
             })
         return out
+
+    def _stat_icons(self, stat: str) -> str:
+        """The stat emoji that a move keys off, from ui.readout.stat_icons (the
+        same icons as the status card / rail). 'avg(power,speed)' returns BOTH."""
+        icons = self.rules.settings.ui.readout.stat_icons
+        if stat.startswith("avg(") and stat.endswith(")"):
+            parts = [p.strip() for p in stat[4:-1].split(",")]
+            return "".join(icons.get(p, "") for p in parts)
+        return icons.get(stat, "")
 
     async def _broadcast_arena(self) -> None:
         await self.room.broadcast(S2C.ARENA_STATE, self._arena_payload())

@@ -317,7 +317,10 @@
           : m.disabled_reason === 'no_enemy_here' ? 'no enemy in your zone'
           : m.disabled_reason === 'no_ally' ? 'no teammate to protect' : (m.desc || '');
         b.innerHTML = '<span class="mname"></span>' + (m.math ? '<span class="mmath"></span>' : '');
-        b.querySelector('.mname').textContent = m.button || m.id;
+        // Prefix the stat icon(s) that power the move (💪/⚡/🌀; 💪⚡ for CHARGE),
+        // so a player sees which moves their build is made for (v6 §13).
+        b.querySelector('.mname').textContent =
+          (m.stat_icon ? m.stat_icon + ' ' : '') + (m.button || m.id);
         if (m.math) b.querySelector('.mmath').textContent = m.math;
         b.onclick = () => pickMove(m);
         grid.appendChild(b);

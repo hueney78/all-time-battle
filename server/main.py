@@ -6,7 +6,9 @@ Serves the host (TV) and player (phone) pages from web/ and the /ws endpoint.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 import socket
 from pathlib import Path
 
@@ -126,8 +128,30 @@ def _inject_config(html: str) -> str:
     ui = load_game_rules().settings.ui
     tag = f"<script>window.DOODLE_CONFIG = {json.dumps(ui.model_dump())};</script>"
     if "</head>" in html:
-        return html.replace("</head>", tag + "\n</head>", 1)
-    return tag + html
+        html = html.replace("</head>", tag + "\n</head>", 1)
+    else:
+        html = tag + html
+    return _cache_bust(html)
+
+
+_STATIC_REF = re.compile(r'/static/([^"\'?\s]+\.(?:js|css))')
+
+
+def _cache_bust(html: str) -> str:
+    """Append a content hash to every local `/static/*.js|css` reference so the
+    browser can never pair a freshly-served page with a stale cached script —
+    the failure that made a mid-deploy `arena.js` crash the reveal sequencer.
+    Each asset busts independently: change arena.js and only its URL moves."""
+
+    def repl(m: re.Match[str]) -> str:
+        rel = m.group(1)
+        try:
+            digest = hashlib.md5((_WEB_DIR / rel).read_bytes()).hexdigest()[:10]  # noqa: S324
+        except OSError:
+            return m.group(0)  # missing file → leave the ref untouched
+        return f"/static/{rel}?v={digest}"
+
+    return _STATIC_REF.sub(repl, html)
 
 
 @app.get("/poster/{room}")
@@ -145,13 +169,19 @@ async def poster(room: str):
                         filename=f"doodle-brawl-{code}.png")
 
 
+# The page HTML is tiny and regenerated per request (LAN IP, config, cache-bust
+# hashes) — never let a browser serve a cached copy that points at stale scripts.
+_NO_STORE = {"Cache-Control": "no-store"}
+
+
 @app.get("/host", response_class=HTMLResponse)
 async def host_page():
     html = (_WEB_DIR / "host" / "index.html").read_text(encoding="utf-8")
-    return _inject_config(html.replace("__SERVER_LAN_IP__", _lan_ip()))
+    body = _inject_config(html.replace("__SERVER_LAN_IP__", _lan_ip()))
+    return HTMLResponse(body, headers=_NO_STORE)
 
 
 @app.get("/play", response_class=HTMLResponse)
 async def player_page():
     html = (_WEB_DIR / "player" / "index.html").read_text(encoding="utf-8")
-    return _inject_config(html)
+    return HTMLResponse(_inject_config(html), headers=_NO_STORE)

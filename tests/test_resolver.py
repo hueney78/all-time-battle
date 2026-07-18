@@ -174,9 +174,11 @@ def test_v5_golden():
     assert blast.data["point_blank"] is True
     assert blast.data["absorbed"] > 0                 # the shield swallowed a share
 
-    # The shield reflected exactly what it absorbed back at each attacker.
+    # The shield reflected exactly what it absorbed back at each attacker: §12's
+    # 25% cloak bounces 2 back at Blob and 2 at Lawnmower.
     reflects = [e for e in result.events if e.data.get("result") == "reflect"]
     assert reflects and all(e.player_id == "p1" for e in reflects)   # Stabby reflects
+    assert sorted(e.data["damage"] for e in reflects) == [2, 2]      # exact reflect amounts
 
     # No-repeat bookkeeping: every fighter's move was recorded.
     assert chars["p1"].last_move_id == "charge"
@@ -667,6 +669,32 @@ def test_ko_converts_to_gremlin_and_victory_fires():
     kinds = [e.type.value for e in result.events]
     assert "ko" in kinds and "victory" in kinds
     assert result.new_state.winner_team_id == "team_a"
+
+
+def test_victory_ends_the_round_no_further_actions_resolve():
+    """The moment a team's last member is KO'd, resolution stops — a slower
+    winning-team fighter queued after the finishing blow never acts (GAME_DESIGN
+    §6 / §12 v6 bug fix)."""
+    a1 = _char("a1", "A1", power=6, speed=6, weird=0, zone="frontline")   # acts first
+    a2 = _char("a2", "A2", power=6, speed=1, weird=0, zone="frontline")   # acts last
+    b1 = _char("b1", "B1", power=2, speed=3, weird=0, zone="frontline", hp=3)  # frail
+    teams = [Team(id="team_a", name="A", color="p", player_ids=["a1", "a2"]),
+             Team(id="team_b", name="B", color="b", player_ids=["b1"])]
+    state = _state([a1, a2, b1], teams)
+    # a1 SMASHes b1 (KO → Team B wiped); a2's queued BLAST must never resolve.
+    actions = [
+        ClassifiedAction(player_id="a1", move_id="smash", target_id="b1"),
+        ClassifiedAction(player_id="a2", move_id="blast", target_id="b1"),
+        ClassifiedAction(player_id="b1", move_id="smash", target_id="a1"),
+    ]
+    result = resolve_round(state, actions, Dice(seed=5), CFG)
+    assert result.new_state.characters["b1"].is_ko
+    assert result.new_state.winner_team_id == "team_a"
+    assert any(e.type.value == "victory" for e in result.events)
+    # a2 was queued after the finishing blow → it produced NO event at all.
+    assert not [e for e in result.events if e.player_id == "a2"]
+    # b1 fell before its own slot, so its SMASH never landed either.
+    assert result.new_state.characters["a1"].hp == result.new_state.characters["a1"].max_hp
 
 
 def test_sudden_death_fires_after_max_rounds_and_boosts_damage():
