@@ -35,15 +35,15 @@ def test_settings_ai_models():
     s = load_settings()
     assert s.ai.classify_model == "claude-haiku-4-5"
     assert s.ai.narrate_model == "claude-sonnet-4-6"
-    assert s.ai.timeout_seconds == 20
+    assert s.ai.timeout_seconds == 40
     assert s.ai.max_retries == 1
 
 
 def test_settings_timers():
     s = load_settings()
-    assert s.timers.draw_characters_seconds == 90
-    assert s.timers.draw_action_seconds == 75
-    assert s.timers.beat_seconds == 15
+    assert s.timers.draw_characters_seconds == 240
+    assert s.timers.draw_action_seconds == 120
+    assert s.timers.beat_seconds == 30
 
 
 def test_settings_game():
@@ -56,7 +56,7 @@ def test_settings_montage():
     """Power-Up Montage cadence + bonus-phase timer (GAME_DESIGN §10.1)."""
     s = load_settings()
     assert s.game.montage_every_rounds == 3
-    assert s.timers.montage_seconds == 20
+    assert s.timers.montage_seconds == 40
 
 
 def test_settings_gallery():
@@ -74,7 +74,7 @@ def test_settings_ui_tokens():
     s = load_settings()
     assert s.ui.canvas_background_color == "#E8D5A8"
     assert s.ui.action_canvas_character_scale == 0.5
-    assert s.ui.reveal_action_zoom_scale == 1.8
+    assert s.ui.reveal_action_zoom_scale == 2.8
     assert s.ui.reveal_action_zoom_seconds == 2.5
     assert s.ui.reveal_beat_seconds >= 0     # 0 = manual (host clicks Next ▶)
     assert s.ui.float_number_seconds > 0
