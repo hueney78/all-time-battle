@@ -5,13 +5,13 @@ All models are pure pydantic — no I/O, no AI, no side effects.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel
 
 
-class Phase(str, Enum):
+class Phase(StrEnum):
     LOBBY = "lobby"
     DRAW_CHARACTERS = "draw_characters"
     ROUND_LOOP = "round_loop"
@@ -72,7 +72,7 @@ class ClassifiedAction(BaseModel):
     action_png_b64: str = ""            # the player's drawing this round
 
 
-class EventType(str, Enum):
+class EventType(StrEnum):
     # data["result"] is one of (COMBAT V5 — there is no "miss": every move lands):
     #   hit          the move landed
     #   devastating  it landed at creativity tier 3 — the spike moment (replay,
