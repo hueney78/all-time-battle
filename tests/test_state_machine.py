@@ -252,6 +252,48 @@ async def test_reveal_step_carries_initiative_meters_and_floats():
     assert beats["e2"]["floats"][0]["kind"] == "heal"
 
 
+async def test_protect_is_one_beat_carrying_heal_float_and_shield_glow():
+    """PROTECT resolves to a SINGLE `protected` event (heal + shield), so the
+    couch sees ONE beat that carries the green heal float, the "helped" pop, and
+    the shielded ally's round-long blue glow — never a separate heal beat and
+    shield beat (change #2, §11.2)."""
+    from server.ai.provider import Beat, Narration
+    from server.engine.models import Event, EventType
+
+    rules = _rules()
+    room = Room("TEST", rules)
+    a = room.add_player("A", "player", FakeSocket(), None)   # caster (team_a)
+    b = room.add_player("B", "player", FakeSocket(), None)   # ally    (team_a)
+    room.teams[0].player_ids = [a.id, b.id]
+    machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
+    ca = Character(player_id=a.id, name="Pointy", stats=Stats(power=2, speed=3, weird=5),
+                   hp=24, max_hp=24, zone_id="glitter_back")
+    cb = Character(player_id=b.id, name="Buddy", stats=Stats(power=2, speed=1, weird=2),
+                   hp=10, max_hp=24, zone_id="glitter_back")
+    machine.state = GameState(room_id="TEST", characters={a.id: ca, b.id: cb},
+                              teams=room.teams)
+
+    prot = Event(id="p1", type=EventType.PROTECTED, round=1, player_id=a.id,
+                 target_id=b.id, data={"amount": 7, "reflect_pct": 0.25})
+    narration = Narration(beats=[Beat(event_id="p1", text="Pointy heals and shields Buddy!")])
+    await machine._reveal(1, narration, [prot], [a.id, b.id])
+
+    reveal = None
+    for _ in range(6):
+        env = await asyncio.wait_for(machine.room.participants[a.id].socket.client_recv(), 1.0)
+        if env.type == "reveal_step":
+            reveal = env
+            break
+    assert reveal is not None
+    beat = reveal.payload["beats"][0]
+    assert len(reveal.payload["beats"]) == 1          # one beat, not two
+    assert beat["helped"] == b.id
+    assert beat["floats"] == [{"player_id": b.id, "amount": 7, "kind": "heal",
+                               "devastating": False}]
+    assert beat["shield_on"] == b.id                  # ally's round-long glow
+    assert beat["move_name"] == rules.moves.moves["protect"].button
+
+
 async def test_reveal_beats_carry_sfx_and_result():
     """Each beat ships its move's sound clip (moves.yaml sfx key, looked up
     from the event's move_id) and the attack result, so the host's audio

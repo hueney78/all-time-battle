@@ -157,11 +157,13 @@ def test_v5_golden():
     # Initiative — PROTECT first, then pure Speed.
     assert result.initiative_order == ["p4", "p1", "p2", "p3"]
 
-    # Gerald's PROTECT healed Stabby and cloaked her at 25% reflect.
-    heal = next(e for e in result.events if e.type.value == "healed")
-    assert heal.player_id == "p4" and heal.target_id == "p1"
+    # Gerald's PROTECT healed Stabby AND cloaked her at 25% reflect — ONE event
+    # (heal + shield resolve together, §11.2), so there is no separate heal event.
     prot = next(e for e in result.events if e.type.value == "protected")
-    assert prot.target_id == "p1" and abs(prot.data["reflect_pct"] - 0.25) < 1e-9
+    assert prot.player_id == "p4" and prot.target_id == "p1"
+    assert prot.data["amount"] > 0
+    assert abs(prot.data["reflect_pct"] - 0.25) < 1e-9
+    assert not [e for e in result.events if e.type.value == "healed"]
 
     # Stabby charged into Blob's zone before swinging.
     assert chars["p1"].zone_id == "thunder_back"
@@ -536,9 +538,9 @@ def test_protect_heals_and_scales_with_the_casters_weird():
         actions = [ClassifiedAction(player_id="atk", move_id="protect", target_id="ally",
                                     creativity_tier=tier)]
         result = resolve_round(state, actions, Dice(seed=9), CFG)
-        heal = next(e for e in result.events if e.type.value == "healed")
-        assert result.new_state.characters["ally"].hp == 5 + heal.data["amount"]
-        return heal.data["amount"]
+        prot = next(e for e in result.events if e.type.value == "protected")
+        assert result.new_state.characters["ally"].hp == 5 + prot.data["amount"]
+        return prot.data["amount"]
 
     plain = run(0)
     assert 3 <= plain <= 8                        # 1d6 + WRD 2
@@ -628,8 +630,8 @@ def test_protect_redirects_to_a_living_ally_and_never_self():
     state = _state([healer, dead, hurt, foe], teams)
     actions = [ClassifiedAction(player_id="a1", move_id="protect", target_id="a2")]
     result = resolve_round(state, actions, Dice(seed=9), CFG)
-    heal = next(e for e in result.events if e.type.value == "healed")
-    assert heal.target_id == "a3"        # redirected to the living, neediest ally
+    prot = next(e for e in result.events if e.type.value == "protected")
+    assert prot.target_id == "a3"        # redirected to the living, neediest ally
 
 
 # ---------------------------------------------------------------------------

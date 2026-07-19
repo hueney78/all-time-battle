@@ -81,10 +81,14 @@ class EventType(StrEnum):
     #   trap         an Arena Gremlin's trap sprang on an enemy in its zone
     #   no_target
     ATTACK_RESOLVED = "attack_resolved"
-    # PROTECT resolved: data carries the healed/shielded ally + the reflect
-    # percentage, so the narrator and the host's "helped" pop know who got covered.
+    # PROTECT resolved (heal + reflecting shield) as ONE event: data carries the
+    # healed/shielded ally, the heal `amount`, and the reflect percentage — so the
+    # narrator calls it in a single beat and the host plays the heal float, the
+    # "helped" pop, and the round-long glow off that one event.
     PROTECTED = "protected"
     MOVED = "moved"
+    # Legacy heal-only event; PROTECT now folds its heal into PROTECTED. Kept for a
+    # future heal-only move — the host still renders it if one ever emits it.
     HEALED = "healed"
     KO = "ko"
     # A gremlin plants a trap in a zone; it persists until an enemy triggers it.

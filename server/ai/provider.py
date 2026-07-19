@@ -388,7 +388,9 @@ def _beat_text(ev: Event, characters: dict[str, Character],
     if t == "ko":
         return f"{who} is knocked out and becomes an Arena Gremlin!"
     if t == "protected":
-        return f"{who} cloaks {whom} in a shimmering, blow-flinging shield!"
+        # PROTECT is ONE beat: heal AND shield together (§11.2), never two lines.
+        return (f"{who} patches {whom} up for {d.get('amount', 0)} HP and wraps them "
+                f"in a shimmering, blow-flinging shield!")
     if t == "healed":
         return f"{who} patches {whom} up for {d.get('amount', 0)} HP."
     if t == "victory":

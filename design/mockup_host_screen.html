@@ -76,8 +76,11 @@ h1,h2,.display{font-family:'Titan One',cursive;letter-spacing:.5px}
 .bgnote{position:absolute;top:6px;right:10px;font-size:10px;font-weight:800;
   background:#fff8;border-radius:8px;padding:2px 7px}
 .zones{position:absolute;inset:96px 0 0 0;display:grid;grid-template-columns:1fr 1.15fr 1fr}
-.zone{position:relative;border-left:3px dashed #00000022;display:flex;
-  align-items:flex-end;justify-content:center;gap:18px;padding-bottom:16px}
+/* fighters wrap into multiple rows (stacked from the bottom) once a zone
+   holds more than 2-3, instead of one overflowing row [spec §13] */
+.zone{position:relative;border-left:3px dashed #00000022;display:flex;flex-wrap:wrap;
+  align-items:flex-end;align-content:flex-end;justify-content:center;
+  gap:6px 14px;padding:0 6px 14px}
 .zone:first-child{border-left:none}
 .zonelabel{position:absolute;top:6px;left:50%;transform:translateX(-50%);
   font-weight:900;font-size:11px;background:#ffffffc9;border:2px solid var(--ink);

@@ -840,7 +840,9 @@ class GameStateMachine:
         elif t == "trap_triggered" and d.get("damage"):
             return [{"player_id": ev.target_id, "amount": d["damage"],
                      "kind": "damage", "devastating": False}]
-        elif t == "healed" and d.get("amount"):
+        elif t in ("healed", "protected") and d.get("amount"):
+            # PROTECT folds heal + shield into one event (§11.2) — the green heal
+            # float rides that single beat (the glow comes from reflect_pct).
             return [{"player_id": ev.target_id or ev.player_id, "amount": d["amount"],
                      "kind": "heal", "devastating": False}]
         return []

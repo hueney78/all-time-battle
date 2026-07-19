@@ -14,7 +14,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from server.config import load_game_rules
@@ -152,6 +152,32 @@ def _cache_bust(html: str) -> str:
         return f"/static/{rel}?v={digest}"
 
     return _STATIC_REF.sub(repl, html)
+
+
+@app.get("/qr")
+async def qr(data: str):
+    """A scannable QR code (SVG) for the join URL, shown beside the room code on
+    the host lobby so phones can hop straight into the room without typing an IP.
+    The client passes the full join URL it built (which knows the LAN IP, port,
+    and room code) as `data`; this endpoint only encodes that string — the room
+    need not exist server-side. segno is imported lazily and pure-Python; if it's
+    somehow missing the host page simply keeps its text join URL + room code."""
+    if not data or len(data) > 512:
+        raise HTTPException(status_code=400, detail="Bad QR data")
+    try:
+        import io
+
+        import segno
+    except ImportError as exc:  # pragma: no cover - segno is a declared dependency
+        raise HTTPException(status_code=501, detail="QR unavailable") from exc
+    buf = io.BytesIO()
+    # Doodle-Brawl ink on the lobby's cream card, quiet border so scanners lock on.
+    segno.make(data, error="m").save(
+        buf, kind="svg", scale=6, border=2, dark="#2B2338", light="#FFF9EC",
+        xmldecl=False,
+    )
+    return Response(buf.getvalue(), media_type="image/svg+xml",
+                    headers={"Cache-Control": "public, max-age=3600"})
 
 
 @app.get("/poster/{room}")

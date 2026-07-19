@@ -38,6 +38,12 @@
     .lobbygrid{display:flex; gap:34px; justify-content:center; align-items:flex-start;
       flex-wrap:wrap; margin-top:2vh}
     .joincol{display:flex; flex-direction:column; align-items:center}
+    /* QR to the join page [spec §13] — scan straight into the room, no typing.
+       Shown only once the /qr SVG loads (graceful fallback to the text URL). */
+    .qrcaption{font-weight:800; margin:6px 0 0}
+    .qr{width:196px; height:196px; background:var(--card); border:4px solid var(--ink);
+      border-radius:16px; padding:8px; box-shadow:5px 5px 0 var(--ink); margin:4px 0 2px}
+    .qr.hidden, .qrcaption.hidden{display:none}
     .howto{max-width:440px; text-align:left; background:var(--card);
       border:4px solid var(--ink); border-radius:18px; padding:16px 24px;
       box-shadow:7px 7px 0 var(--ink)}
@@ -79,6 +85,16 @@
     .topbar h1{font-size:26px}
     .roundtitle{font-weight:800; font-size:15px; opacity:.85}
     #status{margin-left:auto; font-weight:800; opacity:.7}
+    /* host draw-phase countdown [spec §13] — a medium timer that mirrors the
+       phones' deadline so the couch can see the clock too. Ticks against the
+       same deadline_ts the phones use, so they track closely. */
+    .hosttimer{display:inline-flex; align-items:baseline; gap:1px; background:var(--card);
+      border:3px solid var(--ink); border-radius:12px; padding:2px 12px;
+      font-family:'Titan One'; font-size:22px; box-shadow:3px 3px 0 var(--ink)}
+    .hosttimer .u{font-size:13px; font-family:'Nunito'; font-weight:900; opacity:.65}
+    .hosttimer.warn{background:var(--gold); animation:htblink .6s infinite}
+    .hosttimer[hidden]{display:none}
+    @keyframes htblink{50%{opacity:.5}}
 
     /* battlefield: CSS colosseum + 3 zone bands. Floor is UNIFORM
        canvas_background_color (--sand) — no vignette/spotlight circle — so a
@@ -103,8 +119,11 @@
       animation:bob 2.6s ease-in-out infinite}
     @keyframes bob{50%{transform:translateY(-4px)}}
     .zones{position:absolute; inset:96px 0 0 0; display:grid; grid-template-columns:1fr 1.15fr 1fr}
-    .zone{position:relative; border-left:3px dashed #00000022; display:flex;
-      align-items:flex-end; justify-content:center; gap:20px; padding-bottom:16px}
+    /* Fighters wrap into multiple rows when a zone gets crowded (>2–3), instead
+       of one overflowing row — rows stack from the bottom up [spec §13]. */
+    .zone{position:relative; border-left:3px dashed #00000022; display:flex; flex-wrap:wrap;
+      align-items:flex-end; align-content:flex-end; justify-content:center;
+      gap:6px 14px; padding:0 6px 14px}
     .zone:first-child{border-left:none}
     .zonelabel{position:absolute; top:6px; left:50%; transform:translateX(-50%);
       font-weight:900; font-size:12px; background:#ffffffc9; border:2px solid var(--ink);
@@ -125,14 +144,31 @@
     .fighter .actionbadge{display:none; font-family:'Titan One'; font-size:9.5px; letter-spacing:.3px;
       background:var(--ink); color:#fff; border-radius:8px; padding:1px 7px; margin-top:2px}
     .fighter .actionbadge.show{display:inline-block}
+    /* big move+target label OVER the acting drawing during its reveal [§13].
+       Absolutely placed over the top of the pic; it's a child of .fighter, so it
+       scales up with the acting zoom for a couch-readable callout. */
+    .fighter .actionlabel{display:none; position:absolute; top:22px; left:50%;
+      transform:translateX(-50%); z-index:6; white-space:nowrap; pointer-events:none;
+      font-family:'Titan One'; font-size:12px; letter-spacing:.3px;
+      background:var(--gold); color:var(--ink); border:2.5px solid var(--ink);
+      border-radius:9px; padding:2px 8px; box-shadow:1.5px 1.5px 0 var(--ink)}
+    .fighter .actionlabel.show{display:block}
     /* name bubble floats ABOVE the character image (order:-1); HP bar below */
     .nametag{order:-1; font-family:'Titan One'; font-size:11.5px; background:#fff;
       border:2.5px solid var(--ink); border-radius:9px; padding:1px 5px; display:inline-block;
       margin-bottom:3px}
-    /* Arena Gremlin trap icons [spec §10]: small, in the planted zone, until sprung */
-    .zone .trap{position:absolute; top:26px; width:30px; height:30px; font-size:22px;
-      background:center/contain no-repeat; filter:drop-shadow(0 1px 1px #0004); z-index:1;
-      animation:trapidle 2.2s ease-in-out infinite}
+    /* Arena Gremlin traps [spec §10]: the trap the Gremlin DREW, shown medium-
+       sized in the planted zone with a "Trap" label, until it springs. The
+       container centers itself (static translateX) while the image idle-bobs, so
+       the two transforms never fight. */
+    .zone .trap{position:absolute; top:20px; z-index:1; display:flex; flex-direction:column;
+      align-items:center; gap:1px; pointer-events:none; transform:translateX(-50%)}
+    .zone .trap .traplabel{font-family:'Titan One'; font-size:10px; letter-spacing:.5px;
+      background:var(--dmg); color:#fff; border:2px solid var(--ink); border-radius:8px;
+      padding:0 7px; -webkit-text-stroke:.3px var(--ink); box-shadow:1px 1px 0 var(--ink)}
+    .zone .trap .trapimg{width:68px; height:68px; font-size:46px; line-height:68px;
+      text-align:center; background:center/contain no-repeat;
+      filter:drop-shadow(0 2px 2px #0004); animation:trapidle 2.2s ease-in-out infinite}
     @keyframes trapidle{50%{transform:translateY(-3px) rotate(-4deg)}}
     .hpbar{height:9px; border:2px solid var(--ink); border-radius:6px; background:#fff;
       margin:4px auto 0; width:96px; overflow:hidden}
@@ -342,6 +378,8 @@
       <div class="joincol">
         <p class="muted">On your phone, open</p>
         <p id="joinurl" class="muted">…</p>
+        <p class="muted qrcaption hidden" id="qrCaption">📷 Scan to join</p>
+        <img id="qr" class="qr hidden" alt="Scan this QR code to join the game">
         <p class="muted">Room code</p>
         <div id="code">····</div>
         <div id="players"></div>
@@ -366,6 +404,7 @@
       <div class="topbar">
         <h1 id="roundHead">Doodle Brawl</h1>
         <span class="roundtitle" id="roundTitle"></span>
+        <span class="hosttimer" id="hostTimer" hidden><span id="hostTimerNum">–</span><span class="u">s</span></span>
         <span class="replaybanner" id="replayBanner">🔁 REPLAY!</span>
         <span id="status"></span>
         <span class="audioctl">
@@ -548,6 +587,32 @@
       $('knotAud').style.left = (clamp01(meters.audience) * 100) + '%';
     }
 
+    // ---- draw-phase countdown (mirrors the phones) ----
+    // Counts down to the same server deadline_ts the phones use, so the TV clock
+    // tracks the phone timers closely. Display-only — the host never auto-submits.
+    let hostTimerHandle = null;
+    function startHostTimer(ts) {
+      stopHostTimer();
+      if (!(ts > 0)) return;
+      const el = $('hostTimer'), num = $('hostTimerNum');
+      const warnAt = CFG.warning_seconds || 10;
+      el.hidden = false;
+      const tick = () => {
+        const left = Math.max(0, Math.round(ts - Date.now() / 1000));
+        num.textContent = left;
+        el.classList.toggle('warn', left <= warnAt);
+        if (left <= 0 && hostTimerHandle) { clearInterval(hostTimerHandle); hostTimerHandle = null; }
+      };
+      tick();
+      hostTimerHandle = setInterval(tick, 300);
+    }
+    function stopHostTimer() {
+      if (hostTimerHandle) { clearInterval(hostTimerHandle); hostTimerHandle = null; }
+      const el = $('hostTimer');
+      el.hidden = true;
+      el.classList.remove('warn');
+    }
+
     // ---- phase splash (mirrors the phones; whoosh stinger) ----
     let splashTimer = null;
     function showPhaseSplash(sp) {
@@ -647,6 +712,7 @@
     // the reveal_step / montage_reveal lands.
     function showDeliberation(p) {
       if (seq) seq.stop();
+      stopHostTimer();                     // all drawings are in — hide the clock
       const isMontage = p.kind === 'montage';
       const isIntros = p.kind === 'intros';
       $('delibBanner').textContent = isMontage
@@ -703,8 +769,27 @@
     // ---- reveal sequencer ----
     function runReveal(payload) {
       hideDeliberation();
+      stopHostTimer();
       const beats = payload.beats || [];
       const pngs = payload.action_pngs || {};
+      // Each engine event's battlefield effects fire ONCE — on the play-by-play
+      // beat that narrates it if there is one, else on whichever beat does. A
+      // color-commentator aside on the SAME moment (same event_id) adds only its
+      // line: no second zoom, float, glow, HP-step, or stinger — so the couch
+      // never sees one sprite grow twice for two announcer comments. Standalone
+      // events voiced by the color announcer (a reflect, a sprung trap) still
+      // animate — they're the sole owner of their own event.
+      const fxOwner = {};   // event_id → index of the beat that plays its effects
+      beats.forEach((b, idx) => {
+        const eid = b.event_id;
+        if (!eid) return;
+        if (fxOwner[eid] == null) { fxOwner[eid] = idx; return; }
+        if (beats[fxOwner[eid]].speaker === 'color' && b.speaker !== 'color') fxOwner[eid] = idx;
+      });
+      const ownsFx = (idx) => {
+        const b = beats[idx];
+        return !b.event_id || fxOwner[b.event_id] === idx;
+      };
       // v6: HP steps per beat from the START-of-round HP — charById still holds
       // the last render's values here, before the final deltas below overwrite
       // them; finish() reconciles any un-narrated drift to the final HP.
@@ -727,6 +812,7 @@
         : 'Round ' + payload.round
           + (payload.round_title ? ': “' + payload.round_title + '”' : ''));
       arena.clearBadges();          // v6: move badges + PROTECT glows are per-round
+      arena.clearActionLabels();
       arena.clearShields();
       (payload.characters || []).forEach(upsert);
       renderRail(payload.initiative_order || speedOrder());   // the round's acting order
@@ -758,8 +844,14 @@
           arena.swapSprite(b.player_id, pngs[b.player_id]);
           arena.actUp(b.player_id, mult);
         }
-        // Move-name badge under the actor; PROTECT's blue glow on the shielded ally.
-        if (b.move_name && b.player_id) arena.setActionBadge(b.player_id, b.move_name);
+        // Move-name badge under the actor + the big move+target label over their
+        // drawing; PROTECT's blue glow on the shielded ally.
+        if (b.move_name && b.player_id) {
+          arena.setActionBadge(b.player_id, b.move_name);
+          const tgt = b.target_id ? charById[b.target_id] : null;
+          arena.setActionLabel(b.player_id,
+            b.move_name + (tgt ? ' → ' + shortName(tgt.name) : ''));
+        }
         if (b.shield_on) arena.setShield(b.shield_on);
         (b.floats || []).forEach(f => arena.floatNumber(f.player_id, f.amount, f.kind, f.devastating, mult));
         if (b.hurt) arena.impact(b.hurt, 'hit', mult);
@@ -805,20 +897,27 @@
       }
       function playNext() {
         $('replayBanner').classList.remove('show');
+        arena.clearActionLabels();     // only the current beat's actor is labelled
         if (i >= beats.length) return finish();
-        const b = beats[i++];
+        const idx = i++;
+        const b = beats[idx];
+        const playFx = ownsFx(idx);    // false → color aside on an already-shown moment: text only
         addBeat(b);
         // Intro beats fill the arena with the fighter's giant sprite (v2.1);
-        // any other beat type clears the showcase.
+        // any other beat type clears the showcase. Structural (unique events),
+        // so never gated by the effect-owner check.
         if (b.type === 'intro') showIntroCard(b); else hideIntroCard();
         // "…and TOGETHER they are…" — every Team A/B label swaps to the AI
         // names the moment this beat plays, and stays for the match.
         if (b.type === 'team_reveal') applyTeams(b.teams || payload.teams);
-        if (b.combo_name) comboSplash(b.combo_name);
-        playEffects(b, 1);
-        beatSfx(b);
-        applyBeatHP(b);
-        step(wantsReplay(b) ? () => playReplay(b) : playNext);
+        // Battlefield effects only on the effect-owning beat (change #1).
+        if (playFx) {
+          if (b.combo_name) comboSplash(b.combo_name);
+          playEffects(b, 1);
+          beatSfx(b);
+          applyBeatHP(b);
+        }
+        step((playFx && wantsReplay(b)) ? () => playReplay(b) : playNext);
       }
       // Crit/KO beats replay once in slow-mo with the REPLAY banner (config
       // instant_replay) — pure presentation over the same beat data.
@@ -831,6 +930,7 @@
       }
       function finish() {
         clearTimeout(timer); pending = null; arena.settleAll();
+        arena.clearActionLabels();
         hideIntroCard();
         $('replayBanner').classList.remove('show');
         arena.render(payload.characters || []);   // settle to final state
@@ -850,6 +950,7 @@
     // finale re-renders rail + arena so the stat strips pulse on the change.
     function runMontage(payload) {
       hideDeliberation();
+      stopHostTimer();
       const ups = payload.upgrades || [];
       const finalChars = payload.characters || [];
       $('roundHead').textContent = 'ROUND ' + payload.round;
@@ -892,6 +993,7 @@
     function runCeremony(p) {
       hideDeliberation();
       hideIntroCard();
+      stopHostTimer();
       if (seq) seq.stop();
       view('over');
       (p.characters || []).forEach(upsert);
@@ -948,6 +1050,7 @@
     // held at least min_seconds while generate_awards runs, then the ceremony.
     let victoryShownAt = 0, victoryMinMs = 0;
     function showVictorySplash(p) {
+      stopHostTimer();
       victoryShownAt = Date.now();
       victoryMinMs = (p.min_seconds || 3) * 1000;
       (p.characters || []).forEach(upsert);
@@ -955,7 +1058,9 @@
       $('vLine').textContent = p.final_line || '';
       $('vFoot').textContent = p.footer || '';
       $('vSprites').innerHTML = (p.characters || []).map(c => {
-        const pic = c.sprite_png || c.png || '';
+        // The victory screen celebrates the CHARACTER (§10.2), so show their
+        // original drawing — not sprite_png, which is their last action pose.
+        const pic = c.png || c.sprite_png || '';
         return '<div><div class="vsprite" style="background-image:'
           + (pic ? 'url(' + pic + ')' : 'none') + '"></div>'
           + '<div class="vname">' + (c.name || '') + '</div></div>';
@@ -984,7 +1089,14 @@
       if (m.type === 'joined') {
         localStorage.setItem('hostroom', m.payload.room);
         $('code').textContent = m.payload.room;
-        $('joinurl').textContent = joinBase() + '/play?room=' + m.payload.room;
+        const joinUrl = joinBase() + '/play?room=' + m.payload.room;
+        $('joinurl').textContent = joinUrl;
+        // QR to the join page: reveal it only once the SVG actually loads, so a
+        // missing encoder just leaves the text URL + room code (graceful fallback).
+        const qr = $('qr');
+        qr.onload = () => { qr.classList.remove('hidden'); $('qrCaption').classList.remove('hidden'); };
+        qr.onerror = () => { qr.classList.add('hidden'); $('qrCaption').classList.add('hidden'); };
+        qr.src = '/qr?data=' + encodeURIComponent(joinUrl);
       } else if (m.type === 'lobby_state') {
         $('players').innerHTML = (m.payload.players || []).map(p => {
           const t = (m.payload.teams || []).find(t => t.id === p.team_id) || { color: '#666' };
@@ -997,8 +1109,10 @@
         if (m.payload.phase === 'draw_characters') {
           view('stage'); $('roundHead').textContent = 'Doodle Brawl';
           $('status').textContent = 'drawing fighters…';
+          startHostTimer(m.payload.deadline_ts);
         } else if (m.payload.phase === 'intros') {
           view('stage'); if (seq) seq.stop();
+          stopHostTimer();
           $('roundHead').textContent = 'Doodle Brawl';
           $('status').textContent = 'meet the fighters…';
           $('nextBtn').classList.add('hidden');
@@ -1009,12 +1123,14 @@
           $('roundHead').textContent = 'ROUND ' + m.payload.round;
           $('status').textContent = 'drawing…';
           $('nextBtn').classList.add('hidden');
+          startHostTimer(m.payload.deadline_ts);
         } else if (m.payload.phase === 'montage') {
           view('stage'); if (seq) seq.stop();
           hideDeliberation();
           $('roundTitle').textContent = '';
           $('status').textContent = 'montage drawing…';
           $('nextBtn').classList.add('hidden');
+          startHostTimer(m.payload.deadline_ts);
         }
         showPhaseSplash(m.payload.splash);
       } else if (m.type === 'arena_state') {

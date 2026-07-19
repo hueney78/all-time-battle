@@ -59,18 +59,33 @@
       for (const band of Object.values(this.zoneEls)) {
         band.querySelectorAll('.trap').forEach(t => t.remove());
       }
-      const perZone = {};
+      const byZone = {};
       for (const tr of traps || []) {
-        const band = this.zoneEls[tr.zone_id];
+        (byZone[tr.zone_id] = byZone[tr.zone_id] || []).push(tr);
+      }
+      const SPACING = 78;   // px between multiple traps sharing one zone
+      for (const [zoneId, list] of Object.entries(byZone)) {
+        const band = this.zoneEls[zoneId];
         if (!band) continue;
-        const idx = perZone[tr.zone_id] = (perZone[tr.zone_id] || 0) + 1;
-        const el = document.createElement('div');
-        el.className = 'trap';
-        el.style.left = (8 + (idx - 1) * 30) + 'px';
-        if (tr.png) el.style.backgroundImage = 'url(' + tr.png + ')';
-        else el.textContent = '🪤';
-        el.title = 'a lurking trap';
-        band.appendChild(el);
+        list.forEach((tr, i) => {
+          const el = document.createElement('div');
+          el.className = 'trap';
+          // Center the group under the zone; spread extras left/right around it.
+          const offset = Math.round((i - (list.length - 1) / 2) * SPACING);
+          el.style.left = 'calc(50% + ' + offset + 'px)';
+          // The drawn trap image, medium-sized, with a "Trap" label above it.
+          const label = document.createElement('span');
+          label.className = 'traplabel';
+          label.textContent = 'Trap';
+          const img = document.createElement('div');
+          img.className = 'trapimg';
+          if (tr.png) img.style.backgroundImage = 'url(' + tr.png + ')';
+          else img.textContent = '🪤';       // fallback if the drawing is missing
+          el.appendChild(label);
+          el.appendChild(img);
+          el.title = 'a lurking trap';
+          band.appendChild(el);
+        });
       }
     }
 
@@ -146,6 +161,7 @@
       const el = document.createElement('div');
       el.className = 'fighter';
       el.innerHTML =
+        '<div class="actionlabel"></div>' +
         '<div class="pic"></div>' +
         '<div class="stars"></div>' +
         '<div class="actionbadge"></div>' +
@@ -155,6 +171,7 @@
         el, pic: el.querySelector('.pic'), name: el.querySelector('.nametag'),
         hp: el.querySelector('.hpbar > i'), stars: el.querySelector('.stars'),
         badge: el.querySelector('.actionbadge'),
+        label: el.querySelector('.actionlabel'),
         spritePng: c.sprite_png || c.png || '',
       };
       this.sprites[c.player_id] = s;
@@ -180,6 +197,22 @@
     clearBadges() {
       for (const s of Object.values(this.sprites)) {
         if (s.badge) { s.badge.textContent = ''; s.badge.classList.remove('show'); }
+      }
+    }
+
+    // The big label OVER the acting fighter's drawing as their move is revealed
+    // (§13) — the move name and, when the move has one, its target ("CHARGE →
+    // Blob"). It rides the fighter's acting zoom (it's a child of .fighter), so
+    // it blows up with the sprite. Only the currently-revealing fighter carries
+    // one: the sequencer clears them at the start of each beat.
+    setActionLabel(pid, text) {
+      const s = this.sprites[pid]; if (!s || !s.label) return;
+      s.label.textContent = text || '';
+      s.label.classList.toggle('show', !!text);
+    }
+    clearActionLabels() {
+      for (const s of Object.values(this.sprites)) {
+        if (s.label) { s.label.textContent = ''; s.label.classList.remove('show'); }
       }
     }
 

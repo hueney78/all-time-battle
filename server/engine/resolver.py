@@ -374,20 +374,22 @@ def _resolve_protect(
     breakdown = _breakdown(move, caster, rolled, tier, heal_rider, cfg)
     amount = max(0, breakdown["raw"])
     target.hp = min(target.max_hp, target.hp + amount)
-    events.append(Event(
-        id=_eid("heal"), type=EventType.HEALED, round=round_num,
-        player_id=pid, target_id=ally,
-        data={"amount": amount, "creativity_tier": tier, **breakdown},
-    ))
 
+    # PROTECT heals AND raises a reflecting shield in ONE action, so it resolves
+    # to a SINGLE event (§11.2): the announcers call it as one beat ("healed and
+    # shielded", never two), and the host plays the heal float and the round-long
+    # shield glow off that one event. reflect_pct is 0 for a heal-only move (none
+    # today — PROTECT always shields).
+    pct = 0.0
     if move.applies_shield:
         pct = min(cfg.reflect_cap, cfg.reflect_per_weird * caster.stats.weird)
         shields[ally] = (pct, pid)
-        events.append(Event(
-            id=_eid("prot"), type=EventType.PROTECTED, round=round_num,
-            player_id=pid, target_id=ally,
-            data={"reflect_pct": pct},
-        ))
+    events.append(Event(
+        id=_eid("prot"), type=EventType.PROTECTED, round=round_num,
+        player_id=pid, target_id=ally,
+        data={"amount": amount, "creativity_tier": tier, "reflect_pct": pct,
+              **breakdown},
+    ))
 
 
 # ---------------------------------------------------------------------------
