@@ -95,10 +95,21 @@
     .tools button{border:3px solid var(--ink); background:#fff; color:var(--ink); border-radius:12px;
       min-width:44px; height:44px; font-size:15px; font-weight:900; padding:0 8px}
     .tools button.sel{background:var(--gold)}
-    #colors{display:flex; gap:5px; align-items:center; border:3px solid var(--ink);
-      border-radius:12px; padding:0 8px; background:#fff; height:44px}
+    #colors{display:flex; flex-wrap:wrap; gap:5px; align-items:center; justify-content:center;
+      border:3px solid var(--ink); border-radius:12px; padding:4px 8px; background:#fff; min-height:44px}
     .swatch{width:22px; height:22px; border-radius:50%; border:2px solid var(--ink); padding:0}
     .swatch.sel{outline:3px solid var(--team); outline-offset:1px}
+    /* custom color picker — a native <input type=color> styled as a swatch (sized
+       to match the preset chips), so players can pick ANY color, not just the
+       presets (opens the phone's native color wheel). Center dot shows the chosen
+       color; the rainbow ring marks it as the "any color" swatch. */
+    .swatch.custom{width:44px; height:44px; min-width:44px; border:3px solid var(--ink);
+      border-radius:12px; padding:0; position:relative; overflow:hidden;
+      background:conic-gradient(from 0deg,#ff004d,#ffb200,#3fd000,#00c4d4,#2f6fe0,#a24bd6,#ff004d)}
+    .swatch.custom .cdot{position:absolute; inset:9px; border-radius:50%;
+      background:var(--custom, transparent); box-shadow:0 0 0 2px #fff inset}
+    .swatch.custom input{position:absolute; inset:0; width:100%; height:100%;
+      opacity:0; border:0; padding:0; margin:0; cursor:pointer}
     #restore{background:var(--posit); font-size:12px; line-height:1}
 
     .submit{width:100%; background:var(--team); color:#fff; border:4px solid var(--ink);
@@ -189,6 +200,7 @@
         <button data-pen="18">⬤</button>
         <button data-erase="16">🧽<small>S</small></button>
         <button data-erase="40">🧽<small>L</small></button>
+        <button data-fill="1" title="Fill an area with the current color">🪣</button>
         <button id="undo">↩︎</button>
         <button id="clear">🗑️</button>
         <button id="restore" class="hidden">🔄 restore<br>character</button>
@@ -247,20 +259,44 @@
         const b = document.createElement('button');
         b.className = 'swatch' + (i === 0 ? ' sel' : '');
         b.style.background = c;
-        b.onclick = () => { pad.setColor(c); selColor(b); selTool(null); };
+        // Keep the bucket selected when recoloring in fill mode; else back to pen.
+        b.onclick = () => { pad.setColor(c); selColor(b); if (pad.tool !== 'fill') selTool(null); };
         cbox.appendChild(b);
       });
+      // Custom color picker: tap the rainbow swatch to pick ANY color from the
+      // phone's native color wheel. Behaves like a preset once chosen (setColor
+      // also switches to pen), and shows the chosen color in its center dot.
+      const custom = document.createElement('label');
+      custom.className = 'swatch custom';
+      custom.title = 'Custom color';
+      custom.setAttribute('aria-label', 'Pick a custom color');
+      const picker = document.createElement('input');
+      picker.type = 'color';
+      picker.value = '#111111';
+      const dot = document.createElement('span');
+      dot.className = 'cdot';
+      custom.append(dot, picker);
+      const applyCustom = () => {
+        pad.setColor(picker.value);
+        custom.style.setProperty('--custom', picker.value);
+        selColor(custom); if (pad.tool !== 'fill') selTool(null);
+      };
+      picker.oninput = applyCustom;   // live as the wheel is scrubbed (desktop)
+      picker.onchange = applyCustom;  // commit (mobile browsers fire only change)
+      cbox.appendChild(custom);
       document.querySelectorAll('[data-pen]').forEach(b =>
         b.onclick = () => { pad.setPen(+b.dataset.pen); selTool(b); });
       document.querySelectorAll('[data-erase]').forEach(b =>
         b.onclick = () => { pad.setEraser(+b.dataset.erase); selTool(b); });
+      document.querySelectorAll('[data-fill]').forEach(b =>
+        b.onclick = () => { pad.setFill(); selTool(b); });   // paint bucket
       $('undo').onclick = () => pad.undo();
       $('clear').onclick = () => pad.clear();
       $('restore').onclick = () => loadCharacter(false);
       $('submit').onclick = () => doSubmit(false);
     }
     function selColor(b){ document.querySelectorAll('.swatch').forEach(s=>s.classList.remove('sel')); if(b) b.classList.add('sel'); }
-    function selTool(b){ document.querySelectorAll('[data-pen],[data-erase]').forEach(s=>s.classList.remove('sel')); if(b) b.classList.add('sel'); }
+    function selTool(b){ document.querySelectorAll('[data-pen],[data-erase],[data-fill]').forEach(s=>s.classList.remove('sel')); if(b) b.classList.add('sel'); }
 
     // Prefill the canvas with the character: scaled onto the team's side for
     // action rounds, full-size centered for the Power-Up Montage (§10.1).

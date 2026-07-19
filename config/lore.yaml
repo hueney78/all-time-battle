@@ -6,14 +6,12 @@
 #
 # usage: how much lore to lean on — never | occasional | frequent
 lore:
-  - term: "the Kevin Special"
-    definition: "any move that looks cool but accomplishes nothing"
   - term: "yeet"
     definition: "to throw someone or something with great force"
   - term: "tough"
     definition: "when something is overpowered or strong or cool or buff"
   - term: "that's aura"
-    definition: "when something is cool or amazing"
+    definition: "when something is really cool or amazing"
   - term: "yeet"
     definition: "to throw someone or something with great force"
   - term: "farming"

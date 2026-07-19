@@ -46,13 +46,15 @@ header .display{font-size:17px;-webkit-text-stroke:.5px var(--ink)}
 /* a player-drawn addition, to show the idea */
 .drawn{position:absolute;left:38%;top:30%;width:55%;opacity:.9}
 
-/* toolbar [spec: pens 3 widths / 8 colors, erasers multi-size, undo, clear, RESTORE] */
+/* toolbar [spec: pens 3 widths / 8 colors + custom picker, fill bucket, erasers multi-size, undo, clear, RESTORE] */
 .tools{display:flex;flex-wrap:wrap;gap:6px;justify-content:center}
 .tool{border:3px solid var(--ink);background:#fff;border-radius:12px;min-width:44px;height:44px;
   font-size:17px;font-weight:900;display:grid;place-items:center;padding:0 8px}
 .tool.on{background:var(--gold)}
 .dots{display:flex;gap:4px;align-items:center;border:3px solid var(--ink);border-radius:12px;padding:0 8px;background:#fff}
 .dot{width:16px;height:16px;border-radius:50%;border:2px solid var(--ink)}
+/* custom color picker swatch [spec §13: pick ANY color] */
+.dot.custom{background:conic-gradient(from 0deg,#ff004d,#ffb200,#3fd000,#00c4d4,#2f6fe0,#a24bd6,#ff004d)}
 .restore{background:var(--posit);font-size:13px}
 .eraser small{font-size:9px;display:block;line-height:.8}
 
@@ -104,8 +106,9 @@ footer{font-size:10.5px;font-weight:700;opacity:.6;text-align:center}
 <!-- tools -->
 <section class="tools">
   <span class="tool on">✏️</span>
-  <span class="dots"><i class="dot" style="background:#2B2338"></i><i class="dot" style="background:#E24FA0"></i><i class="dot" style="background:#2F6FE0"></i><i class="dot" style="background:#3FB65C"></i><i class="dot" style="background:#F2B233"></i><i class="dot" style="background:#8F5FD6"></i><i class="dot" style="background:#FF8B4D"></i><i class="dot" style="background:#fff"></i></span>
+  <span class="dots"><i class="dot" style="background:#2B2338"></i><i class="dot" style="background:#E24FA0"></i><i class="dot" style="background:#2F6FE0"></i><i class="dot" style="background:#3FB65C"></i><i class="dot" style="background:#F2B233"></i><i class="dot" style="background:#8F5FD6"></i><i class="dot" style="background:#FF8B4D"></i><i class="dot" style="background:#fff"></i><i class="dot custom" title="custom color"></i></span>
   <span class="tool eraser">🧽<small>S·M·L</small></span>
+  <span class="tool" title="fill an area">🪣</span>
   <span class="tool">↩️</span>
   <span class="tool">🗑️</span>
   <span class="tool restore">🔄 restore<br>character</span>

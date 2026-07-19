@@ -10,7 +10,7 @@ game:
 
 timers:
   draw_characters_seconds: 240
-  draw_action_seconds: 120
+  draw_action_seconds: 100
   montage_seconds: 40     # Power-Up Montage bonus drawing phase
   warning_seconds: 20     # pulse warning before auto-submit
   beat_seconds: 30         # server AFK safety net: force-proceed after beat_seconds × n_beats
@@ -19,7 +19,7 @@ timers:
 ai:
   classify_model: "claude-haiku-4-5"
   narrate_model: "claude-sonnet-4-6"
-  timeout_seconds: 40
+  timeout_seconds: 60
   max_retries: 1
   max_image_size_bytes: 200000   # 200 KB per PNG
   image_px: 512                  # canvas export size
@@ -41,12 +41,12 @@ ui:
     draw_action: "Round {round} — Draw your Move!"
     montage: "🎵 Upgrade your Character! 🎵"
     gremlin: "Draw a Hazard, Gremlin! 😈"
-  reveal_action_zoom_scale: 2.8        # how far the acting drawing zooms during its beat
+  reveal_action_zoom_scale: 1.8        # how far the acting drawing zooms during its beat
   reveal_action_zoom_seconds: 2.5      # how long the zoom holds before settling
   reveal_move_seconds: 0.7             # CHARGE/ESCAPE: how long a sprite takes to travel zones (v6)
   reveal_beat_seconds: 30.0             # seconds each announcer beat holds before auto-advancing
                                        # (0 = manual: host clicks "Next ▶" for every beat)
-  float_number_seconds: 2.5            # floating damage/heal number lifetime
+  float_number_seconds: 3.5            # floating damage/heal number lifetime
   audience_recent_rounds: 3            # Crowd Favorite meter recency window (rounds)
   combo_splash_seconds: 2.0            # how long the COMBO! splash holds on screen
   victory_splash_footer: "🏆 The judges are deciding awards…"   # §10.2 splash footer
