@@ -51,7 +51,7 @@ def _roster(rng: random.Random) -> list[Character]:
             if CFG.stat_min <= weird <= CFG.stat_max:
                 break
         max_hp = (CFG.hp_base + CFG.hp_per_power * power + CFG.hp_per_weird * weird
-                  + speed // CFG.hp_speed_divisor)
+                  + CFG.hp_per_speed * speed)
         chars.append(Character(
             player_id=f"p{i}",
             name=f"Fighter {i}",
@@ -151,8 +151,9 @@ def test_engine_demo_runs(capsys):
     out = capsys.readouterr().out
     assert "COMBAT V5" in out
     assert "every move lands" in out
-    # The §12 fixture's opening lineup, straight from the v5 HP formula.
-    assert "HP=34/34" in out and "HP=41/41" in out
+    # The §12 fixture's opening lineup, straight from the v6 HP formula
+    # (27 + 2*POW + WRD; Speed grants no HP): Stabby 32, Lawnmower 40.
+    assert "HP=32/32" in out and "HP=40/40" in out
     # Older vocabulary must never reappear in the play-by-play.
     for gone in ("2d6", "vs AC", "FUMBLE", "MISS", "CRIT", "DODGE", "BACKFIRE"):
         assert gone not in out, f"demo still prints a removed concept {gone!r}"

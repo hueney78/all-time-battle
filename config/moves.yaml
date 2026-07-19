@@ -73,9 +73,12 @@ moves:
     target: single_enemy
     damage: "2d4 + SPD"               # ~2/3 of SMASH
     moves_one_zone: true              # slip one zone (◀/▶ chosen with the tap), then shoot
+    # PARTING SHOT: you may target any enemy, but it only lands on one who was in
+    # the zone you fled from — otherwise you get away clean and the shot whiffs.
+    hits_from_zone_only: true
     button: "ESCAPE"
     icon: "💨"
-    desc: "Slip one zone away, then shoot from there."
+    desc: "Slip one zone away and fire a parting shot — it only hits an enemy in the zone you left."
     sfx: whoosh
 
   protect:

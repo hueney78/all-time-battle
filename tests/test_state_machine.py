@@ -1152,9 +1152,9 @@ async def test_montage_applies_stat_and_becomes_new_original():
     assert seen["canvas_init"].payload["png"] == "UPGRADED"
 
 
-def test_apply_montage_speed_grants_hp_only_when_it_crosses_the_floor():
-    """v5: Speed feeds HP as floor(Speed/2), so a Speed montage adds HP only
-    when the new value crosses an even boundary (2→3 adds nothing, 3→4 adds 1)."""
+def test_apply_montage_speed_grants_no_hp():
+    """v6: Speed feeds NO HP, so a Speed montage raises only the stat — max HP
+    (and current HP) never move, however high Speed climbs."""
     from server.ai.provider import MontageResult
 
     rules = _rules()
@@ -1162,18 +1162,17 @@ def test_apply_montage_speed_grants_hp_only_when_it_crosses_the_floor():
     p = room.add_player("A", "player", FakeSocket(), None)
     machine = GameStateMachine(room, rules, ai=MockAI(), timers=Timers(1, 1, 0.01))
 
-    # 2 → 3: floor(2/2)=1, floor(3/2)=1 → no HP change.
     ch = Character(player_id=p.id, name="A", stats=Stats(power=2, speed=2, weird=2),
                    hp=20, max_hp=22, zone_id="glitter_back", character_png_b64="OLD")
     state = GameState(room_id="MTG2", characters={p.id: ch}, teams=room.teams)
     machine._apply_montage(state, [MontageResult(p.id, "speed", "zoom")], {p.id: "NEW"})
     assert ch.stats.speed == 3
-    assert (ch.hp, ch.max_hp) == (20, 22)         # 2→3 crosses no floor
+    assert (ch.hp, ch.max_hp) == (20, 22)         # Speed grants no HP
     assert ch.character_png_b64 == "NEW"
 
-    # 3 → 4: floor(3/2)=1, floor(4/2)=2 → +1 HP.
+    # Climbing Speed again still moves no HP.
     machine._apply_montage(state, [MontageResult(p.id, "speed", "zoom")], {})
-    assert ch.stats.speed == 4 and (ch.hp, ch.max_hp) == (21, 23)
+    assert ch.stats.speed == 4 and (ch.hp, ch.max_hp) == (20, 22)
 
     # a blank montage (no results) changes nothing
     before = (ch.stats.speed, ch.max_hp, ch.character_png_b64)
@@ -1182,8 +1181,8 @@ def test_apply_montage_speed_grants_hp_only_when_it_crosses_the_floor():
 
 
 def test_apply_montage_weird_and_power_raise_max_hp():
-    """v5's HP formula is 27 + 2*POW + WRD + floor(SPD/2): a Weird montage moves
-    max HP by hp_per_weird and a Power one by hp_per_power."""
+    """v6's HP formula is 27 + 2*POW + WRD (Speed grants no HP): a Weird montage
+    moves max HP by hp_per_weird and a Power one by hp_per_power."""
     from server.ai.provider import MontageResult
 
     rules = _rules()

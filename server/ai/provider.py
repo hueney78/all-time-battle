@@ -376,6 +376,11 @@ def _beat_text(ev: Event, characters: dict[str, Character],
             return f"{who} tags {whom} for {d.get('damage', 0)}."
         if res == "reflect":
             return f"{who}'s shield throws it right back at {whom} for {d.get('damage', 0)}!"
+        if res == "whiff":
+            # ESCAPE got away clean, but its parting shot found nobody in the
+            # zone it fled — the target was somewhere else.
+            return (f"{who} slips away and snaps off a parting shot — "
+                    f"but {whom} is too far, and it hits nothing.")
         if res == "no_target":
             return f"{who} swings at empty air."
         return ""

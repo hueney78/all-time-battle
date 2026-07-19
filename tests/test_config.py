@@ -185,21 +185,21 @@ def test_settings_ui_defaults_when_block_missing(tmp_path: Path, monkeypatch):
 
 
 def test_balance_hp_formula():
-    """COMBAT V5: HP = 27 + 2×POW + WRD + Speed//2 (27–45). There is no AC."""
+    """COMBAT V6: HP = 27 + 2×POW + WRD (27–42; Speed grants no HP). There is no AC."""
     b = load_balance()
     assert b.hp_base == 27
     assert b.hp_per_power == 2
     assert b.hp_per_weird == 1
-    assert b.hp_speed_divisor == 2
+    assert b.hp_per_speed == 0
     assert not hasattr(b, "ac_base")
 
     def hp(power, speed, weird):
         return (b.hp_base + b.hp_per_power * power + b.hp_per_weird * weird
-                + speed // b.hp_speed_divisor)
+                + b.hp_per_speed * speed)
 
     assert hp(0, 0, 0) == 27
-    assert hp(6, 6, 3) == 45   # the top end on budget 9 (POW 6 / SPD 6 / WRD 3 mix)
-    assert hp(6, 0, 3) == 42
+    assert hp(6, 6, 3) == 42   # Speed adds nothing → identical to hp(6, 0, 3)
+    assert hp(6, 0, 3) == 42   # the top end on budget 9 (POW 6 / WRD 3)
 
 
 def test_balance_stat_budget():

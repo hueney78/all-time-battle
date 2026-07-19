@@ -6,7 +6,7 @@
   ESCAPE  move 1 zone + ranged,   dmg 2d4 + SPD          (~2/3 of smash)
   PROTECT ally heal + reflect shield, heal 1d6 + WRD, ALWAYS ACTS FIRST
 
-HP = 27 + 2*POW + WRD + SPD//2.  Creativity flat +0/+1/+3/+5.  No-repeat rule.
+HP = 27 + 2*POW + WRD (v6: Speed gives no HP).  Creativity flat +0/+1/+3/+5.  No-repeat rule.
 Shield: absorbs REFLECT_PER_WRD × Weird (cap 30%) of incoming and bounces it back.
 
 Standalone MODEL — never imports the engine, so it can diverge on purpose.
@@ -36,7 +36,7 @@ class C:
                 p=rng.randint(0,6); sp=rng.randint(0,6); w=9-p-sp
                 if 0 <= w <= 6: break
             s.pow, s.spd, s.wrd = p, sp, w
-        s.maxhp = s.hp = 27 + 2*s.pow + s.wrd + s.spd//2
+        s.maxhp = s.hp = 27 + 2*s.pow + s.wrd        # v6: Speed grants no HP
         s.zone = 'back_a' if team==0 else 'back_b'
         s.last=None; s.shield=0.0
     def alive(s): return s.hp > 0

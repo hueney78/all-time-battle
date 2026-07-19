@@ -71,7 +71,7 @@ ARCHETYPES = {
 def _char(pid: str, stats: tuple[int, int, int], zone: str) -> Character:
     power, speed, weird = stats
     hp = (CFG.hp_base + CFG.hp_per_power * power + CFG.hp_per_weird * weird
-          + speed // CFG.hp_speed_divisor)
+          + CFG.hp_per_speed * speed)
     return Character(player_id=pid, name=pid,
                      stats=Stats(power=power, speed=speed, weird=weird),
                      hp=hp, max_hp=hp, zone_id=zone)

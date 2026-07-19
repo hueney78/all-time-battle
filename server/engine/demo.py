@@ -20,7 +20,7 @@ _CFG = load_balance()
 
 def _char(pid: str, name: str, power: int, speed: int, weird: int, zone: str) -> Character:
     hp = (_CFG.hp_base + _CFG.hp_per_power * power + _CFG.hp_per_weird * weird
-          + speed // _CFG.hp_speed_divisor)
+          + _CFG.hp_per_speed * speed)
     return Character(
         player_id=pid, name=name,
         stats=Stats(power=power, speed=speed, weird=weird),
@@ -125,7 +125,7 @@ def main() -> None:
     print(f"Moves:      {list(rules.moves.moves)}")
     print(f"HP formula: {rules.balance.hp_base} + {rules.balance.hp_per_power} x Power"
           f" + {rules.balance.hp_per_weird} x Weird"
-          f" + floor(Speed/{rules.balance.hp_speed_divisor})")
+          f" + {rules.balance.hp_per_speed} x Speed")
     print(f"Shield:     PROTECT reflects {rules.balance.reflect_per_weird:.0%} x Weird "
           f"(cap {rules.balance.reflect_cap:.0%}) — no AC, no dodge: every move lands")
     print()

@@ -226,11 +226,11 @@ def load_settings(config_dir: Path | None = None) -> Settings:
 
 
 class Balance(BaseModel):
-    # HP = hp_base + hp_per_power*Power + hp_per_weird*Weird + Speed//hp_speed_divisor
+    # HP = hp_base + hp_per_power*Power + hp_per_weird*Weird + hp_per_speed*Speed
     hp_base: int = 27
     hp_per_power: int = 2
     hp_per_weird: int = 1
-    hp_speed_divisor: int = 2   # Speed buys a little HP now that dodge is gone (v5)
+    hp_per_speed: int = 0   # v6: Speed grants NO HP (fast fighters already strike first)
     # Stat budget — AI distributes stats summing to this
     stat_budget: int = 9
     stat_min: int = 0
@@ -331,6 +331,9 @@ class MoveDef(BaseModel):
     always_legal: bool = False    # BLAST/CHARGE: the button is never greyed out
     moves_to_target: bool = False # CHARGE: rush into the target's zone, then hit
     moves_one_zone: bool = False  # ESCAPE: slip one zone (◀/▶ from the tap), then hit
+    # ESCAPE's parting shot lands only on a target that was in the zone the mover
+    # fled FROM — any enemy may be tapped, but a far one whiffs (GAME_DESIGN §5).
+    hits_from_zone_only: bool = False
     acts_first: bool = False      # PROTECT: resolves before every other move this round
     applies_shield: bool = False  # PROTECT: cloak the target in a reflecting shield
     button: str = ""              # phone button label

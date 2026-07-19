@@ -446,8 +446,7 @@ class GameStateMachine:
             elif r.stat == "weird":
                 gain = self.balance.hp_per_weird * (new_val - old_val)
             elif r.stat == "speed":
-                gain = new_val // self.balance.hp_speed_divisor - \
-                    old_val // self.balance.hp_speed_divisor
+                gain = self.balance.hp_per_speed * (new_val - old_val)
             if gain > 0:
                 ch.max_hp += gain
                 ch.hp = min(ch.max_hp, ch.hp + gain)     # +max HP, healed by the gain
@@ -456,10 +455,10 @@ class GameStateMachine:
                 ch.character_png_b64 = png               # the new original everywhere
 
     def _max_hp(self, stats) -> int:
-        """The v5 HP formula: 27 + 2*POW + WRD + floor(SPD/2) (config-driven)."""
+        """The v6 HP formula: 27 + 2*POW + WRD (Speed grants no HP; config-driven)."""
         b = self.balance
         return (b.hp_base + b.hp_per_power * stats.power + b.hp_per_weird * stats.weird
-                + stats.speed // b.hp_speed_divisor)
+                + b.hp_per_speed * stats.speed)
 
     async def _process_characters(self) -> list[str]:
         """Generate characters and build the initial game state. Returns the intro
@@ -740,7 +739,9 @@ class GameStateMachine:
         the button from the catalog's healing move. Reflects, KOs and traps carry
         no fresh badge (the bounce lands on someone whose own badge is set)."""
         t = ev.type.value
-        if t == "attack_resolved" and ev.data.get("result") in ("hit", "devastating"):
+        # A whiff still gets its badge/label — the fighter DID escape, the parting
+        # shot just found nobody.
+        if t == "attack_resolved" and ev.data.get("result") in ("hit", "devastating", "whiff"):
             move = self.rules.moves.moves.get(ev.data.get("move_id", ""))
             return move.button if move else None
         if t in ("healed", "protected"):

@@ -79,6 +79,8 @@ class EventType(StrEnum):
     #                stinger, gold log line)
     #   reflect      a PROTECT shield bounced absorbed damage back at the attacker
     #   trap         an Arena Gremlin's trap sprang on an enemy in its zone
+    #   whiff        an ESCAPE's parting shot found nobody — its target wasn't in
+    #                the zone the escaper fled from (damage 0; the escape happened)
     #   no_target
     ATTACK_RESOLVED = "attack_resolved"
     # PROTECT resolved (heal + reflecting shield) as ONE event: data carries the

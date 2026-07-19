@@ -27,10 +27,10 @@ Three stats, each **0–6**, assigned by the AI from the character drawing on a 
 | Stat | Governs | AI guidance |
 |---|---|---|
 | **Power** | SMASH damage, half of CHARGE, HP | Muscles, weapons, size, spikes |
-| **Speed** | Initiative, ESCAPE damage, half of CHARGE, a little HP | Legs, wheels, wings, streamlines |
+| **Speed** | Initiative, ESCAPE damage, half of CHARGE (**no HP**) | Legs, wheels, wings, streamlines |
 | **Weird** | BLAST damage, PROTECT heal **and** reflect strength, HP | Extra eyes, auras, impossible anatomy, glitter |
 
-Derived (formulas in `balance.yaml`): `HP = 27 + 2 × Power + Weird + ⌊Speed / 2⌋` (27–45). There is **no AC, no attack roll, and no dodge** (§5) — every move lands. Each stat drives exactly two moves, and **the phone shows the math** on every button ("SMASH — 2d4 + 8"), so stat identity is visible each round.
+Derived (formulas in `balance.yaml`): `HP = 27 + 2 × Power + Weird` (27–42). **Speed grants no HP** (v6): fast fighters already act first, so making them tanky too let Speed dominate — keeping them squishy is the trade for their initiative edge. There is **no AC, no attack roll, and no dodge** (§5) — every move lands (the lone exception is ESCAPE's parting shot, §5). Each stat drives exactly two moves, and **the phone shows the math** on every button ("SMASH — 2d4 + 8"), so stat identity is visible each round.
 
 Balance note: the three specialists form a clean rock-paper-scissors — Speed edges Power, Power beats Weird, Weird beats Speed — and a balanced 3/3/3 build beats Power and Weird but loses to Speed. No stat is a dump stat, and no build is a trap.
 
@@ -54,7 +54,7 @@ The same response includes one **team name per team**, generated from that team'
 
 ## 4. Actions: Tap the Move, Draw the Style
 
-Each round the phone shows **five big move buttons** and a target picker (enemy or ally portraits as appropriate). The player **taps a move and a target, then draws how their character does it**. The tap decides *what happens*; the drawing decides *how hard it lands* (creativity, §8) and how it's narrated. **Every selected move always lands** — no misses, no fumbles, no dodges (§5). There are no separate movement buttons: CHARGE and ESCAPE carry movement inside an attack, so a turn is never spent doing nothing.
+Each round the phone shows **five big move buttons** and a target picker (enemy or ally portraits as appropriate). The player **taps a move and a target, then draws how their character does it**. The tap decides *what happens*; the drawing decides *how hard it lands* (creativity, §8) and how it's narrated. **Every selected move always lands** — no misses, no fumbles, no dodges (§5) — with one positional exception: **ESCAPE's parting shot** only connects if its target was in the zone the escaper fled from (you may tap any enemy, but a far one whiffs, §5). There are no separate movement buttons: CHARGE and ESCAPE carry movement inside an attack, so a turn is never spent doing nothing.
 
 ### 4.1 The Move Catalog (`config/moves.yaml`)
 
@@ -77,8 +77,9 @@ moves:
             button: "CHARGE", desc: "Rush into their zone and hit them."}
   escape:  {stat: speed, range: any_zone, target: single_enemy,
             moves_one_zone: player_choice,               # ◀ or ▶ chosen with the tap
+            hits_from_zone_only: true,                   # parting shot: only hits the zone you fled FROM
             damage: "2d4 + SPD + creativity",            # ~2/3 of SMASH
-            button: "ESCAPE", desc: "Slip one zone away, then shoot from there."}
+            button: "ESCAPE", desc: "Slip one zone away; the parting shot only hits an enemy in the zone you left."}
   protect: {stat: weird, range: any_zone, target: ally,
             acts_first: true,                            # PROTECT always resolves before everything
             heal: "1d6 + WRD + creativity",
@@ -100,11 +101,12 @@ The **draw-on-top canvas** is unchanged (prefilled at ~50% on the team side, ori
 
 ## 5. Resolution (no AC, no rolls to hit, no dodge)
 
-**A selected move always takes effect.** Resolution per action:
+**A selected move always takes effect** (with one positional exception, below). Resolution per action:
 
 1. **Effect** = the move's dice + its stat modifier + the flat creativity bonus (`+0/+1/+3/+5` for tiers 0–3). Magnitude varies via dice; whether it lands never does.
-2. **PROTECT's reflect shield** (the only thing that alters damage): if the target carries a shield, it absorbs `5% × caster's Weird` (cap 30%) of the incoming damage and **bounces exactly that much back at the attacker**. A shielded ally takes less; the attacker takes the difference.
-3. **Initiative:** PROTECT first (always), then by Speed, ties broken by a seeded roll players never see referenced. **A character reduced to 0 HP loses their action immediately**, even if they had already tapped it.
+2. **ESCAPE's parting shot** (the lone exception to "every move lands"): ESCAPE slips one zone away, then fires back at the zone it just *left*. A player may tap **any** enemy, but the shot only connects if that enemy is in the zone the escaper **fled from**; against a far target the fighter still gets away clean and the shot **whiffs** (damage 0, a `whiff` event). This is a positional rule, not a to-hit roll — it's the ESCAPE analog of SMASH needing a same-zone enemy. Config-gated by the move's `hits_from_zone_only` rider.
+3. **PROTECT's reflect shield** (the only thing that alters a hit that landed): if the target carries a shield, it absorbs `5% × caster's Weird` (cap 30%) of the incoming damage and **bounces exactly that much back at the attacker**. A shielded ally takes less; the attacker takes the difference.
+4. **Initiative:** PROTECT first (always), then by Speed, ties broken by a seeded roll players never see referenced. **A character reduced to 0 HP loses their action immediately**, even if they had already tapped it.
 
 **Spike moments** come from drawings, not luck: creativity tier 3 is the **DEVASTATING** beat (replay + stinger + gold log line), and a big reflect turning a killing blow around is the defensive highlight. All values live in `balance.yaml`.
 
@@ -246,7 +248,7 @@ A few random entries are injected into the narrate/intro prompt each call with i
 
 ## 12. Worked Round (numbers a test can assert)
 
-Seed `42`, 2v2 fixture: Stabby (P1/S5/W3 → HP 34) and Gerald (P3/S1/W5 → HP 38) vs Lawnmower (P6/S2/W1 → HP 41) and Blob (P0/S3/W6 → HP 34). Stabby and Gerald start in `back_a`, the others in `back_b`.
+Seed `42`, 2v2 fixture (HP from `27 + 2×POW + WRD`, no Speed term): Stabby (P1/S5/W3 → HP 32) and Gerald (P3/S1/W5 → HP 38) vs Lawnmower (P6/S2/W1 → HP 40) and Blob (P0/S3/W6 → HP 33). Stabby and Gerald start in `back_a`, the others in `back_b`. Final HPs after the round: **Stabby 19, Blob 25, Lawnmower 38, Gerald 38** (reflects: 2 back at Blob, 2 at Lawnmower).
 1. **Taps:** Gerald → PROTECT on Stabby (creativity 2 = +3); Stabby → CHARGE at Blob (creativity 1 = +1); Lawnmower → CHARGE at Stabby (creativity 0); Blob → BLAST at Stabby (creativity 3 = +5, DEVASTATING).
 2. **Initiative:** PROTECT always first → Gerald. Then by Speed: Stabby(5) → Blob(3) → Lawnmower(2).
 3. **Resolution:** Gerald heals Stabby `1d6 + 5 + 3` and shields her at `5% × 5 = 25%` reflect. Stabby charges into `back_b` and hits Blob for `2d4 + avg(1,5) + 1`. Blob BLASTs Stabby — now in Blob's own zone, so the point-blank penalty halves it — and 25% of what lands bounces back at Blob. Lawnmower charges Stabby's zone (already there) and swings for `2d4 + avg(6,2)`, with 25% reflected.

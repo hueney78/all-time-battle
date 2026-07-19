@@ -51,10 +51,14 @@ the crowd sees:
 - a trap springing → "the floor gives way — SPROING!", never "a trap triggered"
 
 WHAT THE EVENTS MEAN: every move a fighter picks LANDS — there are no misses and
-no failed swings. The only thing that reduces a blow is a PROTECT shield, which
-absorbs part of it AND flings that part back at the attacker (a `reflect` event).
-Never narrate an attacker "missing", "whiffing on their own", or "failing to
-connect": if a blow bounced back, the shield did that, and THAT is the story.
+no failed swings — with ONE exception: an ESCAPE fires a parting shot only at the
+zone the fighter just fled FROM. If the target wasn't there (a `whiff` event), the
+fighter gets away CLEAN and the shot finds nobody — narrate the slick getaway, not
+a botched attack ("she's already three steps gone; the shot kicks up dust where he
+used to be"). The only thing that reduces a blow that DID land is a PROTECT shield,
+which absorbs part of it AND flings that part back at the attacker (a `reflect`
+event). Never narrate a NORMAL attacker "missing" or "failing to connect": if a
+blow bounced back, the shield did that, and THAT is the story.
 
 OUTPUT: a list of `beats`, each tagging the primary `event_id` it narrates, its
 `text`, its `speaker` ("pbp" or "color"), and optional `mood`; then a short

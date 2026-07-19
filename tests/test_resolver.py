@@ -37,7 +37,7 @@ CFG = load_balance()
 
 def _hp(power: int, speed: int, weird: int) -> int:
     return (CFG.hp_base + CFG.hp_per_power * power + CFG.hp_per_weird * weird
-            + speed // CFG.hp_speed_divisor)
+            + CFG.hp_per_speed * speed)
 
 
 def _char(
@@ -143,16 +143,16 @@ def test_v5_golden():
     result = resolve_round(state, _golden_actions(), Dice(seed=42), CFG)
     chars = result.new_state.characters
 
-    assert chars["p1"].hp == 21, f"Stabby: got {chars['p1'].hp}"
-    assert chars["p2"].hp == 26, f"Blob: got {chars['p2'].hp}"
-    assert chars["p3"].hp == 39, f"Lawnmower: got {chars['p3'].hp}"
+    assert chars["p1"].hp == 19, f"Stabby: got {chars['p1'].hp}"
+    assert chars["p2"].hp == 25, f"Blob: got {chars['p2'].hp}"
+    assert chars["p3"].hp == 38, f"Lawnmower: got {chars['p3'].hp}"
     assert chars["p4"].hp == 38, f"Gerald: got {chars['p4'].hp}"
 
-    # Derived HP straight from §12: 27 + 2*POW + WRD + SPD//2.
-    assert chars["p1"].max_hp == 34
-    assert chars["p2"].max_hp == 34
-    assert chars["p3"].max_hp == 41
-    assert chars["p4"].max_hp == 38
+    # Derived HP straight from §12: 27 + 2*POW + WRD (v6: Speed grants no HP).
+    assert chars["p1"].max_hp == 32   # Stabby P1/W3
+    assert chars["p2"].max_hp == 33   # Blob   P0/W6
+    assert chars["p3"].max_hp == 40   # Lawnmower P6/W1
+    assert chars["p4"].max_hp == 38   # Gerald P3/W5
 
     # Initiative — PROTECT first, then pure Speed.
     assert result.initiative_order == ["p4", "p1", "p2", "p3"]
@@ -504,16 +504,37 @@ def test_charge_keys_off_avg_of_power_and_speed():
 
 
 def test_escape_slips_one_zone_by_direction_then_hits():
+    """ESCAPE's parting shot lands on a target that WAS in the zone it fled
+    from — here the enemy shares the escaper's origin zone (frontline)."""
     atk = _char("atk", "Atk", power=0, speed=6, weird=0, zone="frontline")
-    dfn = _char("def", "Def", power=2, speed=0, weird=2, zone="thunder_back")
+    dfn = _char("def", "Def", power=2, speed=0, weird=2, zone="frontline")
     state = _duel(atk, dfn)
     # ◀ = -1 = one zone toward glitter_back in zones.yaml order.
     actions = [ClassifiedAction(player_id="atk", move_id="escape", target_id="def",
                                 escape_direction=-1)]
     result = resolve_round(state, actions, Dice(seed=5), CFG)
-    assert result.new_state.characters["atk"].zone_id == "glitter_back"
-    assert _attack_ev(result, "escape").data["result"] == "hit"
+    assert result.new_state.characters["atk"].zone_id == "glitter_back"   # slipped away
+    assert _attack_ev(result, "escape").data["result"] == "hit"           # def was in frontline
     assert _attack_ev(result, "escape").data["stat"] == "speed"
+
+
+def test_escape_whiffs_when_target_was_not_in_the_zone_it_fled():
+    """A player may tap ANY enemy with ESCAPE, but the parting shot only lands on
+    one in the zone the escaper fled from — a far target whiffs (damage 0) while
+    the escape still happens (§5)."""
+    atk = _char("atk", "Atk", power=0, speed=6, weird=0, zone="frontline")
+    dfn = _char("def", "Def", power=2, speed=0, weird=2, zone="thunder_back")  # a zone away
+    state = _duel(atk, dfn)
+    actions = [ClassifiedAction(player_id="atk", move_id="escape", target_id="def",
+                                escape_direction=-1)]
+    result = resolve_round(state, actions, Dice(seed=5), CFG)
+    assert result.new_state.characters["atk"].zone_id == "glitter_back"   # escape happened
+    ev = _attack_ev(result, "escape")
+    assert ev.data["result"] == "whiff"
+    assert ev.data["damage"] == 0
+    assert ev.data["from_zone"] == "frontline"
+    # the target took no damage
+    assert result.new_state.characters["def"].hp == result.new_state.characters["def"].max_hp
 
 
 def test_escape_at_the_edge_moves_inward():

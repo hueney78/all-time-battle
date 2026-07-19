@@ -2,15 +2,15 @@
 # Change a value → start a new room → new rules apply immediately.
 # See GAME_DESIGN.md §3–8 and §14 for the tuning guide.
 
-# --- Character stats (COMBAT V5: 0–6 on a budget of 9) ---
-# HP = hp_base + hp_per_power*Power + hp_per_weird*Weird + floor(Speed/hp_speed_divisor)
-#    = 27 + 2*Power + Weird + floor(Speed/2)   (range 27–45)
-# Speed buys a little HP now that dodge is gone (v5 restat — sim-verified to
-# restore rock-paper-scissors).
+# --- Character stats (COMBAT V6: 0–6 on a budget of 9) ---
+# HP = hp_base + hp_per_power*Power + hp_per_weird*Weird + hp_per_speed*Speed
+#    = 27 + 2*Power + Weird                    (range 27–39)
+# v6: Speed grants NO HP — fast fighters already act first, so making them tanky
+# too let Speed dominate. Set hp_per_speed > 0 to give Speed some survivability back.
 hp_base: 27          # want faster games? lower this
 hp_per_power: 2
 hp_per_weird: 1
-hp_speed_divisor: 2  # HP gains floor(Speed / this)
+hp_per_speed: 0      # v6: Speed gives no HP (was floor(Speed/2) in v5)
 # AI distributes stats summing to stat_budget; each stat clamped to [stat_min, stat_max]
 stat_budget: 9
 stat_min: 0          # a stat of 0 is characterful, not broken

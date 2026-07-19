@@ -1,8 +1,10 @@
 """Pure game engine — resolves one round of COMBAT V5 actions into events.
 
 Resolution (GAME_DESIGN §5). There is **no AC, no attack roll, and no dodge**: a
-selected move always takes effect. The ONLY thing that reduces a hit is PROTECT's
-reflect shield. Only the magnitude varies.
+selected move always takes effect, with ONE positional exception — an ESCAPE's
+parting shot lands only if its target was in the zone the escaper fled from,
+otherwise it whiffs (see `_resolve_attack`). The only thing that reduces a hit
+that DID land is PROTECT's reflect shield. Only the magnitude varies.
 
     effect = move's damage/heal formula + creativity bonus (+0/+1/+3/+5)
              + zone/underdog/sudden-death riders
@@ -19,7 +21,8 @@ its action immediately, even if it had already tapped one — the loop re-checks
 `is_ko` before every action (GAME_DESIGN §4.1 / §10 bug fix).
 
 Movement lives inside attacks now: CHARGE rushes into the target's zone before
-swinging; ESCAPE slips one zone (player picks ◀/▶) and then fires from there.
+swinging; ESCAPE slips one zone (player picks ◀/▶) and fires a parting shot back
+at the zone it just left — so it only hits a target that was in that old zone.
 There are no movement buttons and no condition system.
 
 Arena Gremlins plant traps (GAME_DESIGN §10): a KO'd player picks a zone and
@@ -276,6 +279,7 @@ def _resolve_attack(
     target = chars[target_id]
 
     # ------ Movement carried inside the attack ------
+    from_zone = attacker.zone_id      # ESCAPE's parting shot reaches only this zone
     if move.moves_to_target and target.zone_id != attacker.zone_id:
         _do_move(pid, attacker, target.zone_id, events, round_num)   # CHARGE rushes in
     elif move.moves_one_zone:
@@ -285,6 +289,20 @@ def _resolve_attack(
             dest = zone_reg.step(attacker.zone_id, -direction)
         if dest is not None and dest != attacker.zone_id:
             _do_move(pid, attacker, dest, events, round_num)          # ESCAPE slips away
+        # ESCAPE fires a PARTING SHOT at the zone it fled FROM (§5): a player may
+        # tap any enemy anywhere, but the shot lands only if that enemy was in the
+        # escaper's old zone. Otherwise the fighter slips away clean and the shot
+        # finds nobody — a whiff (the one exception to "every move lands"). The
+        # escape itself still happened (the move event above). Config-gated so the
+        # behavior is a move rider, not a hardcoded ESCAPE special-case.
+        if move.hits_from_zone_only and target.zone_id != from_zone:
+            events.append(Event(
+                id=_eid("atk"), type=EventType.ATTACK_RESOLVED, round=round_num,
+                player_id=pid, target_id=target_id,
+                data={"result": "whiff", "move_id": action.move_id, "damage": 0,
+                      "from_zone": from_zone, "adaptation_note": action.adaptation_note},
+            ))
+            return
 
     tier = _effective_tier(action, cfg)
     rolled = rng.roll_formula(move.damage or "0", _stat_env(attacker))
