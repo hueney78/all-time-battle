@@ -151,6 +151,42 @@ def test_pages_cache_bust_scripts_and_are_no_store():
         assert re.search(r"/static/host/arena\.js\?v=[0-9a-f]+", host)
 
 
+def test_host_offers_new_match_and_both_pages_guard_navigation():
+    """§10.2/§13: the victory screen offers a Start-a-New-Match button that
+    reloads the host into a fresh room, and both pages guard against an
+    accidental refresh once a match is underway."""
+    with TestClient(app) as client:
+        host = client.get("/host").text
+        play = client.get("/play").text
+    # New Match button + the reload-into-a-fresh-room handler (clears stored room)
+    assert 'id="newMatchBtn"' in host
+    assert "startNewMatch" in host
+    assert "removeItem('hostroom')" in host
+    # accidental-navigation guard registered on both pages
+    for label, body in (("host", host), ("play", play)):
+        assert "beforeunload" in body, label
+        assert "onBeforeUnload" in body, label
+
+
+def test_host_battlefield_nametag_is_team_colored():
+    """Task 4/§13: the battlefield name bubble is a team-colored oval (var(--team))
+    with white text — not a plain white box."""
+    with TestClient(app) as client:
+        body = client.get("/host").text
+    nametag = _css_block(body, ".fighter .nametag")
+    assert nametag, "host page missing a .fighter .nametag rule"
+    assert "var(--team" in nametag
+    assert "color:#fff" in nametag.replace(" ", "")
+
+
+def test_host_rail_stat_stacks_icon_over_number():
+    """Task 5/§13: rail stat chips put a line break after the icon so the three
+    stats read as evenly aligned columns."""
+    with TestClient(app) as client:
+        body = client.get("/host").text
+    assert "icon + '<br>'" in body, "rail setStat must stack the icon over the number"
+
+
 def test_static_assets_available():
     with TestClient(app) as client:
         for path in [

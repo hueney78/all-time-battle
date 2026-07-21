@@ -82,7 +82,8 @@ class LiveAI:
         )
         self._sys_montage = env.get_template("montage_classify.md.j2").render()
         self._sys_narrate = env.get_template("narrate.md.j2").render(
-            lore=lore, lore_usage=lore_usage)
+            lore=lore, lore_usage=lore_usage,
+            max_announcer_chars=rules.settings.ai.max_announcer_chars)
         self._sys_awards = env.get_template("awards.md.j2").render(
             lore=lore, lore_usage=lore_usage)
 
@@ -402,12 +403,20 @@ def _narration_text(events: list[Event], characters: dict[str, Character],
 
 
 def _awards_text(summary: MatchSummary) -> str:
-    lines = [f"Match over. Winning team: {summary.winner_team_id or 'nobody (draw)'}.",
-             "Give EVERY player below at least one affectionate award.", "", "Players:"]
+    # Teams are named, never id'd: the internal team_a/team_b handles must never
+    # reach the ceremony or the announcers say "team a" on air (§10.2).
+    winner = summary.winner_team_name or (summary.winner_team_id and "the winners") \
+        or "nobody — it was a draw"
+    lines = [f"Match over. Winning team: {winner}.",
+             "Give EVERY player below at least one affectionate award.",
+             "Name each team ONLY by the name shown here — never an internal handle. "
+             "Use each player_id only to tag your award, never in the blurb text.",
+             "", "Players:"]
     for p in summary.players:
         pid = p["player_id"]
+        team = p.get("team_name") or summary.team_names.get(p.get("team_id")) or "their team"
         lines.append(
-            f"- {p.get('name', pid)} ({pid}) team={p.get('team_id')} "
+            f"- {p.get('name', pid)} [player_id={pid}] on “{team}” "
             f"alive={p.get('alive')} creativity={summary.creativity.get(pid, 0)} "
             f"reflects={summary.reflects.get(pid, 0)}"
         )

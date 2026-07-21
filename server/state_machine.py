@@ -39,6 +39,7 @@ from server.ai.provider import (
     MontageResult,
     Narration,
 )
+from server.ai.validators import clamp_announcer_text
 from server.config import GameRules
 from server.engine.dice import Dice, describe_formula
 from server.engine.models import Character, ClassifiedAction, Event, GameState, Phase
@@ -584,7 +585,8 @@ class GameStateMachine:
         beats = [
             {
                 "event_id": f"intro-{pid}",
-                "text": chars[pid].announcer_intro or f"Introducing {chars[pid].name}!",
+                "text": self._clamp_announcer(
+                    chars[pid].announcer_intro or f"Introducing {chars[pid].name}!"),
                 "speaker": "pbp",   # the play-by-play announcer hypes each fighter
                 "player_id": pid, "target_id": None, "type": "intro",
                 # The giant-sprite showcase card (host fills the arena with the
@@ -665,7 +667,9 @@ class GameStateMachine:
             ev = ev_by_id.get(b.event_id)
             beats.append({
                 "event_id": b.event_id,
-                "text": b.text,
+                # Announcer length cap (§11.2): the hard guarantee the booth
+                # never runs long, regardless of what the model returned.
+                "text": self._clamp_announcer(b.text),
                 # Which announcer voices this beat — the host styles pbp vs color
                 # chips differently (sync point S1).
                 "speaker": b.speaker,
@@ -725,6 +729,11 @@ class GameStateMachine:
             await asyncio.wait_for(self._beat_done.wait(), timeout)
         except TimeoutError:
             pass
+
+    def _clamp_announcer(self, text: str) -> str:
+        """Hard-cap an announcer line to settings.ai.max_announcer_chars so the
+        booth never runs long on screen (GAME_DESIGN §11.2). 0 = no limit."""
+        return clamp_announcer_text(text, self.rules.settings.ai.max_announcer_chars)
 
     def _beat_sfx(self, ev) -> str | None:
         """The sound clip for this beat's move (moves.yaml sfx key), or None
@@ -897,18 +906,27 @@ class GameStateMachine:
                 self._best_line = narration.beats[0].text
 
     def _build_match_summary(self) -> MatchSummary:
+        # Team display names (the AI-invented names by game over — never the
+        # internal team_a/team_b ids) so the awards ceremony can name each team
+        # instead of parroting "team a" (§10.2).
+        team_names = {t.id: t.name for t in self.room.teams}
         players = []
         for p in self.room.players:
             ch = self.state.characters.get(p.id) if self.state else None
+            tid = self.room.team_of(p.id)
             players.append({
                 "player_id": p.id,
                 "name": ch.name if ch else p.name,
-                "team_id": self.room.team_of(p.id),
+                "team_id": tid,
+                "team_name": team_names.get(tid),
                 "alive": bool(ch and not ch.is_ko),
             })
+        winner = self.state.winner_team_id if self.state else None
         return MatchSummary(
-            winner_team_id=self.state.winner_team_id if self.state else None,
+            winner_team_id=winner,
+            winner_team_name=team_names.get(winner) if winner else None,
             players=players,
+            team_names=team_names,
             creativity=dict(self._creativity_totals),
             reflects=dict(self._reflect_counts),
             combos=list(self._combos_seen),

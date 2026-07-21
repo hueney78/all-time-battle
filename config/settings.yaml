@@ -23,6 +23,8 @@ ai:
   max_retries: 1
   max_image_size_bytes: 200000   # 200 KB per PNG
   image_px: 512                  # canvas export size
+  max_announcer_chars: 220       # cap on any announcer line (beat/intro); 0 = no limit
+
 
 # Presentation knobs shipped to the browser as window.DOODLE_CONFIG (host + player).
 # The sand token is shared: it colors the arena floor AND the drawing canvas so

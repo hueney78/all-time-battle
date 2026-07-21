@@ -65,6 +65,11 @@ class AIConfig(BaseModel):
     max_retries: int = 1
     max_image_size_bytes: int = 200_000
     image_px: int = 512
+    # Announcer line-length cap (GAME_DESIGN §11.2): the max characters any
+    # announcer line (a narration beat OR a character intro) may show. Injected
+    # into the narrate prompt as a target AND hard-enforced server-side (trimmed
+    # on a word boundary + ellipsis). 0 = no limit.
+    max_announcer_chars: int = 0
 
 
 class SnapshotConfig(BaseModel):

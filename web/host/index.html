@@ -72,7 +72,11 @@
       background:var(--ink); color:#fff; font-weight:900; font-size:11px; display:grid; place-items:center}
     .slot .who{font-weight:900; font-size:11px; line-height:1}
     .slot .stats{display:flex; gap:5px; font-size:10.5px; font-weight:900; margin-top:2px}
-    .slot .stats span{background:#F1EADB; border-radius:7px; padding:1px 4px; transition:background .2s}
+    /* Each stat stacks its icon OVER its number (a line break after the icon),
+       fixed-width and centered, so the three chips read as evenly aligned
+       columns instead of drifting out of line [spec §13, task 5]. */
+    .slot .stats span{background:#F1EADB; border-radius:7px; padding:2px 4px; min-width:22px;
+      text-align:center; line-height:1.05; transition:background .2s}
     .slot .stats span.pulse{animation:statpulse 1.6s ease-in-out 2}
     @keyframes statpulse{50%{background:var(--gold)}}
     .slot.team-a{box-shadow:inset 4px 0 0 var(--glitter)}
@@ -153,10 +157,16 @@
       background:var(--gold); color:var(--ink); border:2.5px solid var(--ink);
       border-radius:9px; padding:2px 8px; box-shadow:1.5px 1.5px 0 var(--ink)}
     .fighter .actionlabel.show{display:block}
-    /* name bubble floats ABOVE the character image (order:-1); HP bar below */
+    /* name bubble floats ABOVE the character image (order:-1); HP bar below.
+       Base rule (also used by the deliberation entries) stays neutral white. */
     .nametag{order:-1; font-family:'Titan One'; font-size:11.5px; background:#fff;
       border:2.5px solid var(--ink); border-radius:9px; padding:1px 5px; display:inline-block;
       margin-bottom:3px}
+    /* On the battlefield the name sits in a colored OVAL matching the fighter's
+       team color, with WHITE text [spec §13] — the --team var is set per fighter
+       in arena.render(). The thin ink stroke keeps white legible on any team hue. */
+    .fighter .nametag{background:var(--team,var(--glitter)); color:#fff; border-radius:999px;
+      padding:1px 9px; -webkit-text-stroke:.35px var(--ink)}
     /* Arena Gremlin traps [spec §10]: the trap the Gremlin DREW, shown medium-
        sized in the planted zone with a "Trap" label, until it springs. The
        container centers itself (static translateX) while the image idle-bobs, so
@@ -180,7 +190,9 @@
     /* acting zoom [reveal_action_zoom_scale/_seconds] — sets the scale term of
        the composed transform so it stacks with any in-flight travel */
     .fighter.acting{--sc:var(--zoom); z-index:5}
-    .fighter.acting .nametag{background:var(--gold)}
+    /* the acting fighter's bubble flips to gold — dark text + no stroke for
+       contrast, overriding the team-colored white treatment above. */
+    .fighter.acting .nametag{background:var(--gold); color:var(--ink); -webkit-text-stroke:0}
     /* PROTECT's round-long blue glow on the shielded ally [v6 §13] */
     .fighter.shielded{filter:drop-shadow(0 0 7px var(--posit)) drop-shadow(0 0 12px var(--posit))}
 
@@ -325,6 +337,13 @@
     #hall.show{display:block}
     #overNextBtn{margin-top:14px; background:var(--gold); border:3px solid var(--ink);
       border-radius:12px; font-family:'Titan One'; font-size:16px; padding:6px 18px; cursor:pointer}
+    /* Start-a-New-Match [spec §10.2]: mints a fresh room + clean lobby. No
+       `display` here so the .hidden class (display:none) still hides it; #over is
+       text-align:center, so the inline-block button centers itself when shown. */
+    #newMatchBtn{margin-top:18px; background:var(--glitter); color:#fff;
+      border:4px solid var(--ink); border-radius:14px; font-family:'Titan One'; font-size:20px;
+      padding:10px 26px; cursor:pointer; box-shadow:5px 5px 0 var(--ink);
+      -webkit-text-stroke:.4px var(--ink)}
 
     /* phase splash [spec §13: same announcement as the phones, whoosh stinger] */
     #phaseSplash{position:fixed; inset:0; z-index:55; display:none; place-items:center;
@@ -462,6 +481,7 @@
     </div>
     <p id="hall">🖼️ Tonight's fighters join the Hall of Doodles…</p>
     <button id="overNextBtn" class="hidden">Next ▶</button>
+    <div><button id="newMatchBtn" class="hidden">🎬 Start a New Match</button></div>
   </section>
 
   <script src="/static/shared/ws.js"></script>
@@ -514,6 +534,30 @@
     const railSlotEls = {};            // pid → rail slot element
     const prevStatsById = {};          // pid → last-seen stats (for change-pulse)
 
+    // Accidental-navigation guard [spec §13]: once a match is underway, a stray
+    // refresh / tab-close / back-gesture raises the browser's native leave prompt
+    // so the host never silently loses its place. Start-a-New-Match disarms it.
+    let guardNav = false;
+    function onBeforeUnload(e) {
+      if (!guardNav) return;
+      e.preventDefault();
+      e.returnValue = '';            // required for the native prompt in most browsers
+      return '';
+    }
+
+    // Start a New Match [spec §10.2]: drop this host's stored room + identity so
+    // the reconnect mints a FRESH room code and a clean lobby — exactly like
+    // launching the server fresh (the finished match's state is gone; the
+    // persistent Doodle Crowd gallery carries over). Players re-scan the new QR.
+    function startNewMatch() {
+      guardNav = false;              // intentional reload — don't prompt
+      try {
+        localStorage.removeItem('hostroom');
+        localStorage.removeItem('hostpid');
+      } catch (e) { /* private-mode storage — reload still gets a fresh room */ }
+      location.reload();
+    }
+
     function joinBase() {
       const port = location.port ? (':' + location.port) : '';
       return location.protocol + '//' + SERVER_LAN_IP + port;
@@ -537,7 +581,9 @@
       return el;
     }
     function setStat(span, icon, val, pid, key) {
-      span.textContent = icon + (val == null ? '–' : val);
+      // Return after the icon → icon stacked over the number, so the three stat
+      // chips line up as even columns in the rail (task 5).
+      span.innerHTML = icon + '<br>' + (val == null ? '–' : val);
       const prev = prevStatsById[pid];
       if (prev && prev[key] !== val) { span.classList.remove('pulse'); void span.offsetWidth; span.classList.add('pulse'); }
     }
@@ -1036,6 +1082,7 @@
           $('posterWrap').classList.add('show');
         }
         $('hall').classList.add('show');
+        $('newMatchBtn').classList.remove('hidden');   // offer a fresh match (§10.2)
       }
       ceremony = { advance: () => { clearTimeout(timer); if (pending) pending(); } };
       if (awards.length) {
@@ -1106,6 +1153,7 @@
         $('startBtn').disabled = !m.payload.can_start;
         applyTeams(m.payload.teams);
       } else if (m.type === 'phase_change') {
+        guardNav = true;   // the match is underway — guard against an accidental refresh
         if (m.payload.phase === 'draw_characters') {
           view('stage'); $('roundHead').textContent = 'Doodle Brawl';
           $('status').textContent = 'drawing fighters…';
@@ -1193,6 +1241,10 @@
     $('startBtn').onclick = () => sock.send('start_game');
     $('nextBtn').onclick = () => { if (seq) seq.advance(); };
     $('overNextBtn').onclick = () => { if (ceremony) ceremony.advance(); };
+    $('newMatchBtn').onclick = startNewMatch;
+    // guard against accidental refresh once a match is underway (no-op in tests
+    // where window.addEventListener isn't provided).
+    if (window.addEventListener) window.addEventListener('beforeunload', onBeforeUnload);
     sock = DoodleSocket({
       onStatus: (s) => $('banner').classList.toggle('show', s === 'offline'),
       onOpen: (api) => api.send('join', {

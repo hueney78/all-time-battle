@@ -79,8 +79,13 @@ class MatchSummary:
     """Everything the awards ceremony needs about a finished match (§10.2)."""
 
     winner_team_id: str | None = None
-    # {player_id, name, team_id, alive}
+    # The on-air team name of the winner (the AI-invented name, or "Team A/B" —
+    # NEVER the internal id) so the ceremony never says "team_a" (§10.2).
+    winner_team_name: str | None = None
+    # {player_id, name, team_id, team_name, alive}
     players: list[dict] = field(default_factory=list)
+    # team_id → display name, so the awards prompt can name every team.
+    team_names: dict[str, str] = field(default_factory=dict)
     creativity: dict[str, int] = field(default_factory=dict)   # pid → total tiers
     reflects: dict[str, int] = field(default_factory=dict)     # pid → shield-reflect count
     combos: list[dict] = field(default_factory=list)           # {combo_name, partners}

@@ -241,10 +241,26 @@ def test_classify_montage_skips_api_when_no_drawings():
 # ---------------------------------------------------------------------------
 def _match_summary():
     from server.ai.provider import MatchSummary
-    return MatchSummary(winner_team_id="team_a", players=[
-        {"player_id": "p1", "name": "A", "team_id": "team_a", "alive": True},
-        {"player_id": "p2", "name": "B", "team_id": "team_b", "alive": False},
-    ])
+    return MatchSummary(
+        winner_team_id="team_a", winner_team_name="The Sparkle Snacks",
+        team_names={"team_a": "The Sparkle Snacks", "team_b": "Heavy Machinery"},
+        players=[
+            {"player_id": "p1", "name": "A", "team_id": "team_a",
+             "team_name": "The Sparkle Snacks", "alive": True},
+            {"player_id": "p2", "name": "B", "team_id": "team_b",
+             "team_name": "Heavy Machinery", "alive": False},
+        ])
+
+
+def test_awards_text_names_teams_and_hides_internal_ids():
+    """Awards bug: the prompt leaked the internal team_a/team_b handles, so the
+    ceremony said 'team a'. It must name teams (the AI names) and never expose an
+    internal id."""
+    from server.ai.client import _awards_text
+    txt = _awards_text(_match_summary())
+    assert "The Sparkle Snacks" in txt and "Heavy Machinery" in txt
+    assert "team_a" not in txt and "team_b" not in txt   # no internal handles
+    assert "team=" not in txt                            # the old id-leaking format is gone
 
 
 def test_generate_awards_parses_and_covers_all_players():

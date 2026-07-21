@@ -15,6 +15,7 @@ from server.ai.validators import (
     build_gremlin_traps,
     build_montage,
     build_narration,
+    clamp_announcer_text,
     normalize_stats,
 )
 from server.config import load_game_rules
@@ -254,3 +255,25 @@ def test_build_narration_carries_and_clamps_speaker():
     assert by["e1"].speaker == "pbp"
     assert by["e2"].speaker == "color"
     assert by["e3"].speaker == "pbp"     # unknown voice → default
+
+
+# ---------------------------------------------------------------------------
+# clamp_announcer_text — the hard announcer length cap (GAME_DESIGN §11.2)
+# ---------------------------------------------------------------------------
+def test_clamp_announcer_no_limit_and_short_lines_pass_through():
+    """0 = no limit; a line already within the cap is returned untouched."""
+    line = "The mower coughs. A pigeon judges him."
+    assert clamp_announcer_text(line, 0) == line          # no limit
+    assert clamp_announcer_text(line, 999) == line        # under the cap
+    assert clamp_announcer_text("  spacey  ", 999) == "spacey"   # stripped
+
+
+def test_clamp_announcer_trims_on_word_boundary_with_ellipsis():
+    """An over-long line is cut to <= max_chars, never mid-word, and ellipsized."""
+    line = ("Sir Lawnmower pull-starts his noble steed seventeen times before the "
+            "engine finally catches and the whole pit erupts")
+    out = clamp_announcer_text(line, 40)
+    assert out.endswith("…")
+    assert len(out) <= 41                     # cap + the one-char ellipsis
+    assert "  " not in out                    # no dangling whitespace before the ellipsis
+    assert out[:-1].split() == line.split()[: len(out[:-1].split())]   # only whole words kept

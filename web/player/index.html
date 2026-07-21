@@ -243,6 +243,17 @@
     let phase = '', round = 0, characterPng = '', isKo = false;
     let submitted = false, deadline = 0, timerHandle = null;
     let prevStats = null;
+
+    // Accidental-navigation guard [spec §13]: once the match is underway, a stray
+    // refresh / tab-close / back-gesture raises the browser's native leave prompt
+    // so a player can't silently drop their place (or lose an in-progress drawing).
+    let guardNav = false;
+    function onBeforeUnload(e) {
+      if (!guardNav) return;
+      e.preventDefault();
+      e.returnValue = '';
+      return '';
+    }
     // COMBAT V5 tap state: the button grid (server-computed math + disabled
     // flags), the current selection, and the roster for the target picker.
     // ESCAPE also carries a ◀/▶ direction; a Gremlin carries the trap zone.
@@ -587,6 +598,7 @@
         });
       } else if (m.type === 'phase_change') {
         phase = m.payload.phase; round = m.payload.round;
+        guardNav = true;            // the match is underway — guard against an accidental refresh
         showWaitRules(false);       // the game has started — drop the lobby rules
         $('roundLbl').textContent = phase === 'montage' ? '🎵 Montage!'
           : phase === 'intros' ? '🥁 Meet the Fighters!'
@@ -679,6 +691,7 @@
     // ---- boot ----
     buildTools();
     renderWaitRules();
+    if (window.addEventListener) window.addEventListener('beforeunload', onBeforeUnload);
     $('splash').onclick = hideSplash;   // tap-to-skip
     $('joinBtn').onclick = () => {
       const room = $('room').value.toUpperCase().trim();

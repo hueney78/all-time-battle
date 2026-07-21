@@ -285,6 +285,25 @@ def _speaker(value: str) -> str:
     return value if value in _SPEAKERS else "pbp"
 
 
+def clamp_announcer_text(text: str, max_chars: int) -> str:
+    """Hard-cap an announcer line to `max_chars` (GAME_DESIGN §11.2).
+
+    `max_chars <= 0` means no limit. An over-long line is cut on a word boundary
+    (never mid-word) and given a single-character ellipsis, so the booth never
+    runs long on screen no matter what the model returns. Pure/offline — the cap
+    is also sent to the narrate prompt as a soft target, but this is the guarantee.
+    """
+    text = (text or "").strip()
+    if max_chars <= 0 or len(text) <= max_chars:
+        return text
+    cut = text[:max_chars].rstrip()
+    # Back off to the last whole word, but only if that doesn't gut the line.
+    space = cut.rfind(" ")
+    if space >= max_chars * 0.6:
+        cut = cut[:space].rstrip()
+    return cut.rstrip(",;:—- ") + "…"
+
+
 def build_narration(resp: S.NarrateResponse, valid_event_ids: set[str]) -> Narration:
     beats = [
         Beat(event_id=b.event_id, text=b.text, mood=b.mood, speaker=_speaker(b.speaker))

@@ -40,6 +40,30 @@ def test_settings_ai_models():
     assert s.ai.max_retries == 1
 
 
+def test_settings_ai_announcer_cap():
+    """Announcer line-length cap (GAME_DESIGN §11.2): a non-negative int shipped
+    in the ai block (0 = no limit). Kept value-agnostic so it doesn't drift when
+    the cap is re-tuned."""
+    s = load_settings()
+    assert isinstance(s.ai.max_announcer_chars, int)
+    assert s.ai.max_announcer_chars >= 0
+
+
+def test_settings_ai_announcer_cap_defaults_to_no_limit(tmp_path: Path, monkeypatch):
+    """A settings.yaml whose ai block omits the cap still loads (default 0)."""
+    minimal = {
+        "server": {"host": "0.0.0.0", "port": 8000},
+        "game": {"max_players": 6, "min_players": 2, "room_code_length": 4},
+        "timers": {"draw_characters_seconds": 90, "draw_action_seconds": 75,
+                   "warning_seconds": 10, "beat_seconds": 6},
+        "ai": {"classify_model": "m", "narrate_model": "n"},
+        "snapshots": {"enabled": False, "dir": "snapshots"},
+    }
+    (tmp_path / "settings.yaml").write_text(yaml.dump(minimal), encoding="utf-8")
+    monkeypatch.setattr(cfg_mod, "CONFIG_DIR", tmp_path)
+    assert cfg_mod.load_settings().ai.max_announcer_chars == 0
+
+
 def test_settings_timers():
     s = load_settings()
     assert s.timers.draw_characters_seconds == 240
