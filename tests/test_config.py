@@ -470,6 +470,38 @@ def test_settings_ui_audio_block():
     assert audio.events_sfx["replay"] == "replay"
 
 
+def test_settings_ui_tts_block():
+    """Host announcer Text-to-Speech (§13): shipped in ui: (→ DOODLE_CONFIG) with
+    one voice per announcer so pbp and color read in different voices."""
+    s = load_settings()
+    tts = s.ui.tts
+    assert isinstance(tts.enabled, bool)
+    assert 0 <= tts.volume <= 1
+    # a voice config per announcer, each with a lang the client can match on
+    assert set(tts.voices) == {"pbp", "color"}
+    assert tts.voices["pbp"].lang and tts.voices["color"].lang
+    # pbp and color are tuned to sound different out of the box
+    assert tts.voices["pbp"].lang != tts.voices["color"].lang
+
+
+def test_settings_ui_tts_defaults_when_block_missing(tmp_path: Path, monkeypatch):
+    """A settings.yaml without a ui.tts block still loads (TTSConfig defaults)."""
+    minimal = {
+        "server": {"host": "0.0.0.0", "port": 8000},
+        "game": {"max_players": 6, "min_players": 2, "room_code_length": 4},
+        "timers": {"draw_characters_seconds": 90, "draw_action_seconds": 75,
+                   "warning_seconds": 10, "beat_seconds": 6},
+        "ai": {"classify_model": "m", "narrate_model": "n"},
+        "snapshots": {"enabled": False, "dir": "snapshots"},
+        "ui": {},
+    }
+    (tmp_path / "settings.yaml").write_text(yaml.dump(minimal), encoding="utf-8")
+    monkeypatch.setattr(cfg_mod, "CONFIG_DIR", tmp_path)
+    s = cfg_mod.load_settings()
+    assert s.ui.tts.enabled is True
+    assert set(s.ui.tts.voices) == {"pbp", "color"}
+
+
 def test_moves_all_have_sfx():
     """Every catalog move names a sound clip — the host plays it when the
     move's beat lands."""

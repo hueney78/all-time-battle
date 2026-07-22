@@ -1,0 +1,2048 @@
+0
+: 
+"Microsoft David - English (United States) — en-US"
+1
+: 
+"Microsoft James - English (Australia) — en-AU"
+2
+: 
+"Microsoft George - English (United Kingdom) — en-GB"
+3
+: 
+"Microsoft Hazel - English (United Kingdom) — en-GB"
+4
+: 
+"Microsoft Susan - English (United Kingdom) — en-GB"
+5
+: 
+"Microsoft Catherine - English (Australia) — en-AU"
+6
+: 
+"Microsoft Mark - English (United States) — en-US"
+7
+: 
+"Microsoft Zira - English (United States) — en-US"
+8
+: 
+"Microsoft Adri Online (Natural) - Afrikaans (South Africa) — af-ZA"
+9
+: 
+"Microsoft Willem Online (Natural) - Afrikaans (South Africa) — af-ZA"
+10
+: 
+"Microsoft መቅደስ Online (Natural) - Amharic (Ethiopia) — am-ET"
+11
+: 
+"Microsoft አምሀ Online (Natural) - Amharic (Ethiopia) — am-ET"
+12
+: 
+"Microsoft فاطمة Online (Natural) - Arabic (United Arab Emirates) — ar-AE"
+13
+: 
+"Microsoft حمدان Online (Natural) - Arabic (United Arab Emirates) — ar-AE"
+14
+: 
+"Microsoft ليلى Online (Natural) - Arabic (Bahrain) — ar-BH"
+15
+: 
+"Microsoft علي Online (Natural) - Arabic (Bahrain) — ar-BH"
+16
+: 
+"Microsoft أمينة Online (Natural) - Arabic (Algeria) — ar-DZ"
+17
+: 
+"Microsoft إسماعيل Online (Natural) - Arabic (Algeria) — ar-DZ"
+18
+: 
+"Microsoft سلمى Online (Natural) - Arabic (Egypt) — ar-EG"
+19
+: 
+"Microsoft شاكر Online (Natural) - Arabic (Egypt) — ar-EG"
+20
+: 
+"Microsoft رنا Online (Natural) - Arabic (Iraq) — ar-IQ"
+21
+: 
+"Microsoft باسل Online (Natural) - Arabic (Iraq) — ar-IQ"
+22
+: 
+"Microsoft سناء Online (Natural) - Arabic (Jordan) — ar-JO"
+23
+: 
+"Microsoft تيم Online (Natural) - Arabic (Jordan) — ar-JO"
+24
+: 
+"Microsoft نورا Online (Natural) - Arabic (Kuwait) — ar-KW"
+25
+: 
+"Microsoft فهد Online (Natural) - Arabic (Kuwait) — ar-KW"
+26
+: 
+"Microsoft ليلى Online (Natural) - Arabic (Lebanon) — ar-LB"
+27
+: 
+"Microsoft رامي Online (Natural) - Arabic (Lebanon) — ar-LB"
+28
+: 
+"Microsoft إيمان Online (Natural) - Arabic (Libya) — ar-LY"
+29
+: 
+"Microsoft أحمد Online (Natural) - Arabic (Libya) — ar-LY"
+30
+: 
+"Microsoft منى Online (Natural) - Arabic (Morocco) — ar-MA"
+31
+: 
+"Microsoft جمال Online (Natural) - Arabic (Morocco) — ar-MA"
+32
+: 
+"Microsoft عائشة Online (Natural) - Arabic (Oman) — ar-OM"
+33
+: 
+"Microsoft عبدالله Online (Natural) - Arabic (Oman) — ar-OM"
+34
+: 
+"Microsoft أمل Online (Natural) - Arabic (Qatar) — ar-QA"
+35
+: 
+"Microsoft معاذ Online (Natural) - Arabic (Qatar) — ar-QA"
+36
+: 
+"Microsoft زارية Online (Natural) - Arabic (Saudi Arabia) — ar-SA"
+37
+: 
+"Microsoft حامد Online (Natural) - Arabic (Saudi Arabia) — ar-SA"
+38
+: 
+"Microsoft أماني Online (Natural) - Arabic (Syria) — ar-SY"
+39
+: 
+"Microsoft ليث Online (Natural) - Arabic (Syria) — ar-SY"
+40
+: 
+"Microsoft ريم Online (Natural) - Arabic (Tunisia) — ar-TN"
+41
+: 
+"Microsoft هادي Online (Natural) - Arabic (Tunisia) — ar-TN"
+42
+: 
+"Microsoft مريم Online (Natural) - Arabic (Yemen) — ar-YE"
+43
+: 
+"Microsoft صالح Online (Natural) - Arabic (Yemen) — ar-YE"
+44
+: 
+"Microsoft যাশিকা Online (Natural) - Assamese (India) — as-IN"
+45
+: 
+"Microsoft প্ৰিয়ম Online (Natural) - Assamese (India) — as-IN"
+46
+: 
+"Microsoft Banu Online (Natural) - Azerbaijani (Latin, Azerbaijan) — az-AZ"
+47
+: 
+"Microsoft Babək Online (Natural) - Azerbaijani (Latin, Azerbaijan) — az-AZ"
+48
+: 
+"Microsoft Калина Online (Natural) - Bulgarian (Bulgaria) — bg-BG"
+49
+: 
+"Microsoft Борислав Online (Natural) - Bulgarian (Bulgaria) — bg-BG"
+50
+: 
+"Microsoft নবনীতা Online (Natural) - Bangla (Bangladesh) — bn-BD"
+51
+: 
+"Microsoft প্রদ্বীপ Online (Natural) - Bangla (Bangladesh) — bn-BD"
+52
+: 
+"Microsoft তানিশা Online (Natural) - Bengali (India) — bn-IN"
+53
+: 
+"Microsoft ভাস্কর Online (Natural) - Bengali (India) — bn-IN"
+54
+: 
+"Microsoft Vesna Online (Natural) - Bosnian (Bosnia and Herzegovina) — bs-BA"
+55
+: 
+"Microsoft Goran Online (Natural) - Bosnian (Bosnia and Herzegovina) — bs-BA"
+56
+: 
+"Microsoft Joana Online (Natural) - Catalan — ca-ES"
+57
+: 
+"Microsoft Enric Online (Natural) - Catalan — ca-ES"
+58
+: 
+"Microsoft Alba Online (Natural) - Catalan — ca-ES"
+59
+: 
+"Microsoft Vlasta Online (Natural) - Czech (Czechia) — cs-CZ"
+60
+: 
+"Microsoft Antonín Online (Natural) - Czech (Czechia) — cs-CZ"
+61
+: 
+"Microsoft Nia Online (Natural) - Welsh (United Kingdom) — cy-GB"
+62
+: 
+"Microsoft Aled Online (Natural) - Welsh (United Kingdom) — cy-GB"
+63
+: 
+"Microsoft Christel Online (Natural) - Danish (Denmark) — da-DK"
+64
+: 
+"Microsoft Jeppe Online (Natural) - Danish (Denmark) — da-DK"
+65
+: 
+"Microsoft Ingrid Online (Natural) - German (Austria) — de-AT"
+66
+: 
+"Microsoft Jonas Online (Natural) - German (Austria) — de-AT"
+67
+: 
+"Microsoft Leni Online (Natural) - German (Switzerland) — de-CH"
+68
+: 
+"Microsoft Jan Online (Natural) - German (Switzerland) — de-CH"
+69
+: 
+"Microsoft Seraphina Mehrsprachig Online (Natural) - German (Germany) — de-DE"
+70
+: 
+"Microsoft Florian Mehrsprachig Online (Natural) - German (Germany) — de-DE"
+71
+: 
+"Microsoft Katja Online (Natural) - German (Germany) — de-DE"
+72
+: 
+"Microsoft Conrad Online (Natural) - German (Germany) — de-DE"
+73
+: 
+"Microsoft Amala Online (Natural) - German (Germany) — de-DE"
+74
+: 
+"Microsoft Bernd Online (Natural) - German (Germany) — de-DE"
+75
+: 
+"Microsoft Christoph Online (Natural) - German (Germany) — de-DE"
+76
+: 
+"Microsoft Elke Online (Natural) - German (Germany) — de-DE"
+77
+: 
+"Microsoft Gisela Online (Natural) - German (Germany) — de-DE"
+78
+: 
+"Microsoft Kasper Online (Natural) - German (Germany) — de-DE"
+79
+: 
+"Microsoft Killian Online (Natural) - German (Germany) — de-DE"
+80
+: 
+"Microsoft Klarissa Online (Natural) - German (Germany) — de-DE"
+81
+: 
+"Microsoft Klaus Online (Natural) - German (Germany) — de-DE"
+82
+: 
+"Microsoft Louisa Online (Natural) - German (Germany) — de-DE"
+83
+: 
+"Microsoft Maja Online (Natural) - German (Germany) — de-DE"
+84
+: 
+"Microsoft Ralf Online (Natural) - German (Germany) — de-DE"
+85
+: 
+"Microsoft Tanja Online (Natural) - German (Germany) — de-DE"
+86
+: 
+"Microsoft Αθηνά Online (Natural) - Greek (Greece) — el-GR"
+87
+: 
+"Microsoft Νέστορας Online (Natural) - Greek (Greece) — el-GR"
+88
+: 
+"Microsoft William Multilingual Online (Natural) - English (Australia) — en-AU"
+89
+: 
+"Microsoft Natasha Online (Natural) - English (Australia) — en-AU"
+90
+: 
+"Microsoft William Online (Natural) - English (Australia) — en-AU"
+91
+: 
+"Microsoft Annette Online (Natural) - English (Australia) — en-AU"
+92
+: 
+"Microsoft Carly Online (Natural) - English (Australia) — en-AU"
+93
+: 
+"Microsoft Darren Online (Natural) - English (Australia) — en-AU"
+94
+: 
+"Microsoft Duncan Online (Natural) - English (Australia) — en-AU"
+95
+: 
+"Microsoft Elsie Online (Natural) - English (Australia) — en-AU"
+96
+: 
+"Microsoft Freya Online (Natural) - English (Australia) — en-AU"
+97
+: 
+"Microsoft Joanne Online (Natural) - English (Australia) — en-AU"
+98
+: 
+"Microsoft Ken Online (Natural) - English (Australia) — en-AU"
+99
+: 
+"Microsoft Kim Online (Natural) - English (Australia) — en-AU"
+0
+: 
+"Microsoft David - English (United States) — en-US"
+1
+: 
+"Microsoft James - English (Australia) — en-AU"
+2
+: 
+"Microsoft George - English (United Kingdom) — en-GB"
+3
+: 
+"Microsoft Hazel - English (United Kingdom) — en-GB"
+4
+: 
+"Microsoft Susan - English (United Kingdom) — en-GB"
+5
+: 
+"Microsoft Catherine - English (Australia) — en-AU"
+6
+: 
+"Microsoft Mark - English (United States) — en-US"
+7
+: 
+"Microsoft Zira - English (United States) — en-US"
+8
+: 
+"Microsoft Adri Online (Natural) - Afrikaans (South Africa) — af-ZA"
+9
+: 
+"Microsoft Willem Online (Natural) - Afrikaans (South Africa) — af-ZA"
+10
+: 
+"Microsoft መቅደስ Online (Natural) - Amharic (Ethiopia) — am-ET"
+11
+: 
+"Microsoft አምሀ Online (Natural) - Amharic (Ethiopia) — am-ET"
+12
+: 
+"Microsoft فاطمة Online (Natural) - Arabic (United Arab Emirates) — ar-AE"
+13
+: 
+"Microsoft حمدان Online (Natural) - Arabic (United Arab Emirates) — ar-AE"
+14
+: 
+"Microsoft ليلى Online (Natural) - Arabic (Bahrain) — ar-BH"
+15
+: 
+"Microsoft علي Online (Natural) - Arabic (Bahrain) — ar-BH"
+16
+: 
+"Microsoft أمينة Online (Natural) - Arabic (Algeria) — ar-DZ"
+17
+: 
+"Microsoft إسماعيل Online (Natural) - Arabic (Algeria) — ar-DZ"
+18
+: 
+"Microsoft سلمى Online (Natural) - Arabic (Egypt) — ar-EG"
+19
+: 
+"Microsoft شاكر Online (Natural) - Arabic (Egypt) — ar-EG"
+20
+: 
+"Microsoft رنا Online (Natural) - Arabic (Iraq) — ar-IQ"
+21
+: 
+"Microsoft باسل Online (Natural) - Arabic (Iraq) — ar-IQ"
+22
+: 
+"Microsoft سناء Online (Natural) - Arabic (Jordan) — ar-JO"
+23
+: 
+"Microsoft تيم Online (Natural) - Arabic (Jordan) — ar-JO"
+24
+: 
+"Microsoft نورا Online (Natural) - Arabic (Kuwait) — ar-KW"
+25
+: 
+"Microsoft فهد Online (Natural) - Arabic (Kuwait) — ar-KW"
+26
+: 
+"Microsoft ليلى Online (Natural) - Arabic (Lebanon) — ar-LB"
+27
+: 
+"Microsoft رامي Online (Natural) - Arabic (Lebanon) — ar-LB"
+28
+: 
+"Microsoft إيمان Online (Natural) - Arabic (Libya) — ar-LY"
+29
+: 
+"Microsoft أحمد Online (Natural) - Arabic (Libya) — ar-LY"
+30
+: 
+"Microsoft منى Online (Natural) - Arabic (Morocco) — ar-MA"
+31
+: 
+"Microsoft جمال Online (Natural) - Arabic (Morocco) — ar-MA"
+32
+: 
+"Microsoft عائشة Online (Natural) - Arabic (Oman) — ar-OM"
+33
+: 
+"Microsoft عبدالله Online (Natural) - Arabic (Oman) — ar-OM"
+34
+: 
+"Microsoft أمل Online (Natural) - Arabic (Qatar) — ar-QA"
+35
+: 
+"Microsoft معاذ Online (Natural) - Arabic (Qatar) — ar-QA"
+36
+: 
+"Microsoft زارية Online (Natural) - Arabic (Saudi Arabia) — ar-SA"
+37
+: 
+"Microsoft حامد Online (Natural) - Arabic (Saudi Arabia) — ar-SA"
+38
+: 
+"Microsoft أماني Online (Natural) - Arabic (Syria) — ar-SY"
+39
+: 
+"Microsoft ليث Online (Natural) - Arabic (Syria) — ar-SY"
+40
+: 
+"Microsoft ريم Online (Natural) - Arabic (Tunisia) — ar-TN"
+41
+: 
+"Microsoft هادي Online (Natural) - Arabic (Tunisia) — ar-TN"
+42
+: 
+"Microsoft مريم Online (Natural) - Arabic (Yemen) — ar-YE"
+43
+: 
+"Microsoft صالح Online (Natural) - Arabic (Yemen) — ar-YE"
+44
+: 
+"Microsoft যাশিকা Online (Natural) - Assamese (India) — as-IN"
+45
+: 
+"Microsoft প্ৰিয়ম Online (Natural) - Assamese (India) — as-IN"
+46
+: 
+"Microsoft Banu Online (Natural) - Azerbaijani (Latin, Azerbaijan) — az-AZ"
+47
+: 
+"Microsoft Babək Online (Natural) - Azerbaijani (Latin, Azerbaijan) — az-AZ"
+48
+: 
+"Microsoft Калина Online (Natural) - Bulgarian (Bulgaria) — bg-BG"
+49
+: 
+"Microsoft Борислав Online (Natural) - Bulgarian (Bulgaria) — bg-BG"
+50
+: 
+"Microsoft নবনীতা Online (Natural) - Bangla (Bangladesh) — bn-BD"
+51
+: 
+"Microsoft প্রদ্বীপ Online (Natural) - Bangla (Bangladesh) — bn-BD"
+52
+: 
+"Microsoft তানিশা Online (Natural) - Bengali (India) — bn-IN"
+53
+: 
+"Microsoft ভাস্কর Online (Natural) - Bengali (India) — bn-IN"
+54
+: 
+"Microsoft Vesna Online (Natural) - Bosnian (Bosnia and Herzegovina) — bs-BA"
+55
+: 
+"Microsoft Goran Online (Natural) - Bosnian (Bosnia and Herzegovina) — bs-BA"
+56
+: 
+"Microsoft Joana Online (Natural) - Catalan — ca-ES"
+57
+: 
+"Microsoft Enric Online (Natural) - Catalan — ca-ES"
+58
+: 
+"Microsoft Alba Online (Natural) - Catalan — ca-ES"
+59
+: 
+"Microsoft Vlasta Online (Natural) - Czech (Czechia) — cs-CZ"
+60
+: 
+"Microsoft Antonín Online (Natural) - Czech (Czechia) — cs-CZ"
+61
+: 
+"Microsoft Nia Online (Natural) - Welsh (United Kingdom) — cy-GB"
+62
+: 
+"Microsoft Aled Online (Natural) - Welsh (United Kingdom) — cy-GB"
+63
+: 
+"Microsoft Christel Online (Natural) - Danish (Denmark) — da-DK"
+64
+: 
+"Microsoft Jeppe Online (Natural) - Danish (Denmark) — da-DK"
+65
+: 
+"Microsoft Ingrid Online (Natural) - German (Austria) — de-AT"
+66
+: 
+"Microsoft Jonas Online (Natural) - German (Austria) — de-AT"
+67
+: 
+"Microsoft Leni Online (Natural) - German (Switzerland) — de-CH"
+68
+: 
+"Microsoft Jan Online (Natural) - German (Switzerland) — de-CH"
+69
+: 
+"Microsoft Seraphina Mehrsprachig Online (Natural) - German (Germany) — de-DE"
+70
+: 
+"Microsoft Florian Mehrsprachig Online (Natural) - German (Germany) — de-DE"
+71
+: 
+"Microsoft Katja Online (Natural) - German (Germany) — de-DE"
+72
+: 
+"Microsoft Conrad Online (Natural) - German (Germany) — de-DE"
+73
+: 
+"Microsoft Amala Online (Natural) - German (Germany) — de-DE"
+74
+: 
+"Microsoft Bernd Online (Natural) - German (Germany) — de-DE"
+75
+: 
+"Microsoft Christoph Online (Natural) - German (Germany) — de-DE"
+76
+: 
+"Microsoft Elke Online (Natural) - German (Germany) — de-DE"
+77
+: 
+"Microsoft Gisela Online (Natural) - German (Germany) — de-DE"
+78
+: 
+"Microsoft Kasper Online (Natural) - German (Germany) — de-DE"
+79
+: 
+"Microsoft Killian Online (Natural) - German (Germany) — de-DE"
+80
+: 
+"Microsoft Klarissa Online (Natural) - German (Germany) — de-DE"
+81
+: 
+"Microsoft Klaus Online (Natural) - German (Germany) — de-DE"
+82
+: 
+"Microsoft Louisa Online (Natural) - German (Germany) — de-DE"
+83
+: 
+"Microsoft Maja Online (Natural) - German (Germany) — de-DE"
+84
+: 
+"Microsoft Ralf Online (Natural) - German (Germany) — de-DE"
+85
+: 
+"Microsoft Tanja Online (Natural) - German (Germany) — de-DE"
+86
+: 
+"Microsoft Αθηνά Online (Natural) - Greek (Greece) — el-GR"
+87
+: 
+"Microsoft Νέστορας Online (Natural) - Greek (Greece) — el-GR"
+88
+: 
+"Microsoft William Multilingual Online (Natural) - English (Australia) — en-AU"
+89
+: 
+"Microsoft Natasha Online (Natural) - English (Australia) — en-AU"
+90
+: 
+"Microsoft William Online (Natural) - English (Australia) — en-AU"
+91
+: 
+"Microsoft Annette Online (Natural) - English (Australia) — en-AU"
+92
+: 
+"Microsoft Carly Online (Natural) - English (Australia) — en-AU"
+93
+: 
+"Microsoft Darren Online (Natural) - English (Australia) — en-AU"
+94
+: 
+"Microsoft Duncan Online (Natural) - English (Australia) — en-AU"
+95
+: 
+"Microsoft Elsie Online (Natural) - English (Australia) — en-AU"
+96
+: 
+"Microsoft Freya Online (Natural) - English (Australia) — en-AU"
+97
+: 
+"Microsoft Joanne Online (Natural) - English (Australia) — en-AU"
+98
+: 
+"Microsoft Ken Online (Natural) - English (Australia) — en-AU"
+99
+: 
+"Microsoft Kim Online (Natural) - English (Australia) — en-AU"
+[100 … 199]
+100
+: 
+"Microsoft Neil Online (Natural) - English (Australia) — en-AU"
+101
+: 
+"Microsoft Tim Online (Natural) - English (Australia) — en-AU"
+102
+: 
+"Microsoft Tina Online (Natural) - English (Australia) — en-AU"
+103
+: 
+"Microsoft Clara Online (Natural) - English (Canada) — en-CA"
+104
+: 
+"Microsoft Liam Online (Natural) - English (Canada) — en-CA"
+105
+: 
+"Microsoft Ada Multilingual Online (Natural) - English (United Kingdom) — en-GB"
+106
+: 
+"Microsoft Ollie Multilingual Online (Natural) - English (United Kingdom) — en-GB"
+107
+: 
+"Microsoft Sonia Online (Natural) - English (United Kingdom) — en-GB"
+108
+: 
+"Microsoft Ryan Online (Natural) - English (United Kingdom) — en-GB"
+109
+: 
+"Microsoft Libby Online (Natural) - English (United Kingdom) — en-GB"
+110
+: 
+"Microsoft Abbi Online (Natural) - English (United Kingdom) — en-GB"
+111
+: 
+"Microsoft Alfie Online (Natural) - English (United Kingdom) — en-GB"
+112
+: 
+"Microsoft Bella Online (Natural) - English (United Kingdom) — en-GB"
+113
+: 
+"Microsoft Elliot Online (Natural) - English (United Kingdom) — en-GB"
+114
+: 
+"Microsoft Ethan Online (Natural) - English (United Kingdom) — en-GB"
+115
+: 
+"Microsoft Hollie Online (Natural) - English (United Kingdom) — en-GB"
+116
+: 
+"Microsoft Maisie Online (Natural) - English (United Kingdom) — en-GB"
+117
+: 
+"Microsoft Noah Online (Natural) - English (United Kingdom) — en-GB"
+118
+: 
+"Microsoft Oliver Online (Natural) - English (United Kingdom) — en-GB"
+119
+: 
+"Microsoft Olivia Online (Natural) - English (United Kingdom) — en-GB"
+120
+: 
+"Microsoft Thomas Online (Natural) - English (United Kingdom) — en-GB"
+121
+: 
+"Microsoft Yan Online (Natural) - English (Hong Kong SAR) — en-HK"
+122
+: 
+"Microsoft Sam Online (Natural) - English (Hong Kong SAR) — en-HK"
+123
+: 
+"Microsoft Emily Online (Natural) - English (Ireland) — en-IE"
+124
+: 
+"Microsoft Connor Online (Natural) - English (Ireland) — en-IE"
+125
+: 
+"Microsoft Aarti Indic Online (Natural) - English (India) — en-IN"
+126
+: 
+"Microsoft Arjun Indic Online (Natural) - English (India) — en-IN"
+127
+: 
+"Microsoft Neerja Indic Online (Natural) - English (India) — en-IN"
+128
+: 
+"Microsoft Prabhat Indic Online (Natural) - English (India) — en-IN"
+129
+: 
+"Microsoft Aarav Online (Natural) - English (India) — en-IN"
+130
+: 
+"Microsoft Aashi Online (Natural) - English (India) — en-IN"
+131
+: 
+"Microsoft Aarti Online (Natural) - English (India) — en-IN"
+132
+: 
+"Microsoft Arjun Online (Natural) - English (India) — en-IN"
+133
+: 
+"Microsoft Ananya Online (Natural) - English (India) — en-IN"
+134
+: 
+"Microsoft Kavya Online (Natural) - English (India) — en-IN"
+135
+: 
+"Microsoft Kunal Online (Natural) - English (India) — en-IN"
+136
+: 
+"Microsoft Neerja Online (Natural) - English (India) — en-IN"
+137
+: 
+"Microsoft Prabhat Online (Natural) - English (India) — en-IN"
+138
+: 
+"Microsoft Rehaan Online (Natural) - English (India) — en-IN"
+139
+: 
+"Microsoft Asilia Online (Natural) - English (Kenya) — en-KE"
+140
+: 
+"Microsoft Chilemba Online (Natural) - English (Kenya) — en-KE"
+141
+: 
+"Microsoft Ezinne Online (Natural) - English (Nigeria) — en-NG"
+142
+: 
+"Microsoft Abeo Online (Natural) - English (Nigeria) — en-NG"
+143
+: 
+"Microsoft Molly Online (Natural) - English (New Zealand) — en-NZ"
+144
+: 
+"Microsoft Mitchell Online (Natural) - English (New Zealand) — en-NZ"
+145
+: 
+"Microsoft Rosa Online (Natural) - English (Philippines) — en-PH"
+146
+: 
+"Microsoft James Online (Natural) - English (Philippines) — en-PH"
+147
+: 
+"Microsoft Luna Online (Natural) - English (Singapore) — en-SG"
+148
+: 
+"Microsoft Wayne Online (Natural) - English (Singapore) — en-SG"
+149
+: 
+"Microsoft Imani Online (Natural) - English (Tanzania) — en-TZ"
+150
+: 
+"Microsoft Elimu Online (Natural) - English (Tanzania) — en-TZ"
+151
+: 
+"Microsoft Ava Multilingual Online (Natural) - English (United States) — en-US"
+152
+: 
+"Microsoft Andrew Multilingual Online (Natural) - English (United States) — en-US"
+153
+: 
+"Microsoft Amanda Multilingual Online (Natural) - English (United States) — en-US"
+154
+: 
+"Microsoft Adam Multilingual Online (Natural) - English (United States) — en-US"
+155
+: 
+"Microsoft Emma Multilingual Online (Natural) - English (United States) — en-US"
+156
+: 
+"Microsoft Phoebe Multilingual Online (Natural) - English (United States) — en-US"
+157
+: 
+"Microsoft Alloy Turbo Multilingual Online (Natural) - English (United States) — en-US"
+158
+: 
+"Microsoft Echo Turbo Multilingual Online (Natural) - English (United States) — en-US"
+159
+: 
+"Microsoft Fable Turbo Multilingual Online (Natural) - English (United States) — en-US"
+160
+: 
+"Microsoft Onyx Turbo Multilingual Online (Natural) - English (United States) — en-US"
+161
+: 
+"Microsoft Nova Turbo Multilingual Online (Natural) - English (United States) — en-US"
+162
+: 
+"Microsoft Shimmer Turbo Multilingual Online (Natural) - English (United States) — en-US"
+163
+: 
+"Microsoft Brian Multilingual Online (Natural) - English (United States) — en-US"
+164
+: 
+"Microsoft Ava Online (Natural) - English (United States) — en-US"
+165
+: 
+"Microsoft Andrew Online (Natural) - English (United States) — en-US"
+166
+: 
+"Microsoft Emma Online (Natural) - English (United States) — en-US"
+167
+: 
+"Microsoft Brian Online (Natural) - English (United States) — en-US"
+168
+: 
+"Microsoft Jenny Online (Natural) - English (United States) — en-US"
+169
+: 
+"Microsoft Guy Online (Natural) - English (United States) — en-US"
+170
+: 
+"Microsoft Aria Online (Natural) - English (United States) — en-US"
+171
+: 
+"Microsoft Davis Online (Natural) - English (United States) — en-US"
+172
+: 
+"Microsoft Jane Online (Natural) - English (United States) — en-US"
+173
+: 
+"Microsoft Jason Online (Natural) - English (United States) — en-US"
+174
+: 
+"Microsoft Kai Online (Natural) - English (United States) — en-US"
+175
+: 
+"Microsoft Luna Online (Natural) - English (United States) — en-US"
+176
+: 
+"Microsoft Sara Online (Natural) - English (United States) — en-US"
+177
+: 
+"Microsoft Tony Online (Natural) - English (United States) — en-US"
+178
+: 
+"Microsoft Nancy Online (Natural) - English (United States) — en-US"
+179
+: 
+"Microsoft Cora Multilingual Online (Natural) - English (United States) — en-US"
+180
+: 
+"Microsoft Christopher Multilingual Online (Natural) - English (United States) — en-US"
+181
+: 
+"Microsoft Brandon Multilingual Online (Natural) - English (United States) — en-US"
+182
+: 
+"Microsoft AIGenerate1 Online (Natural) - English (United States) — en-US"
+183
+: 
+"Microsoft AIGenerate2 Online (Natural) - English (United States) — en-US"
+184
+: 
+"Microsoft Amber Online (Natural) - English (United States) — en-US"
+185
+: 
+"Microsoft Ana Online (Natural) - English (United States) — en-US"
+186
+: 
+"Microsoft Ashley Online (Natural) - English (United States) — en-US"
+187
+: 
+"Microsoft Brandon Online (Natural) - English (United States) — en-US"
+188
+: 
+"Microsoft Christopher Online (Natural) - English (United States) — en-US"
+189
+: 
+"Microsoft Cora Online (Natural) - English (United States) — en-US"
+190
+: 
+"Microsoft Davis Multilingual Online (Natural) - English (United States) — en-US"
+191
+: 
+"Microsoft Derek Multilingual Online (Natural) - English (United States) — en-US"
+192
+: 
+"Microsoft Dustin Multilingual Online (Natural) - English (United States) — en-US"
+193
+: 
+"Microsoft Elizabeth Online (Natural) - English (United States) — en-US"
+194
+: 
+"Microsoft Eric Online (Natural) - English (United States) — en-US"
+195
+: 
+"Microsoft Evelyn Multilingual Online (Natural) - English (United States) — en-US"
+196
+: 
+"Microsoft Jacob Online (Natural) - English (United States) — en-US"
+197
+: 
+"Microsoft Jenny Multilingual Online (Natural) - English (United States) — en-US"
+198
+: 
+"Microsoft Jimmie Dragon HD Flash Latest Online (Natural) - English (United States) — en-US"
+199
+: 
+"Microsoft Lewis Multilingual Online (Natural) - English (United States) — en-US"
+[200 … 299]
+200
+: 
+"Microsoft Lola Multilingual Online (Natural) - English (United States) — en-US"
+201
+: 
+"Microsoft Michelle Online (Natural) - English (United States) — en-US"
+202
+: 
+"Microsoft Monica Online (Natural) - English (United States) — en-US"
+203
+: 
+"Microsoft Nancy Multilingual Online (Natural) - English (United States) — en-US"
+204
+: 
+"Microsoft Roger Online (Natural) - English (United States) — en-US"
+205
+: 
+"Microsoft Ryan Multilingual Online (Natural) - English (United States) — en-US"
+206
+: 
+"Microsoft Samuel Multilingual Online (Natural) - English (United States) — en-US"
+207
+: 
+"Microsoft Serena Multilingual Online (Natural) - English (United States) — en-US"
+208
+: 
+"Microsoft Steffan Multilingual Online (Natural) - English (United States) — en-US"
+209
+: 
+"Microsoft Steffan Online (Natural) - English (United States) — en-US"
+210
+: 
+"Microsoft Tiana Dragon HD Flash Latest Online (Natural) - English (United States) — en-US"
+211
+: 
+"Microsoft Tyler Dragon HD Flash Latest Online (Natural) - English (United States) — en-US"
+212
+: 
+"Microsoft Leah Online (Natural) - English (South Africa) — en-ZA"
+213
+: 
+"Microsoft Luke Online (Natural) - English (South Africa) — en-ZA"
+214
+: 
+"Microsoft Elena Online (Natural) - Spanish (Argentina) — es-AR"
+215
+: 
+"Microsoft Tomas Online (Natural) - Spanish (Argentina) — es-AR"
+216
+: 
+"Microsoft Sofia Online (Natural) - Spanish (Bolivia) — es-BO"
+217
+: 
+"Microsoft Marcelo Online (Natural) - Spanish (Bolivia) — es-BO"
+218
+: 
+"Microsoft Catalina Online (Natural) - Spanish (Chile) — es-CL"
+219
+: 
+"Microsoft Lorenzo Online (Natural) - Spanish (Chile) — es-CL"
+220
+: 
+"Microsoft Salome Online (Natural) - Spanish (Colombia) — es-CO"
+221
+: 
+"Microsoft Gonzalo Online (Natural) - Spanish (Colombia) — es-CO"
+222
+: 
+"Microsoft María Online (Natural) - Spanish (Costa Rica) — es-CR"
+223
+: 
+"Microsoft Juan Online (Natural) - Spanish (Costa Rica) — es-CR"
+224
+: 
+"Microsoft Belkys Online (Natural) - Spanish (Cuba) — es-CU"
+225
+: 
+"Microsoft Manuel Online (Natural) - Spanish (Cuba) — es-CU"
+226
+: 
+"Microsoft Ramona Online (Natural) - Spanish (Dominican Republic) — es-DO"
+227
+: 
+"Microsoft Emilio Online (Natural) - Spanish (Dominican Republic) — es-DO"
+228
+: 
+"Microsoft Andrea Online (Natural) - Spanish (Ecuador) — es-EC"
+229
+: 
+"Microsoft Luis Online (Natural) - Spanish (Ecuador) — es-EC"
+230
+: 
+"Microsoft Elvira Online (Natural) - Spanish (Spain) — es-ES"
+231
+: 
+"Microsoft Álvaro Online (Natural) - Spanish (Spain) — es-ES"
+232
+: 
+"Microsoft Arabella Multilingual Online (Natural) - Spanish (Spain) — es-ES"
+233
+: 
+"Microsoft Isidora Multilingual Online (Natural) - Spanish (Spain) — es-ES"
+234
+: 
+"Microsoft Tristan Multilingual Online (Natural) - Spanish (Spain) — es-ES"
+235
+: 
+"Microsoft Ximena Multilingual Online (Natural) - Spanish (Spain) — es-ES"
+236
+: 
+"Microsoft Abril Online (Natural) - Spanish (Spain) — es-ES"
+237
+: 
+"Microsoft Arnau Online (Natural) - Spanish (Spain) — es-ES"
+238
+: 
+"Microsoft Dario Online (Natural) - Spanish (Spain) — es-ES"
+239
+: 
+"Microsoft Elias Online (Natural) - Spanish (Spain) — es-ES"
+240
+: 
+"Microsoft Estrella Online (Natural) - Spanish (Spain) — es-ES"
+241
+: 
+"Microsoft Irene Online (Natural) - Spanish (Spain) — es-ES"
+242
+: 
+"Microsoft Laia Online (Natural) - Spanish (Spain) — es-ES"
+243
+: 
+"Microsoft Lia Online (Natural) - Spanish (Spain) — es-ES"
+244
+: 
+"Microsoft Nil Online (Natural) - Spanish (Spain) — es-ES"
+245
+: 
+"Microsoft Saul Online (Natural) - Spanish (Spain) — es-ES"
+246
+: 
+"Microsoft Teo Online (Natural) - Spanish (Spain) — es-ES"
+247
+: 
+"Microsoft Triana Online (Natural) - Spanish (Spain) — es-ES"
+248
+: 
+"Microsoft Vera Online (Natural) - Spanish (Spain) — es-ES"
+249
+: 
+"Microsoft Ximena Online (Natural) - Spanish (Spain) — es-ES"
+250
+: 
+"Microsoft Teresa Online (Natural) - Spanish (Equatorial Guinea) — es-GQ"
+251
+: 
+"Microsoft Javier Online (Natural) - Spanish (Equatorial Guinea) — es-GQ"
+252
+: 
+"Microsoft Marta Online (Natural) - Spanish (Guatemala) — es-GT"
+253
+: 
+"Microsoft Andrés Online (Natural) - Spanish (Guatemala) — es-GT"
+254
+: 
+"Microsoft Karla Online (Natural) - Spanish (Honduras) — es-HN"
+255
+: 
+"Microsoft Carlos Online (Natural) - Spanish (Honduras) — es-HN"
+256
+: 
+"Microsoft Dalia Online (Natural) - Spanish (Mexico) — es-MX"
+257
+: 
+"Microsoft Jorge Online (Natural) - Spanish (Mexico) — es-MX"
+258
+: 
+"Microsoft Dalia Multilingual Online (Natural) - Spanish (Mexico) — es-MX"
+259
+: 
+"Microsoft Jorge Multilingual Online (Natural) - Spanish (Mexico) — es-MX"
+260
+: 
+"Microsoft Beatriz Online (Natural) - Spanish (Mexico) — es-MX"
+261
+: 
+"Microsoft Candela Online (Natural) - Spanish (Mexico) — es-MX"
+262
+: 
+"Microsoft Carlota Online (Natural) - Spanish (Mexico) — es-MX"
+263
+: 
+"Microsoft Cecilio Online (Natural) - Spanish (Mexico) — es-MX"
+264
+: 
+"Microsoft Gerardo Online (Natural) - Spanish (Mexico) — es-MX"
+265
+: 
+"Microsoft Larissa Online (Natural) - Spanish (Mexico) — es-MX"
+266
+: 
+"Microsoft Liberto Online (Natural) - Spanish (Mexico) — es-MX"
+267
+: 
+"Microsoft Luciano Online (Natural) - Spanish (Mexico) — es-MX"
+268
+: 
+"Microsoft Marina Online (Natural) - Spanish (Mexico) — es-MX"
+269
+: 
+"Microsoft Nuria Online (Natural) - Spanish (Mexico) — es-MX"
+270
+: 
+"Microsoft Pelayo Online (Natural) - Spanish (Mexico) — es-MX"
+271
+: 
+"Microsoft Renata Online (Natural) - Spanish (Mexico) — es-MX"
+272
+: 
+"Microsoft Yago Online (Natural) - Spanish (Mexico) — es-MX"
+273
+: 
+"Microsoft Yolanda Online (Natural) - Spanish (Nicaragua) — es-NI"
+274
+: 
+"Microsoft Federico Online (Natural) - Spanish (Nicaragua) — es-NI"
+275
+: 
+"Microsoft Margarita Online (Natural) - Spanish (Panama) — es-PA"
+276
+: 
+"Microsoft Roberto Online (Natural) - Spanish (Panama) — es-PA"
+277
+: 
+"Microsoft Camila Online (Natural) - Spanish (Peru) — es-PE"
+278
+: 
+"Microsoft Alex Online (Natural) - Spanish (Peru) — es-PE"
+279
+: 
+"Microsoft Karina Online (Natural) - Spanish (Puerto Rico) — es-PR"
+280
+: 
+"Microsoft Víctor Online (Natural) - Spanish (Puerto Rico) — es-PR"
+281
+: 
+"Microsoft Tania Online (Natural) - Spanish (Paraguay) — es-PY"
+282
+: 
+"Microsoft Mario Online (Natural) - Spanish (Paraguay) — es-PY"
+283
+: 
+"Microsoft Lorena Online (Natural) - Spanish (El Salvador) — es-SV"
+284
+: 
+"Microsoft Rodrigo Online (Natural) - Spanish (El Salvador) — es-SV"
+285
+: 
+"Microsoft Paloma Online (Natural) - Spanish (United States) — es-US"
+286
+: 
+"Microsoft Alonso Online (Natural) - Spanish (United States) — es-US"
+287
+: 
+"Microsoft Valentina Online (Natural) - Spanish (Uruguay) — es-UY"
+288
+: 
+"Microsoft Mateo Online (Natural) - Spanish (Uruguay) — es-UY"
+289
+: 
+"Microsoft Paola Online (Natural) - Spanish (Venezuela) — es-VE"
+290
+: 
+"Microsoft Sebastián Online (Natural) - Spanish (Venezuela) — es-VE"
+291
+: 
+"Microsoft Anu Online (Natural) - Estonian (Estonia) — et-EE"
+292
+: 
+"Microsoft Kert Online (Natural) - Estonian (Estonia) — et-EE"
+293
+: 
+"Microsoft Ainhoa Online (Natural) - Basque — eu-ES"
+294
+: 
+"Microsoft Ander Online (Natural) - Basque — eu-ES"
+295
+: 
+"Microsoft دلارا Online (Natural) - Persian (Iran) — fa-IR"
+296
+: 
+"Microsoft فرید Online (Natural) - Persian (Iran) — fa-IR"
+297
+: 
+"Microsoft Selma Online (Natural) - Finnish (Finland) — fi-FI"
+298
+: 
+"Microsoft Harri Online (Natural) - Finnish (Finland) — fi-FI"
+299
+: 
+"Microsoft Noora Online (Natural) - Finnish (Finland) — fi-FI"
+[300 … 399]
+300
+: 
+"Microsoft Blessica Online (Natural) - Filipino (Philippines) — fil-PH"
+301
+: 
+"Microsoft Angelo Online (Natural) - Filipino (Philippines) — fil-PH"
+302
+: 
+"Microsoft Charline Online (Natural) - French (Belgium) — fr-BE"
+303
+: 
+"Microsoft Gerard Online (Natural) - French (Belgium) — fr-BE"
+304
+: 
+"Microsoft Sylvie Online (Natural) - French (Canada) — fr-CA"
+305
+: 
+"Microsoft Jean Online (Natural) - French (Canada) — fr-CA"
+306
+: 
+"Microsoft Antoine Online (Natural) - French (Canada) — fr-CA"
+307
+: 
+"Microsoft Thierry Online (Natural) - French (Canada) — fr-CA"
+308
+: 
+"Microsoft Ariane Online (Natural) - French (Switzerland) — fr-CH"
+309
+: 
+"Microsoft Fabrice Online (Natural) - French (Switzerland) — fr-CH"
+310
+: 
+"Microsoft Denise Online (Natural) - French (France) — fr-FR"
+311
+: 
+"Microsoft Henri Online (Natural) - French (France) — fr-FR"
+312
+: 
+"Microsoft Vivienne Multilingue Online (Natural) - French (France) — fr-FR"
+313
+: 
+"Microsoft Rémy Multilingue Online (Natural) - French (France) — fr-FR"
+314
+: 
+"Microsoft Lucien Multilingual Online (Natural) - French (France) — fr-FR"
+315
+: 
+"Microsoft Alain Online (Natural) - French (France) — fr-FR"
+316
+: 
+"Microsoft Brigitte Online (Natural) - French (France) — fr-FR"
+317
+: 
+"Microsoft Celeste Online (Natural) - French (France) — fr-FR"
+318
+: 
+"Microsoft Claude Online (Natural) - French (France) — fr-FR"
+319
+: 
+"Microsoft Coralie Online (Natural) - French (France) — fr-FR"
+320
+: 
+"Microsoft Eloise Online (Natural) - French (France) — fr-FR"
+321
+: 
+"Microsoft Jacqueline Online (Natural) - French (France) — fr-FR"
+322
+: 
+"Microsoft Jerome Online (Natural) - French (France) — fr-FR"
+323
+: 
+"Microsoft Josephine Online (Natural) - French (France) — fr-FR"
+324
+: 
+"Microsoft Maurice Online (Natural) - French (France) — fr-FR"
+325
+: 
+"Microsoft Yves Online (Natural) - French (France) — fr-FR"
+326
+: 
+"Microsoft Yvette Online (Natural) - French (France) — fr-FR"
+327
+: 
+"Microsoft Orla Online (Natural) - Irish (Ireland) — ga-IE"
+328
+: 
+"Microsoft Colm Online (Natural) - Irish (Ireland) — ga-IE"
+329
+: 
+"Microsoft Sabela Online (Natural) - Galician — gl-ES"
+330
+: 
+"Microsoft Roi Online (Natural) - Galician — gl-ES"
+331
+: 
+"Microsoft ધ્વની Online (Natural) - Gujarati (India) — gu-IN"
+332
+: 
+"Microsoft નિરંજન Online (Natural) - Gujarati (India) — gu-IN"
+333
+: 
+"Microsoft הילה Online (Natural) - Hebrew (Israel) — he-IL"
+334
+: 
+"Microsoft אברי Online (Natural) - Hebrew (Israel) — he-IL"
+335
+: 
+"Microsoft आरव  Online (Natural) - Hindi (India) — hi-IN"
+336
+: 
+"Microsoft अनन्या Online (Natural) - Hindi (India) — hi-IN"
+337
+: 
+"Microsoft आरती Online (Natural) - Hindi (India) — hi-IN"
+338
+: 
+"Microsoft अर्जुन Online (Natural) - Hindi (India) — hi-IN"
+339
+: 
+"Microsoft काव्या Online (Natural) - Hindi (India) — hi-IN"
+340
+: 
+"Microsoft कुनाल  Online (Natural) - Hindi (India) — hi-IN"
+341
+: 
+"Microsoft रेहान Online (Natural) - Hindi (India) — hi-IN"
+342
+: 
+"Microsoft स्वरा Online (Natural) - Hindi (India) — hi-IN"
+343
+: 
+"Microsoft मधुर Online (Natural) - Hindi (India) — hi-IN"
+344
+: 
+"Microsoft Gabrijela Online (Natural) - Croatian (Croatia) — hr-HR"
+345
+: 
+"Microsoft Srećko Online (Natural) - Croatian (Croatia) — hr-HR"
+346
+: 
+"Microsoft Noémi Online (Natural) - Hungarian (Hungary) — hu-HU"
+347
+: 
+"Microsoft Tamás Online (Natural) - Hungarian (Hungary) — hu-HU"
+348
+: 
+"Microsoft Անահիտ Online (Natural) - Armenian (Armenia) — hy-AM"
+349
+: 
+"Microsoft Հայկ Online (Natural) - Armenian (Armenia) — hy-AM"
+350
+: 
+"Microsoft Gadis Online (Natural) - Indonesian (Indonesia) — id-ID"
+351
+: 
+"Microsoft Ardi Online (Natural) - Indonesian (Indonesia) — id-ID"
+352
+: 
+"Microsoft Guðrún Online (Natural) - Icelandic (Iceland) — is-IS"
+353
+: 
+"Microsoft Gunnar Online (Natural) - Icelandic (Iceland) — is-IS"
+354
+: 
+"Microsoft Elsa Online (Natural) - Italian (Italy) — it-IT"
+355
+: 
+"Microsoft Isabella Online (Natural) - Italian (Italy) — it-IT"
+356
+: 
+"Microsoft Diego Online (Natural) - Italian (Italy) — it-IT"
+357
+: 
+"Microsoft Alessio Multilingual Online (Natural) - Italian (Italy) — it-IT"
+358
+: 
+"Microsoft Isabella Multilingual Online (Natural) - Italian (Italy) — it-IT"
+359
+: 
+"Microsoft Giuseppe Multilingual Online (Natural) - Italian (Italy) — it-IT"
+360
+: 
+"Microsoft Marcello Multilingual Online (Natural) - Italian (Italy) — it-IT"
+361
+: 
+"Microsoft Benigno Online (Natural) - Italian (Italy) — it-IT"
+362
+: 
+"Microsoft Calimero Online (Natural) - Italian (Italy) — it-IT"
+363
+: 
+"Microsoft Cataldo Online (Natural) - Italian (Italy) — it-IT"
+364
+: 
+"Microsoft Fabiola Online (Natural) - Italian (Italy) — it-IT"
+365
+: 
+"Microsoft Fiamma Online (Natural) - Italian (Italy) — it-IT"
+366
+: 
+"Microsoft Gianni Online (Natural) - Italian (Italy) — it-IT"
+367
+: 
+"Microsoft Giuseppe Online (Natural) - Italian (Italy) — it-IT"
+368
+: 
+"Microsoft Imelda Online (Natural) - Italian (Italy) — it-IT"
+369
+: 
+"Microsoft Irma Online (Natural) - Italian (Italy) — it-IT"
+370
+: 
+"Microsoft Lisandro Online (Natural) - Italian (Italy) — it-IT"
+371
+: 
+"Microsoft Palmira Online (Natural) - Italian (Italy) — it-IT"
+372
+: 
+"Microsoft Pierina Online (Natural) - Italian (Italy) — it-IT"
+373
+: 
+"Microsoft Rinaldo Online (Natural) - Italian (Italy) — it-IT"
+374
+: 
+"Microsoft ᓯᕿᓂᖅ Online (Natural) - Inuktitut (Syllabics, Canada) — iu-Cans-CA"
+375
+: 
+"Microsoft ᑕᖅᑭᖅ Online (Natural) - Inuktitut (Syllabics, Canada) — iu-Cans-CA"
+376
+: 
+"Microsoft ᓯᕿᓂᖅ Online (Natural) - Inuktitut (Latin, Canada) — iu-Latn-CA"
+377
+: 
+"Microsoft ᑕᖅᑭᖅ Online (Natural) - Inuktitut (Latin, Canada) — iu-Latn-CA"
+378
+: 
+"Microsoft 七海 Online (Natural) - Japanese (Japan) — ja-JP"
+379
+: 
+"Microsoft 圭太 Online (Natural) - Japanese (Japan) — ja-JP"
+380
+: 
+"Microsoft 碧衣 Online (Natural) - Japanese (Japan) — ja-JP"
+381
+: 
+"Microsoft 大智 Online (Natural) - Japanese (Japan) — ja-JP"
+382
+: 
+"Microsoft 真夕 Online (Natural) - Japanese (Japan) — ja-JP"
+383
+: 
+"Microsoft 直紀 Online (Natural) - Japanese (Japan) — ja-JP"
+384
+: 
+"Microsoft 志織 Online (Natural) - Japanese (Japan) — ja-JP"
+385
+: 
+"Microsoft Siti Online (Natural) - Javanese (Latin, Indonesia) — jv-ID"
+386
+: 
+"Microsoft Dimas Online (Natural) - Javanese (Latin, Indonesia) — jv-ID"
+387
+: 
+"Microsoft ეკა Online (Natural) - Georgian (Georgia) — ka-GE"
+388
+: 
+"Microsoft გიორგი Online (Natural) - Georgian (Georgia) — ka-GE"
+389
+: 
+"Microsoft Айгүл Online (Natural) - Kazakh (Kazakhstan) — kk-KZ"
+390
+: 
+"Microsoft Дәулет Online (Natural) - Kazakh (Kazakhstan) — kk-KZ"
+391
+: 
+"Microsoft ស្រីមុំ Online (Natural) - Khmer (Cambodia) — km-KH"
+392
+: 
+"Microsoft ពិសិដ្ឋ Online (Natural) - Khmer (Cambodia) — km-KH"
+393
+: 
+"Microsoft ಸಪ್ನಾ Online (Natural) - Kannada (India) — kn-IN"
+394
+: 
+"Microsoft ಗಗನ್ Online (Natural) - Kannada (India) — kn-IN"
+395
+: 
+"Microsoft 선히 Online (Natural) - Korean (Korea) — ko-KR"
+396
+: 
+"Microsoft 인준 Online (Natural) - Korean (Korea) — ko-KR"
+397
+: 
+"Microsoft Hyunsu Multilingual Online (Natural) - Korean (Korea) — ko-KR"
+398
+: 
+"Microsoft 봉진 Online (Natural) - Korean (Korea) — ko-KR"
+399
+: 
+"Microsoft 국민 Online (Natural) - Korean (Korea) — ko-KR"
+[400 … 499]
+400
+: 
+"Microsoft 현수 Online (Natural) - Korean (Korea) — ko-KR"
+401
+: 
+"Microsoft 지민 Online (Natural) - Korean (Korea) — ko-KR"
+402
+: 
+"Microsoft 서현 Online (Natural) - Korean (Korea) — ko-KR"
+403
+: 
+"Microsoft 순복 Online (Natural) - Korean (Korea) — ko-KR"
+404
+: 
+"Microsoft 유진 Online (Natural) - Korean (Korea) — ko-KR"
+405
+: 
+"Microsoft ແກ້ວມະນີ Online (Natural) - Lao (Laos) — lo-LA"
+406
+: 
+"Microsoft ຈັນທະວົງ Online (Natural) - Lao (Laos) — lo-LA"
+407
+: 
+"Microsoft Ona Online (Natural) - Lithuanian (Lithuania) — lt-LT"
+408
+: 
+"Microsoft Leonas Online (Natural) - Lithuanian (Lithuania) — lt-LT"
+409
+: 
+"Microsoft Everita Online (Natural) - Latvian (Latvia) — lv-LV"
+410
+: 
+"Microsoft Nils Online (Natural) - Latvian (Latvia) — lv-LV"
+411
+: 
+"Microsoft Марија Online (Natural) - Macedonian (North Macedonia) — mk-MK"
+412
+: 
+"Microsoft Александар Online (Natural) - Macedonian (North Macedonia) — mk-MK"
+413
+: 
+"Microsoft ശോഭന Online (Natural) - Malayalam (India) — ml-IN"
+414
+: 
+"Microsoft മിഥുൻ Online (Natural) - Malayalam (India) — ml-IN"
+415
+: 
+"Microsoft Есүй Online (Natural) - Mongolian (Mongolia) — mn-MN"
+416
+: 
+"Microsoft Батаа Online (Natural) - Mongolian (Mongolia) — mn-MN"
+417
+: 
+"Microsoft आरोही Online (Natural) - Marathi (India) — mr-IN"
+418
+: 
+"Microsoft मनोहर Online (Natural) - Marathi (India) — mr-IN"
+419
+: 
+"Microsoft Yasmin Online (Natural) - Malay (Malaysia) — ms-MY"
+420
+: 
+"Microsoft Osman Online (Natural) - Malay (Malaysia) — ms-MY"
+421
+: 
+"Microsoft Grace Online (Natural) - Maltese (Malta) — mt-MT"
+422
+: 
+"Microsoft Joseph Online (Natural) - Maltese (Malta) — mt-MT"
+423
+: 
+"Microsoft နီလာ Online (Natural) - Burmese (Myanmar) — my-MM"
+424
+: 
+"Microsoft သီဟ Online (Natural) - Burmese (Myanmar) — my-MM"
+425
+: 
+"Microsoft Pernille Online (Natural) - Norwegian Bokmål (Norway) — nb-NO"
+426
+: 
+"Microsoft Finn Online (Natural) - Norwegian Bokmål (Norway) — nb-NO"
+427
+: 
+"Microsoft Iselin Online (Natural) - Norwegian Bokmål (Norway) — nb-NO"
+428
+: 
+"Microsoft हेमकला Online (Natural) - Nepali (Nepal) — ne-NP"
+429
+: 
+"Microsoft सागर Online (Natural) - Nepali (Nepal) — ne-NP"
+430
+: 
+"Microsoft Dena Online (Natural) - Dutch (Belgium) — nl-BE"
+431
+: 
+"Microsoft Arnaud Online (Natural) - Dutch (Belgium) — nl-BE"
+432
+: 
+"Microsoft Fenna Online (Natural) - Dutch (Netherlands) — nl-NL"
+433
+: 
+"Microsoft Maarten Online (Natural) - Dutch (Netherlands) — nl-NL"
+434
+: 
+"Microsoft Colette Online (Natural) - Dutch (Netherlands) — nl-NL"
+435
+: 
+"Microsoft ସୁଭାସିନୀ Online (Natural) - Odia (India) — or-IN"
+436
+: 
+"Microsoft ସୁକାନ୍ତ Online (Natural) - Odia (India) — or-IN"
+437
+: 
+"Microsoft ਓਜਸ Online (Natural) - Punjabi (India) — pa-IN"
+438
+: 
+"Microsoft ਵਾਨੀ Online (Natural) - Punjabi (India) — pa-IN"
+439
+: 
+"Microsoft Agnieszka Online (Natural) - Polish (Poland) — pl-PL"
+440
+: 
+"Microsoft Marek Online (Natural) - Polish (Poland) — pl-PL"
+441
+: 
+"Microsoft Zofia Online (Natural) - Polish (Poland) — pl-PL"
+442
+: 
+"Microsoft لطيفه Online (Natural) - Pashto (Afghanistan) — ps-AF"
+443
+: 
+"Microsoft  ګل نواز Online (Natural) - Pashto (Afghanistan) — ps-AF"
+444
+: 
+"Microsoft Francisca Online (Natural) - Portuguese (Brazil) — pt-BR"
+445
+: 
+"Microsoft Antônio Online (Natural) - Portuguese (Brazil) — pt-BR"
+446
+: 
+"Microsoft Macerio Multilingual Online (Natural) - Portuguese (Brazil) — pt-BR"
+447
+: 
+"Microsoft Thalita multilíngue Online (Natural) - Portuguese (Brazil) — pt-BR"
+448
+: 
+"Microsoft Brenda Online (Natural) - Portuguese (Brazil) — pt-BR"
+449
+: 
+"Microsoft Donato Online (Natural) - Portuguese (Brazil) — pt-BR"
+450
+: 
+"Microsoft Elza Online (Natural) - Portuguese (Brazil) — pt-BR"
+451
+: 
+"Microsoft Fabio Online (Natural) - Portuguese (Brazil) — pt-BR"
+452
+: 
+"Microsoft Giovanna Online (Natural) - Portuguese (Brazil) — pt-BR"
+453
+: 
+"Microsoft Humberto Online (Natural) - Portuguese (Brazil) — pt-BR"
+454
+: 
+"Microsoft Julio Online (Natural) - Portuguese (Brazil) — pt-BR"
+455
+: 
+"Microsoft Leila Online (Natural) - Portuguese (Brazil) — pt-BR"
+456
+: 
+"Microsoft Leticia Online (Natural) - Portuguese (Brazil) — pt-BR"
+457
+: 
+"Microsoft Manuela Online (Natural) - Portuguese (Brazil) — pt-BR"
+458
+: 
+"Microsoft Nicolau Online (Natural) - Portuguese (Brazil) — pt-BR"
+459
+: 
+"Microsoft Thalita Online (Natural) - Portuguese (Brazil) — pt-BR"
+460
+: 
+"Microsoft Valerio Online (Natural) - Portuguese (Brazil) — pt-BR"
+461
+: 
+"Microsoft Yara Online (Natural) - Portuguese (Brazil) — pt-BR"
+462
+: 
+"Microsoft Raquel Online (Natural) - Portuguese (Portugal) — pt-PT"
+463
+: 
+"Microsoft Duarte Online (Natural) - Portuguese (Portugal) — pt-PT"
+464
+: 
+"Microsoft Fernanda Online (Natural) - Portuguese (Portugal) — pt-PT"
+465
+: 
+"Microsoft Alina Online (Natural) - Romanian (Romania) — ro-RO"
+466
+: 
+"Microsoft Emil Online (Natural) - Romanian (Romania) — ro-RO"
+467
+: 
+"Microsoft Светлана Online (Natural) - Russian (Russia) — ru-RU"
+468
+: 
+"Microsoft Дмитрий Online (Natural) - Russian (Russia) — ru-RU"
+469
+: 
+"Microsoft Дария Online (Natural) - Russian (Russia) — ru-RU"
+470
+: 
+"Microsoft තිළිණි Online (Natural) - Sinhala (Sri Lanka) — si-LK"
+471
+: 
+"Microsoft සමීර Online (Natural) - Sinhala (Sri Lanka) — si-LK"
+472
+: 
+"Microsoft Viktória Online (Natural) - Slovak (Slovakia) — sk-SK"
+473
+: 
+"Microsoft Lukáš Online (Natural) - Slovak (Slovakia) — sk-SK"
+474
+: 
+"Microsoft Petra Online (Natural) - Slovenian (Slovenia) — sl-SI"
+475
+: 
+"Microsoft Rok Online (Natural) - Slovenian (Slovenia) — sl-SI"
+476
+: 
+"Microsoft Ubax Online (Natural) - Somali (Somalia) — so-SO"
+477
+: 
+"Microsoft Muuse Online (Natural) - Somali (Somalia) — so-SO"
+478
+: 
+"Microsoft Anila Online (Natural) - Albanian (Albania) — sq-AL"
+479
+: 
+"Microsoft Ilir Online (Natural) - Albanian (Albania) — sq-AL"
+480
+: 
+"Microsoft Nicholas Online (Natural) - Serbian (Latin, Serbia) — sr-Latn-RS"
+481
+: 
+"Microsoft Sophie Online (Natural) - Serbian (Latin, Serbia) — sr-Latn-RS"
+482
+: 
+"Microsoft Софија Online (Natural) - Serbian (Cyrillic, Serbia) — sr-RS"
+483
+: 
+"Microsoft Никола Online (Natural) - Serbian (Cyrillic, Serbia) — sr-RS"
+484
+: 
+"Microsoft Tuti Online (Natural) - Sundanese (Indonesia) — su-ID"
+485
+: 
+"Microsoft Jajang Online (Natural) - Sundanese (Indonesia) — su-ID"
+486
+: 
+"Microsoft Sofie Online (Natural) - Swedish (Sweden) — sv-SE"
+487
+: 
+"Microsoft Mattias Online (Natural) - Swedish (Sweden) — sv-SE"
+488
+: 
+"Microsoft Hillevi Online (Natural) - Swedish (Sweden) — sv-SE"
+489
+: 
+"Microsoft Zuri Online (Natural) - Swahili (Kenya) — sw-KE"
+490
+: 
+"Microsoft Rafiki Online (Natural) - Swahili (Kenya) — sw-KE"
+491
+: 
+"Microsoft Rehema Online (Natural) - Swahili (Tanzania) — sw-TZ"
+492
+: 
+"Microsoft Daudi Online (Natural) - Swahili (Tanzania) — sw-TZ"
+493
+: 
+"Microsoft பல்லவி Online (Natural) - Tamil (India) — ta-IN"
+494
+: 
+"Microsoft வள்ளுவர் Online (Natural) - Tamil (India) — ta-IN"
+495
+: 
+"Microsoft சரண்யா Online (Natural) - Tamil (Sri Lanka) — ta-LK"
+496
+: 
+"Microsoft குமார் Online (Natural) - Tamil (Sri Lanka) — ta-LK"
+497
+: 
+"Microsoft கனி Online (Natural) - Tamil (Malaysia) — ta-MY"
+498
+: 
+"Microsoft சூர்யா Online (Natural) - Tamil (Malaysia) — ta-MY"
+499
+: 
+"Microsoft வெண்பா Online (Natural) - Tamil (Singapore) — ta-SG"
+[500 … 580]
+500
+: 
+"Microsoft அன்பு Online (Natural) - Tamil (Singapore) — ta-SG"
+501
+: 
+"Microsoft శ్రుతి Online (Natural) - Telugu (India) — te-IN"
+502
+: 
+"Microsoft మోహన్ Online (Natural) - Telugu (India) — te-IN"
+503
+: 
+"Microsoft เปรมวดี Online (Natural) - Thai (Thailand) — th-TH"
+504
+: 
+"Microsoft นิวัฒน์ Online (Natural) - Thai (Thailand) — th-TH"
+505
+: 
+"Microsoft อัจฉรา Online (Natural) - Thai (Thailand) — th-TH"
+506
+: 
+"Microsoft Emel Online (Natural) - Turkish (Türkiye) — tr-TR"
+507
+: 
+"Microsoft Ahmet Online (Natural) - Turkish (Türkiye) — tr-TR"
+508
+: 
+"Microsoft Поліна Online (Natural) - Ukrainian (Ukraine) — uk-UA"
+509
+: 
+"Microsoft Остап Online (Natural) - Ukrainian (Ukraine) — uk-UA"
+510
+: 
+"Microsoft گل Online (Natural) - Urdu (India) — ur-IN"
+511
+: 
+"Microsoft سلمان Online (Natural) - Urdu (India) — ur-IN"
+512
+: 
+"Microsoft عظمیٰ Online (Natural) - Urdu (Pakistan) — ur-PK"
+513
+: 
+"Microsoft اسد Online (Natural) - Urdu (Pakistan) — ur-PK"
+514
+: 
+"Microsoft Madina Online (Natural) - Uzbek (Latin, Uzbekistan) — uz-UZ"
+515
+: 
+"Microsoft Sardor Online (Natural) - Uzbek (Latin, Uzbekistan) — uz-UZ"
+516
+: 
+"Microsoft Hoài My Online (Natural) - Vietnamese (Vietnam) — vi-VN"
+517
+: 
+"Microsoft Nam Minh Online (Natural) - Vietnamese (Vietnam) — vi-VN"
+518
+: 
+"Microsoft 晓彤 Online (Natural) - Chinese (Wu, Simplified) — wuu-CN"
+519
+: 
+"Microsoft 云哲 Online (Natural) - Chinese (Wu, Simplified) — wuu-CN"
+520
+: 
+"Microsoft 晓敏 Online (Natural) - Chinese (Cantonese, Simplified) — yue-CN"
+521
+: 
+"Microsoft 云松 Online (Natural) - Chinese (Cantonese, Simplified) — yue-CN"
+522
+: 
+"Microsoft Xiaoxiao Dragon HD Flash Latest Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+523
+: 
+"Microsoft Xiaoxiao2 Dragon HD Flash Latest Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+524
+: 
+"Microsoft Yunxiao Dragon HD Flash Latest Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+525
+: 
+"Microsoft Yunyi Dragon HD Flash Latest Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+526
+: 
+"Microsoft 晓晓 Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+527
+: 
+"Microsoft 云希 Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+528
+: 
+"Microsoft 云健 Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+529
+: 
+"Microsoft 晓伊 Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+530
+: 
+"Microsoft 云扬 Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+531
+: 
+"Microsoft 晓辰 Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+532
+: 
+"Microsoft Xiaochen Dragon HD Flash Latest Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+533
+: 
+"Microsoft 晓辰 多语言 Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+534
+: 
+"Microsoft Xiaohan Dragon HD Flash Latest Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+535
+: 
+"Microsoft 晓涵 Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+536
+: 
+"Microsoft Xiaoke Dragon HD Flash Latest Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+537
+: 
+"Microsoft 晓梦 Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+538
+: 
+"Microsoft 晓墨 Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+539
+: 
+"Microsoft 晓秋 Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+540
+: 
+"Microsoft 晓柔 Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+541
+: 
+"Microsoft 晓睿 Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+542
+: 
+"Microsoft Xiaoshuang Dragon HD Flash Latest Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+543
+: 
+"Microsoft 晓双 多语言 Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+544
+: 
+"Microsoft 晓双 Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+545
+: 
+"Microsoft 晓晓 方言 Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+546
+: 
+"Microsoft 晓晓 多语言 Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+547
+: 
+"Microsoft 晓颜 Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+548
+: 
+"Microsoft Xiaoyi Dragon HD Flash Latest Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+549
+: 
+"Microsoft Xiaoyou Dragon HD Flash Latest Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+550
+: 
+"Microsoft 晓悠 多语言 Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+551
+: 
+"Microsoft 晓悠 Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+552
+: 
+"Microsoft Xiaoyu Dragon HD Flash Latest Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+553
+: 
+"Microsoft 晓宇 多语言 Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+554
+: 
+"Microsoft 晓甄 Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+555
+: 
+"Microsoft Yunfan Multilingual Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+556
+: 
+"Microsoft 云枫 Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+557
+: 
+"Microsoft Yunhan Dragon HD Flash Latest Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+558
+: 
+"Microsoft 云皓 Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+559
+: 
+"Microsoft 云杰 Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+560
+: 
+"Microsoft Yunxi Dragon HD Flash Latest Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+561
+: 
+"Microsoft Yunxia Dragon HD Flash Latest Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+562
+: 
+"Microsoft 云夏 Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+563
+: 
+"Microsoft Yunxiao Multilingual Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+564
+: 
+"Microsoft Yunye Dragon HD Flash Latest Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+565
+: 
+"Microsoft 云野 Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+566
+: 
+"Microsoft 云逸 多语言 Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+567
+: 
+"Microsoft 云泽 Online (Natural) - Chinese (Mandarin, Simplified) — zh-CN"
+568
+: 
+"Microsoft 云登 Online (Natural) - Chinese (Zhongyuan Mandarin Henan, Simplified) — zh-CN-henan"
+569
+: 
+"Microsoft 晓北 Online (Natural) - Chinese (Northeastern Mandarin, Simplified) — zh-CN-liaoning"
+570
+: 
+"Microsoft 晓妮 Online (Natural) - Chinese (Zhongyuan Mandarin Shaanxi, Simplified) — zh-CN-shaanxi"
+571
+: 
+"Microsoft 云翔 Online (Natural) - Chinese (Jilu Mandarin, Simplified) — zh-CN-shandong"
+572
+: 
+"Microsoft 云希 四川 Online (Natural) - Chinese (Southwestern Mandarin, Simplified) — zh-CN-sichuan"
+573
+: 
+"Microsoft 曉曼 Online (Natural) - Chinese (Cantonese, Traditional) — zh-HK"
+574
+: 
+"Microsoft 雲龍 Online (Natural) - Chinese (Cantonese, Traditional) — zh-HK"
+575
+: 
+"Microsoft 曉佳 Online (Natural) - Chinese (Cantonese, Traditional) — zh-HK"
+576
+: 
+"Microsoft 曉臻 Online (Natural) - Chinese (Taiwanese Mandarin, Traditional) — zh-TW"
+577
+: 
+"Microsoft 雲哲 Online (Natural) - Chinese (Taiwanese Mandarin, Traditional) — zh-TW"
+578
+: 
+"Microsoft 曉雨 Online (Natural) - Chinese (Taiwanese Mandarin, Traditional) — zh-TW"
+579
+: 
+"Microsoft Thando Online (Natural) - Zulu (South Africa) — zu-ZA"
+580
+: 
+"Microsoft Themba Online (Natural) - Zulu (South Africa) — zu-ZA"

@@ -187,6 +187,24 @@ def test_host_rail_stat_stacks_icon_over_number():
     assert "icon + '<br>'" in body, "rail setStat must stack the icon over the number"
 
 
+def test_host_reads_announcer_beats_with_tts():
+    """§13: the host loads the TTS module, shows a voice toggle, and speaks each
+    revealed announcer beat (with its speaker so pbp/color get different voices).
+    TTS is host-only — the phones never speak."""
+    with TestClient(app) as client:
+        host = client.get("/host").text
+        tts = client.get("/static/host/tts.js").text
+        play = client.get("/play").text
+    assert "/static/host/tts.js" in host, "host must load the TTS module"
+    assert 'id="ttsBtn"' in host, "host needs a TTS on/off toggle"
+    assert "DoodleTTS" in host and "DoodleTTS" in tts
+    assert "tts.speak(b.text, speaker)" in host, "each revealed beat is read aloud"
+    # the module drives the browser Web Speech API with a per-announcer voice
+    assert "speechSynthesis" in tts and "SpeechSynthesisUtterance" in tts
+    # phones stay silent — TTS is the shared-screen's job
+    assert "DoodleTTS" not in play and "speechSynthesis" not in play
+
+
 def test_static_assets_available():
     with TestClient(app) as client:
         for path in [
@@ -194,6 +212,7 @@ def test_static_assets_available():
             "/static/shared/common.css",
             "/static/player/canvas.js",
             "/static/host/arena.js",
+            "/static/host/tts.js",
         ]:
             r = client.get(path)
             assert r.status_code == 200, path

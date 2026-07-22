@@ -86,6 +86,17 @@ ui:
     enabled: true
     triggers: [devastating, ko]        # which attack results earn a replay
     slowmo_factor: 2.0                 # replay plays this many times slower
+  tts:                                 # host-screen announcer Text-to-Speech (tts.js)
+    enabled: true                      # read announcer beats aloud on the TV browser
+    rate: 1.2                          # global default speech rate (0.1..10)
+    pitch: 1.0                         # global default pitch (0..2)
+    volume: 1.0                        # 0..1
+    voices:                            # ONE voice per announcer — the client matches
+                                       # an installed browser voice by name (substring),
+                                       # else by lang, else any distinct voice. Open the
+                                       # TV browser console for the list of voice names.
+      pbp:   {name: "Microsoft Andrew Multilingual Online (Natural) - English (United States)", lang: "en-US", pitch: 1.15, rate: 1.06}   # hyped: higher + faster
+      color: {name: "Microsoft Ava Multilingual Online (Natural) - English (United States)", lang: "en-GB", pitch: 0.8,  rate: 0.95}   # deadpan: lower + slower
   audio:                               # host-page Web Audio manager (audio.js)
     enabled: true
     volume: 0.8                        # master volume 0..1 (host UI can override)

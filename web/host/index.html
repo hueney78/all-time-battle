@@ -427,8 +427,9 @@
         <span class="replaybanner" id="replayBanner">🔁 REPLAY!</span>
         <span id="status"></span>
         <span class="audioctl">
-          <button id="muteBtn" title="Mute">🔊</button>
-          <input type="range" id="vol" min="0" max="100" step="5" title="Volume">
+          <button id="ttsBtn" title="Announcer voices (read the commentary aloud)">🗣️</button>
+          <button id="muteBtn" title="Mute sound effects">🔊</button>
+          <input type="range" id="vol" min="0" max="100" step="5" title="Sound-effects volume">
         </span>
       </div>
       <section class="arena" id="arena">
@@ -486,6 +487,7 @@
 
   <script src="/static/shared/ws.js"></script>
   <script src="/static/host/audio.js"></script>
+  <script src="/static/host/tts.js"></script>
   <script src="/static/host/arena.js"></script>
   <script>
   (function () {
@@ -525,7 +527,7 @@
     document.documentElement.style.setProperty('--sand', CFG.canvas_background_color || '#E8D5A8');
     document.documentElement.style.setProperty('--zoom', CFG.reveal_action_zoom_scale || 1.8);
 
-    let sock, arena, audio, seq = null;
+    let sock, arena, audio, tts, seq = null;
     let ceremony = null;               // awards-ceremony pacing (Next ▶ on #over)
     let fillerTimer = null;            // deliberation filler line rotation
     let montageActive = false;         // suppress arena_state during the showcase
@@ -735,6 +737,8 @@
         + SPEAKER_LABEL[speaker] + '</span><span class="txt"></span>';
       logAppend(row);
       typewrite(row.querySelector('.txt'), b.text);
+      // Read the beat aloud on the TV, each announcer in their own voice (§13).
+      if (tts) tts.speak(b.text, speaker);
     }
     function addDivider(text) {
       finishCurrentBeat();
@@ -1068,6 +1072,9 @@
         card.classList.remove('show'); void card.offsetWidth;   // restart pop-in
         card.classList.add('show');
         audio.play('sparkle');
+        // The duo reads each award aloud, alternating announcers for variety (§10.2).
+        if (tts) tts.speak((c.name ? c.name + '! ' : '') + (a.title || '') + '. ' + (a.blurb || ''),
+                           i % 2 ? 'color' : 'pbp');
         step(playNext);
       }
       function finale() {
@@ -1154,6 +1161,7 @@
         applyTeams(m.payload.teams);
       } else if (m.type === 'phase_change') {
         guardNav = true;   // the match is underway — guard against an accidental refresh
+        if (tts) tts.cancel();   // stop any lingering commentary as the phase turns over
         if (m.payload.phase === 'draw_characters') {
           view('stage'); $('roundHead').textContent = 'Doodle Brawl';
           $('status').textContent = 'drawing fighters…';
@@ -1238,6 +1246,15 @@
     $('muteBtn').textContent = audio.muted ? '🔇' : '🔊';
     $('muteBtn').onclick = () => { $('muteBtn').textContent = audio.toggleMute() ? '🔇' : '🔊'; };
     $('vol').oninput = (e) => audio.setVolume(e.target.value / 100);
+    // Announcer Text-to-Speech (§13). Falls back to a silent stub where the
+    // browser has no Web Speech API (or in the JS test sandbox); the toggle is
+    // hidden when unavailable so the host never sees a dead button.
+    tts = window.DoodleTTS ? DoodleTTS(CFG.tts || {})
+        : { speak(){}, cancel(){}, toggle(){ return false; }, setEnabled(){ return false; },
+            enabled: false, available: false };
+    $('ttsBtn').textContent = tts.enabled ? '🗣️' : '🤐';
+    if (!tts.available) $('ttsBtn').style.display = 'none';
+    $('ttsBtn').onclick = () => { $('ttsBtn').textContent = tts.toggle() ? '🗣️' : '🤐'; };
     $('startBtn').onclick = () => sock.send('start_game');
     $('nextBtn').onclick = () => { if (seq) seq.advance(); };
     $('overNextBtn').onclick = () => { if (ceremony) ceremony.advance(); };

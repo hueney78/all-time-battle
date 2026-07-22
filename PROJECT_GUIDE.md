@@ -108,7 +108,7 @@ For pure balance tuning, add: *"This is a tuning-only change — edit `config/ba
 
 Everything a designer tunes lives in `config/`, editable without touching code (a new room picks up changes):
 
-- `settings.yaml` — timers, ports, model IDs, splash/reveal durations, sfx maps, arena background, phase-splash text, lobby rules copy.
+- `settings.yaml` — timers, ports, model IDs, splash/reveal durations, sfx maps, announcer TTS voices (`ui.tts`), arena background, phase-splash text, lobby rules copy.
 - `balance.yaml` — HP formula, move effect formulas, creativity bonus values, PROTECT reflect %/cap, trap damage, sudden-death, underdog and combo bonuses.
 - `moves.yaml` — the five-move catalog and its math (registry-driven).
 - `zones.yaml` — the arena graph and per-zone modifiers (the "High Ground" extensibility test).

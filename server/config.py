@@ -113,6 +113,40 @@ class AudioConfig(BaseModel):
     }
 
 
+class TTSVoiceConfig(BaseModel):
+    """One announcer's browser voice (GAME_DESIGN §13 TTS). The host client
+    matches an available Web Speech voice by `name` (case-insensitive substring)
+    then by `lang` (BCP-47 prefix), falling back to any distinct voice; `pitch`/
+    `rate` (null = inherit the global tts default) keep the two announcers
+    sounding different even when only one voice is installed."""
+
+    model_config = {"extra": "allow"}
+    name: str = ""            # browser voice name substring (e.g. "Google UK")
+    lang: str = ""            # BCP-47 language or prefix (e.g. "en-GB")
+    pitch: float | None = None  # 0–2; null = use the global tts.pitch
+    rate: float | None = None   # 0.1–10; null = use the global tts.rate
+
+
+class TTSConfig(BaseModel):
+    """Host-screen Text-to-Speech for the announcer duo (GAME_DESIGN §13). The
+    TV browser reads each revealed announcer beat aloud with a DIFFERENT voice
+    per announcer (pbp vs color). Shipped to the client in ui → DOODLE_CONFIG;
+    the host toggles it live. Degrades silently where the browser has no Web
+    Speech API."""
+
+    enabled: bool = True
+    rate: float = 1.0         # global default speech rate (0.1–10)
+    pitch: float = 1.0        # global default pitch (0–2)
+    volume: float = 1.0       # 0–1
+    # Per-announcer voices. Defaults give pbp a higher/faster (hyped) voice and
+    # color a lower/slower (deadpan) one, biased to en-US vs en-GB so machines
+    # with both English variants pick two distinct voices out of the box.
+    voices: dict[str, TTSVoiceConfig] = {
+        "pbp": TTSVoiceConfig(lang="en-US", pitch=1.15, rate=1.06),
+        "color": TTSVoiceConfig(lang="en-GB", pitch=0.8, rate=0.95),
+    }
+
+
 class ReadoutConfig(BaseModel):
     """The host's plain-language damage readout (GAME_DESIGN §13):
 
@@ -208,6 +242,7 @@ class UIConfig(BaseModel):
     readout: ReadoutConfig = ReadoutConfig()
     instant_replay: InstantReplayConfig = InstantReplayConfig()
     audio: AudioConfig = AudioConfig()
+    tts: TTSConfig = TTSConfig()
 
 
 class Settings(BaseModel):
